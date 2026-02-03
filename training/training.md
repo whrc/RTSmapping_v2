@@ -36,31 +36,7 @@ Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS)
 ---
 
 ## 3. Loss Functions
-
-### 3.1 Primary: Focal Loss
-
-```python
-FL(p_t) = -α_t * (1 - p_t)^γ * log(p_t)
-```
-
-| Parameter | Baseline | Tuning Range |
-|-----------|----------|--------------|
-| γ (gamma) | 2 | [1, 2, 3, 5] |
-| α (alpha / weight_pos) | 0.25 | [0.1, 0.25, 0.5, 0.75] |
-
-### 3.2 Alternative: Tversky Loss
-
-```python
-TL = 1 - (TP + ε) / (TP + α*FN + β*FP + ε)
-```
-
-| Parameter | Tuning Range | Notes |
-|-----------|--------------|-------|
-| α | [0.3, 0.5, 0.7] | Weight on FN |
-| β | [0.3, 0.5, 0.7] | Weight on FP |
-
-**For precision-focused training**: Use β > α to penalize false positives more heavily.
-
+HybridLoss: Focal Loss + Dice Loss. Dice Loss optimizes the Intersection-over-Union directly and helps preserve the connectivity of the slump floor, which is crucial for object-level metrics later.
 
 ### 3.3 Alternative: Class-Balanced Cross-Entropy
 
@@ -269,7 +245,7 @@ n_seeds_for_final: 3  # run final model with seeds [42, 43, 44]
 
 ### 7.3 Mixed Precision Training
 
-~2× speedup on H100 with minimal accuracy loss:
+~2× speedup on H100 with minimal accuracy loss
 
 ### 7.4 Backbone Freeze/Unfreeze Strategy
 
@@ -545,7 +521,7 @@ augmentation_pipeline = A.Compose([
 
 3. Hyperparameter Selection
    - Based on Val-Realistic metrics
-   - Grid search or Bayesian optimization
+   - Bayesian optimization
 
 4. Train Final Model (Multiple Seeds)
    - Best hyperparameters
@@ -1207,3 +1183,5 @@ rts-segmentation-v2/
 │   └── analysis/
 └── mlruns/  # MLflow tracking
 ```
+
+## 17. Dockerisation

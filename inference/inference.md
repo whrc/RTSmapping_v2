@@ -47,7 +47,7 @@ RTS "A" spans tiles 1, 2, and 3:
 ```
 
 ## 4. Inference Workflow
-
+Multi-resolution inference
 ### 4.1 Pipeline Overview
 
 ### 4.2 Collaboration with PDG Team
@@ -56,3 +56,5 @@ PDG workflow optimization team (Luigi/Todd) handles:
 - Leverages existing DARTS inference pipeline
 - Provide VM through GCP, H100 GPUs x8
 - Budget $70k covers training and inference
+
+## 5. Dockerisation

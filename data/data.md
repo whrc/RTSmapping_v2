@@ -4,8 +4,6 @@
 
 **Objective**: Semantic segmentation of Retrogressive Thaw Slumps (RTS) in Arctic satellite imagery for pan-arctic mapping (60-74°N).
 
-**Core Detection Principle**: An RTS is only labeled/detected when **both** the shadowed headwall **and** barren slump floor are visible in the same image. This strict diagnostic signal minimizes false alarms.
-
 ---
 
 ## 1. Data Sources
@@ -74,11 +72,11 @@ This is critical for training data quality:
 |----------|--------|
 | Complete RTS fully within tile | Label as RTS ||
  Partial RTS with **both** headwall and floor visible | Label as RTS |
-| Partial RTS with **only** floor visible (no headwall in tile) | No Label |
-| Partial RTS with **only** headwall visible (no floor in tile) | No Label |
+| Partial RTS with **only** floor visible (no headwall in tile) | Ignore Index：255 |
+| Partial RTS with **only** headwall visible (no floor in tile) | Ignore Index：255 |
 
 
-**Rationale**: The model learns that "only barren floor associated with a headwall with shadow is RTS." Overlapping inference tiles ensure partial targets are detected where both features are visible.
+**Rationale**: The model learns that "only barren floor associated with a headwall with shadow is RTS." Overlapping inference tiles ensure partial targets are detected where both features are visible. Use an Ignore Index （255） for pixels that are part of an RTS but lack the diagnostic headwall in that specific tile. This prevents the model from learning conflicting information while maintaining your strict detection criteria.
 
 ### 2.4 Label Values
 
@@ -86,7 +84,7 @@ This is critical for training data quality:
 |-------|---------|
 | 0 | Background (no RTS) |
 | 1 | RTS (positive class) |
-
+| 255 | Ignore |
 ---
 
 ## 3. Training Image Specification
@@ -126,9 +124,9 @@ data/
 ```
 metadata.csv:
 
-| Tile_id | TrainClass | RegionName | UIDs |
-|---------|----------|--------|------|
-0001| HardNegative | yakutia| xxx, xxx|
+| Tile_id |centroid_lat|centroid_lon| TrainClass | RegionName | UIDs |
+|---------|------------|---------|-----------|--------|------|
+0001| xx|xx |HardNegative | yakutia| xxx, xxx|
 
 Note:UIDs are RTS UIDs that contained within the tile (used for tracking individual RTS)
 RegionName is Arctic Subregion divided based on ecology/permafrost extent (Heidi's working on it)
@@ -149,13 +147,13 @@ test:
 **PLANET-RGB: derived from PlanetScope Basemap**
 ```
 Image: (512, 512, 3) — RGB
-Label: (512, 512, 1) — uint8, values {0, 1}
+Label: (512, 512, 1) — uint8, values {0, 1， 255}
 ```
 
 **EXTRA: derived from other sources, resolution resampled to match the RGB**
 ```
 Image: (512, 512, 4) — NDVI + NIR + RE + SR
-Label: (512, 512, 1) — uint8, values {0, 1}
+Label: (512, 512, 1) — uint8, values {0, 1，255}
 ```
 NDVI,NIR are derived from Sentinel2
 RE is relative elevation, SR is Shaded relief, both derived from ArcticDEM
@@ -175,6 +173,8 @@ All auxiliary data must be:
 ## 4. Data Values
 
 **Both PLANET-RGB and EXTRA should store raw values**
+
+Both PLANET-RGB and EXTRA store **raw values** (no normalization applied to stored files).
 
 **Normalisation** Should be calculated per-dataset, rather than per-image, to:
 - Preserves absolute radiometric information
@@ -257,3 +257,4 @@ Run before training:
 |-------|---------|
 | 0 | Background |
 | 1 | RTS |
+|255 | ignore |
