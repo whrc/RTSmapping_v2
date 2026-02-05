@@ -210,7 +210,15 @@ Normalisation for EXTRA should be done channel-specific to respect the physical 
 |f3 (test-realistic) | 1:200, 1:1000 |
 
 ## 6 Spatial Blocking
+### 6.1 Purpose
+Prevent geographic data leakage between train/val/test splits. RTS in nearby tiles may share visual characteristics due to:
+- Similar geology and permafrost conditions
+- Similar vegetation patterns
+- Correlated image acquisition conditions
 
+### 6.2 Blocking Strategy
+
+Group tiles by Arctic subregion based on ecology/permafrost extent. Entire regions are assigned to train, val, or test—no region spans multiple splits.
 TBD, need Heidi's help
 
 ## 7. Negative Data Strategy
@@ -229,9 +237,14 @@ Negative samples can be inflated on-the-fly through augmentation to achieve desi
 ## 8. Data Check
 Run before training:
 
-- Positive labels contain RTS pixels 
-- Negative labels contain no RTS pixels 
-- Range of value is correct
+- [ ] All positive tiles contain RTS pixels (label sum > 0)
+- [ ] All negative tiles contain no RTS pixels (label sum = 0)
+- [ ] RGB values are in valid range (0-255 for uint8)
+- [ ] All tiles have matching image and label dimensions
+- [ ] No NaN or infinite values in EXTRA channels
+- [ ] GeoTIFF metadata (CRS, bounds) is consistent across tiles
+- [ ] metadata.csv has entries for all tiles
+- [ ] Spatial blocking is respected (no region spans train/val/test)
 
 ---
 
