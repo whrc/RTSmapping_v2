@@ -13,6 +13,12 @@ library(sf)
 library(tidyverse)
 ```
 
+# Define Functions
+
+```{r}
+
+```
+
 # Import Data
 
 ```{r}
@@ -22,9 +28,13 @@ arctic_dem = st_read(
   separate_wider_delim(
     tile,
     delim = "_",
-    names = c("superrow", "supercolumn", "row", "column")
+    names = c("superrow", "supercolumn", "row", "column"),
+    cols_remove = FALSE
   ) |>
   mutate(across(superrow:column, ~ as.numeric(.x))) |>
+  rowwise() |>
+  mutate(geometry_length = length(geometry[[1]])) |>
+  ungroup() |>
   st_as_sf()
 planet_grids = st_read("./domain/data/circumpolar_global_basemap_grids.geojson")
 ```
@@ -66,14 +76,75 @@ problem_tiles = arctic_dem |>
     (supercolumn == 40 & column == 2) | (supercolumn == 41 & column == 1)
   )
 example_ok_tiles_left = arctic_dem |>
-  filter(supercolumn == 39)
+  filter((supercolumn == 40 & column == 1))
 example_ok_tiles_right = arctic_dem |>
-  filter(supercolumn == 42)
+  filter((supercolumn == 41 & column == 2))
+problem_tiles_subset = problem_tiles |>
+  filter(superrow == 19)
 ```
 
 ```{r}
 ggplot() +
-  geom_sf(data = problem_tiles |> slice(1))
+  geom_sf(
+    data = problem_tiles_subset,
+    aes(color = tile),
+    fill = "transparent",
+    linewidth = 1
+  )
+```
+
+If column == 1, we want to keep geometry[[2]] and if column == 2, we want to keep geometry[[1]].
+Extract X values.
+If all negative, replace -180 with 100. If all positive, replace 180 with -100.
+
+```{r}
+example_fix_1 = problem_tiles_subset |> slice(2) |> st_geometry()
+example_fix_2 = problem_tiles_subset |> slice(3) |> st_geometry()
+
+replace_incorrect_values = function(x) {
+  case_when(
+    x == 180 ~ -100,
+    x == -180 ~ 100,
+    TRUE ~ x
+  )
+}
+
+fix_geometry_at_origin = function(geometry, side) {
+  # Extract correct component of multipolygon
+  new_geometry = geometry
+  # print(new_geometry[[1]])
+  if (side == 1) {
+    new_geometry[[1]][[1]] <- NULL # If column == 1 (left side of origin), keep second multipolygon component
+  } else if (side == 2) {
+    new_geometry[[1]][[2]] <- NULL # If column == 2 (right side of origin), keep first multipolygon component
+  }
+  # print(new_geometry[[1]])
+
+  # Replace incorrect values
+  new_values = new_geometry[[1]][[1]][[1]][, 1]
+  new_values = replace_incorrect_values(new_values)
+  new_geometry[[1]][[1]][[1]][, 1] = new_values
+
+  return(new_geometry)
+}
+
+fix_geometry_at_origin(example_fix_1, side = 2)[[1]]
+fix_geometry_at_origin(example_fix_2, side = 1)[[1]]
+
+problem_tiles_subset_fix = problem_tiles_subset |>
+  rowwise() |>
+  mutate(geometry = fix_geometry_at_origin(geometry, column)) |>
+  ungroup()
+```
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = problem_tiles_subset_fix,
+    aes(color = tile),
+    fill = "transparent",
+    linewidth = 1
+  )
 ```
 
 # Circumpolar
