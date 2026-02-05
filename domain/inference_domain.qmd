@@ -1,0 +1,83 @@
+---
+title: "Inference Domain"
+format: html
+author: "Heidi Rodenhizer"
+---
+
+This document derives the inference domain for RTSMapping_v2 based on the ArcticDEM v4 Mosaic and availability of different imagery sources (PlanetScope Global Quarterly Visual Basemaps and Sentinel-2).
+
+# Load Libraries
+
+```{r}
+library(sf)
+library(tidyverse)
+```
+
+# Import Data
+
+```{r}
+arctic_dem = st_read(
+  "./domain/data/ArcticDEM_Mosaic_Index_latest_shp/ArcticDEM_Mosaic_Index_v4_1_2m.shp"
+) |>
+  separate_wider_delim(
+    tile,
+    delim = "_",
+    names = c("superrow", "supercolumn", "row", "column")
+  ) |>
+  mutate(across(superrow:column, ~ as.numeric(.x))) |>
+  st_as_sf()
+planet_grids = st_read("./domain/data/circumpolar_global_basemap_grids.geojson")
+```
+
+# Dissolve Internal Boundaries
+
+```{r}
+arctic_domain = arctic_dem |>
+  summarise(geometry = st_union(geometry))
+```
+
+
+ArticDEM cells along horizontal origin are missing a small sliver between -180 and 100... why? How can I fix?
+```{r}
+ggplot() +
+  geom_sf(
+    data = arctic_dem |>
+      filter(
+        (supercolumn == 40 & column == 2) | (supercolumn == 41 & column == 1)
+      ),
+    aes(color = column),
+    fill = "transparent"
+  ) +
+  geom_sf(
+    data = arctic_domain,
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  coord_sf(
+    xlim = c(-100000, 100000),
+    ylim = c(1200000, 3500000)
+  )
+```
+
+
+```{r}
+problem_tiles = arctic_dem |>
+  filter(
+    (supercolumn == 40 & column == 2) | (supercolumn == 41 & column == 1)
+  )
+example_ok_tiles_left = arctic_dem |>
+  filter(supercolumn == 39)
+example_ok_tiles_right = arctic_dem |>
+  filter(supercolumn == 42)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = problem_tiles |> slice(1))
+```
+
+# Circumpolar
+
+# Circumpolar South
+
+# Circumpolar North
