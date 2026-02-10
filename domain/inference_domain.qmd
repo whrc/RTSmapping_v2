@@ -1,5 +1,5 @@
 ---
-title: "Inference Domain"
+title: "Inference Domain and Subregions"
 format: html
 author: "Heidi Rodenhizer"
 ---
@@ -10,17 +10,80 @@ This document derives the inference domain for RTSMapping_v2 based on the Arctic
 
 ```{r}
 library(sf)
+library(terra)
+library(tidyterra)
 library(tidyverse)
+library(ggnewscale)
+library(viridis)
 ```
 
 # Define Functions
+A bunch of the tiles near the horizontal origin of the CRS are missing a chunk between -180 m and 180 m. The following two functions are used to manually fix this problem.
+All of the tiles are built to be 50 x 50 km with an extra 100 m buffer on either side, except the problem ones.
+These functions identify problematic tiles as tiles with two multipolygon components (`length(geometry[[1]]) == 2`). For tiles that are on the left side of the origin (`column == 2`), the first polygon component is the bulk of the tile with a few incorrect values. For tiles on the right side of the origin, it is the opposite. These functions remove the incorrect component of each multipolygon and replaces the incorrect values in the correct component.
+
+## replace_incorrect_values
+```{r}
+replace_incorrect_values = function(x) {
+  case_when(
+    x == 180 ~ -100,
+    x == -180 ~ 100,
+    TRUE ~ x
+  )
+}
+```
+
+## fix_geometry_at_origin
+```{r}
+fix_geometry_at_origin = function(geometry, side) {
+  # Extract correct component of multipolygon, if it has two components
+  if (length(geometry[[1]]) == 2) {
+    # print(geometry[[1]])
+    if (side == 1) {
+      geometry[[1]][[1]] <- NULL # If column == 1 (left side of origin), keep second multipolygon component
+    } else if (side == 2) {
+      geometry[[1]][[2]] <- NULL # If column == 2 (right side of origin), keep first multipolygon component
+    }
+    # print(geometry[[1]])
+
+    # Replace incorrect values
+    new_values = geometry[[1]][[1]][[1]][, 1]
+    new_values = replace_incorrect_values(new_values)
+    geometry[[1]][[1]][[1]][, 1] = new_values
+  }
+
+  return(geometry)
+}
+```
+
+## round_coordinates
+```{r}
+round_coordinates = function(sfc, n) {
+  coords = st_coordinates(sfc) |>
+    round(n)
+  coords = coords[, 1:2]
+  coords = coords |>
+    list() |>
+    st_polygon() |>
+    st_sfc(crs = st_crs(sfc))
+  # st_set_geometry(sfc, coords)
+  return(coords)
+}
+```
+
+## any_ones
 
 ```{r}
-
+any_ones = function(values) {
+  case_when(
+    any(values == 1, na.rm = TRUE) ~ 1,
+    TRUE ~ NA
+  )
+}
 ```
 
 # Import Data
-
+## Domain
 ```{r}
 arctic_dem = st_read(
   "./domain/data/ArcticDEM_Mosaic_Index_latest_shp/ArcticDEM_Mosaic_Index_v4_1_2m.shp"
@@ -33,122 +96,295 @@ arctic_dem = st_read(
   ) |>
   mutate(across(superrow:column, ~ as.numeric(.x))) |>
   rowwise() |>
-  mutate(geometry_length = length(geometry[[1]])) |>
+  mutate(geometry = fix_geometry_at_origin(geometry, column)) |>
   ungroup() |>
   st_as_sf()
-planet_grids = st_read("./domain/data/circumpolar_global_basemap_grids.geojson")
+# planet_grids = st_read(
+#   "./domain/data/arctic_boreal_planet_basemap_grids.geojson"
+# ) |>
+#   st_make_valid() |>
+#   rowwise() |>
+#   mutate(geometry = round_coordinates(geometry, 5)) |>
+#   ungroup()
+planet_domain = st_read("./domain/data/circumpolar_planet_domain.geojson") |>
+  st_transform(crs = st_crs(arctic_dem))
+arctic_boreal = st_read(
+  "./domain/data/tundra_and_boreal/tundra_and_boreal.shp"
+) |>
+  st_transform(crs = st_crs(arctic_dem)) |>
+  st_union() |>
+  st_as_sf()
+# permafrost = st_read(
+#   "./domain/data/BrownCircumArcticPermafrost/permaice.shp"
+# ) |>
+#   st_transform(crs = st_crs(arctic_dem))
+template = rast(
+  xmin = -5000000,
+  xmax = 5000000,
+  ymin = -5000000,
+  ymax = 5000000,
+  crs = "EPSG:3413",
+  resolution = 1000
+)
+perm_prob = rast("./domain/data/NIEER_Probability.tif") |>
+  project(template)
 ```
 
-# Dissolve Internal Boundaries
+## Subregions
 
 ```{r}
-arctic_domain = arctic_dem |>
+ecoregions = st_read("./domain/data/Ecoregions2017/Ecoregions2017.shp") |>
+  st_transform(crs = st_crs(arctic_dem)) |>
+  mutate(
+    across(
+      c(-geometry),
+      ~ case_when(
+        .x == "N/A" ~ NA,
+        TRUE ~ .x
+      )
+    )
+  )
+```
+
+# Domain
+## Dissolve Internal Boundaries
+### ArcticDEM
+```{r}
+arcdem_domain = arctic_dem |>
   summarise(geometry = st_union(geometry))
 ```
 
-
-ArticDEM cells along horizontal origin are missing a small sliver between -180 and 100... why? How can I fix?
 ```{r}
 ggplot() +
   geom_sf(
-    data = arctic_dem |>
-      filter(
-        (supercolumn == 40 & column == 2) | (supercolumn == 41 & column == 1)
-      ),
-    aes(color = column),
-    fill = "transparent"
+    data = arcdem_domain,
+    fill = "transparent",
+    linewidth = 0.5
+  )
+```
+
+### Planet Grids
+```{r}
+# planet_domain = planet_grids |>
+#   summarise(geometry = st_union(geometry)) # |>
+
+# st_write(
+#   planet_domain,
+#   './domain/data/circumpolar_planet_domain.geojson'
+# )
+```
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = arcdem_domain,
+    aes(color = "ArcticDEM"),
+    fill = "transparent",
+    linewidth = 0.5
   ) +
   geom_sf(
-    data = arctic_domain,
+    data = planet_domain,
+    aes(color = "Planet"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  scale_color_manual(values = c("darkgoldenrod1", "cyan4"))
+```
+
+## Prepare Permafrost Extent Map
+The permafrost probability map is highly spotty. I would like to include any areas that have some coverage of permafrost in a broader area.
+
+Next time, don't use focal. Instead use aggregate.
+```{r}
+perm_prob[perm_prob > 0] = 1
+perm_prob[is.na(perm_prob)] = 0
+perm_prob_focal = perm_prob |>
+  crop(arctic_boreal) |>
+  mask(arctic_boreal) |>
+  focal(
+    w = focalMat(perm_prob, 2000, "circle"),
+    fun = any_ones,
+    na.policy = "omit"
+  ) # Check if there is any probability of permafrost within 10 km
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(
+    data = perm_prob_focal,
+    aes(fill = NIEER_Probability)
+  ) +
+  scale_fill_viridis(na.value = "transparent") +
+  # new_scale_fill() +
+  # geom_spatraster(data = perm_prob) +
+  # scale_fill_continuous(na.value = "transparent") +
+  coord_sf(expand = FALSE)
+```
+
+## Circumpolar
+We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is limited by the extent of the ArcticDEM, because we need data from the ArcticDEM, and by the permafrost zone, because permafrost is a necessary precursor for RTS. However, our confidence in permafrost maps is low, so it may make sense to buffer use a more inclusive approach. 
+
+```{r}
+circumpolar = arctic_boreal |>
+  st_intersection(arcdem_domain)
+```
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = arcdem_domain,
+    aes(color = "ArcticDEM"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = arctic_boreal,
+    aes(color = "Arctic/Boreal"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = circumpolar,
+    aes(color = "Circumpolar"),
     fill = "transparent",
     linewidth = 1
   ) +
-  coord_sf(
-    xlim = c(-100000, 100000),
-    ylim = c(1200000, 3500000)
-  )
-```
-
-
-```{r}
-problem_tiles = arctic_dem |>
-  filter(
-    (supercolumn == 40 & column == 2) | (supercolumn == 41 & column == 1)
-  )
-example_ok_tiles_left = arctic_dem |>
-  filter((supercolumn == 40 & column == 1))
-example_ok_tiles_right = arctic_dem |>
-  filter((supercolumn == 41 & column == 2))
-problem_tiles_subset = problem_tiles |>
-  filter(superrow == 19)
+  scale_color_manual(values = c("cyan4", "darkgoldenrod1", "black")) +
+  theme(legend.title = element_blank())
 ```
 
 ```{r}
-ggplot() +
-  geom_sf(
-    data = problem_tiles_subset,
-    aes(color = tile),
-    fill = "transparent",
-    linewidth = 1
-  )
+# st_write(
+#   circumpolar,
+#   "./domain/data/circumpolar_domain.geojson"
+# )
 ```
 
-If column == 1, we want to keep geometry[[2]] and if column == 2, we want to keep geometry[[1]].
-Extract X values.
-If all negative, replace -180 with 100. If all positive, replace 180 with -100.
+## Circumpolar South
+This is the portion of the ArcticDEM for which we have Planet imagery.
 
 ```{r}
-example_fix_1 = problem_tiles_subset |> slice(2) |> st_geometry()
-example_fix_2 = problem_tiles_subset |> slice(3) |> st_geometry()
-
-replace_incorrect_values = function(x) {
-  case_when(
-    x == 180 ~ -100,
-    x == -180 ~ 100,
-    TRUE ~ x
-  )
-}
-
-fix_geometry_at_origin = function(geometry, side) {
-  # Extract correct component of multipolygon
-  new_geometry = geometry
-  # print(new_geometry[[1]])
-  if (side == 1) {
-    new_geometry[[1]][[1]] <- NULL # If column == 1 (left side of origin), keep second multipolygon component
-  } else if (side == 2) {
-    new_geometry[[1]][[2]] <- NULL # If column == 2 (right side of origin), keep first multipolygon component
-  }
-  # print(new_geometry[[1]])
-
-  # Replace incorrect values
-  new_values = new_geometry[[1]][[1]][[1]][, 1]
-  new_values = replace_incorrect_values(new_values)
-  new_geometry[[1]][[1]][[1]][, 1] = new_values
-
-  return(new_geometry)
-}
-
-fix_geometry_at_origin(example_fix_1, side = 2)[[1]]
-fix_geometry_at_origin(example_fix_2, side = 1)[[1]]
-
-problem_tiles_subset_fix = problem_tiles_subset |>
-  rowwise() |>
-  mutate(geometry = fix_geometry_at_origin(geometry, column)) |>
-  ungroup()
+circumpolar_south = circumpolar |>
+  st_intersection(planet_domain)
 ```
 
 ```{r}
 ggplot() +
   geom_sf(
-    data = problem_tiles_subset_fix,
-    aes(color = tile),
+    data = circumpolar,
+    aes(color = "Circumpolar"),
     fill = "transparent",
-    linewidth = 1
-  )
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = circumpolar_south,
+    aes(color = "Circumpolar South"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  scale_color_manual(values = c("black", "cyan4")) +
+  theme(legend.title = element_blank())
 ```
 
-# Circumpolar
+```{r}
+# st_write(
+#   circumpolar_south,
+#   "./domain/data/circumpolar_south_domain.geojson"
+# )
+```
 
-# Circumpolar South
+## Circumpolar North
+This is the portion of the Circumpolar region for which we do not have Planet data.
 
-# Circumpolar North
+```{r}
+circumpolar_north = circumpolar |>
+  st_difference(planet_domain)
+```
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = circumpolar,
+    aes(color = "Circumpolar"),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  geom_sf(
+    data = circumpolar_south,
+    aes(color = "Circumpolar South"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = circumpolar_north,
+    aes(color = "Circumpolar North"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  scale_color_manual(values = c("black", "cyan4", "darkgoldenrod1")) +
+  theme(legend.title = element_blank())
+```
+
+```{r}
+# st_write(
+#   circumpolar_north,
+#   "./domain/data/circumpolar_north_domain.geojson"
+# )
+```
+
+# Subregions
+## Clip to Domain
+```{r}
+subregions = ecoregions |>
+  filter(BIOME_NAME %in% c("Tundra", "Boreal Forests/Taiga")) |>
+  st_intersection(circumpolar) |>
+  st_as_sf()
+```
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = subregions,
+    aes(color = ECO_NAME, fill = ECO_NAME)
+  ) +
+  scale_color_viridis(
+    discrete = TRUE,
+    guide = "none"
+  ) +
+  scale_fill_viridis(
+    discrete = TRUE,
+    guide = "none"
+  ) +
+  new_scale_color() +
+  geom_sf(
+    data = circumpolar,
+    aes(color = "Circumpolar"),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_manual(values = c("black")) +
+  theme(legend.title = element_blank())
+```
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = subregions,
+    aes(color = BIOME_NAME, fill = BIOME_NAME)
+  ) +
+  scale_color_viridis(
+    discrete = TRUE
+  ) +
+  scale_fill_viridis(
+    discrete = TRUE
+  ) +
+  new_scale_color() +
+  geom_sf(
+    data = circumpolar,
+    aes(color = "Circumpolar"),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_manual(values = c("black")) +
+  theme(legend.title = element_blank())
+```
