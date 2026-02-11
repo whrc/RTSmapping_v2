@@ -6,7 +6,7 @@ author: "Heidi Rodenhizer"
 
 This document derives the inference domain for RTSMapping_v2 based on the ArcticDEM v4 Mosaic and availability of different imagery sources (PlanetScope Global Quarterly Visual Basemaps and Sentinel-2).
 
-# Load Libraries
+# Set Up
 
 ```{r}
 library(sf)
@@ -15,6 +15,10 @@ library(tidyterra)
 library(tidyverse)
 library(ggnewscale)
 library(viridis)
+```
+
+```{r}
+theme_set(theme_bw())
 ```
 
 # Define Functions
@@ -85,6 +89,7 @@ any_ones = function(values) {
 # Import Data
 ## Domain
 ```{r}
+# ArcticDEM
 arctic_dem = st_read(
   "./domain/data/ArcticDEM_Mosaic_Index_latest_shp/ArcticDEM_Mosaic_Index_v4_1_2m.shp"
 ) |>
@@ -99,6 +104,8 @@ arctic_dem = st_read(
   mutate(geometry = fix_geometry_at_origin(geometry, column)) |>
   ungroup() |>
   st_as_sf()
+
+# # Planet Grids
 # planet_grids = st_read(
 #   "./domain/data/arctic_boreal_planet_basemap_grids.geojson"
 # ) |>
@@ -106,6 +113,8 @@ arctic_dem = st_read(
 #   rowwise() |>
 #   mutate(geometry = round_coordinates(geometry, 5)) |>
 #   ungroup()
+
+# Planet Domain (derived from Planet Grids)
 planet_domain = st_read("./domain/data/circumpolar_planet_domain.geojson") |>
   st_transform(crs = st_crs(arctic_dem))
 arctic_boreal = st_read(
@@ -114,10 +123,8 @@ arctic_boreal = st_read(
   st_transform(crs = st_crs(arctic_dem)) |>
   st_union() |>
   st_as_sf()
-# permafrost = st_read(
-#   "./domain/data/BrownCircumArcticPermafrost/permaice.shp"
-# ) |>
-#   st_transform(crs = st_crs(arctic_dem))
+
+# Permafrost Zone
 template = rast(
   xmin = -5000000,
   xmax = 5000000,
@@ -131,6 +138,7 @@ perm_prob = rast("./domain/data/NIEER_Probability.tif") |>
 ```
 
 ## Subregions
+Ecoregions from Dinerstein et al. 2017 will be used as the starting point for our subregions.
 
 ```{r}
 ecoregions = st_read("./domain/data/Ecoregions2017/Ecoregions2017.shp") |>
@@ -144,6 +152,11 @@ ecoregions = st_read("./domain/data/Ecoregions2017/Ecoregions2017.shp") |>
       )
     )
   )
+
+training_polys = st_read(
+  "./domain/data/planet_perfect_polygons_union_result.geojson"
+) |>
+  st_transform(st_crs(arctic_dem))
 ```
 
 # Domain
@@ -192,41 +205,41 @@ ggplot() +
 ```
 
 ## Prepare Permafrost Extent Map
-The permafrost probability map is highly spotty. I would like to include any areas that have some coverage of permafrost in a broader area.
+The permafrost probability map is highly spotty. We are including any areas that have some coverage of permafrost within a 100 x 100 km pixel.
 
-Next time, don't use focal. Instead use aggregate.
 ```{r}
 perm_prob[perm_prob > 0] = 1
 perm_prob[is.na(perm_prob)] = 0
-perm_prob_focal = perm_prob |>
+perm_prob_sf = perm_prob |>
   crop(arctic_boreal) |>
   mask(arctic_boreal) |>
-  focal(
-    w = focalMat(perm_prob, 2000, "circle"),
-    fun = any_ones,
-    na.policy = "omit"
-  ) # Check if there is any probability of permafrost within 10 km
+  aggregate(
+    fact = 100,
+    fun = any_ones
+  ) |> # Check if there is any probability of permafrost within 100 km
+  as.polygons() |>
+  st_as_sf()
+perm_prob[perm_prob == 0] = NA
 ```
 
 ```{r}
 ggplot() +
-  geom_spatraster(
-    data = perm_prob_focal,
-    aes(fill = NIEER_Probability)
+  geom_spatraster(data = perm_prob) +
+  scale_fill_continuous(na.value = "transparent") +
+  geom_sf(
+    data = perm_prob_sf,
+    fill = "transparent"
   ) +
-  scale_fill_viridis(na.value = "transparent") +
-  # new_scale_fill() +
-  # geom_spatraster(data = perm_prob) +
-  # scale_fill_continuous(na.value = "transparent") +
   coord_sf(expand = FALSE)
 ```
 
 ## Circumpolar
-We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is limited by the extent of the ArcticDEM, because we need data from the ArcticDEM, and by the permafrost zone, because permafrost is a necessary precursor for RTS. However, our confidence in permafrost maps is low, so it may make sense to buffer use a more inclusive approach. 
+We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is limited by the extent of the ArcticDEM, because we need data from the ArcticDEM, and by the permafrost zone, because permafrost is a necessary precursor for RTS. Because our confidence in permafrost maps is low, so it may make sense to buffer use a more inclusive approach. 
 
 ```{r}
 circumpolar = arctic_boreal |>
-  st_intersection(arcdem_domain)
+  st_intersection(arcdem_domain) |>
+  st_intersection(perm_prob_sf)
 ```
 
 ```{r}
@@ -256,7 +269,7 @@ ggplot() +
 ```{r}
 # st_write(
 #   circumpolar,
-#   "./domain/data/circumpolar_domain.geojson"
+#   "./domain/circumpolar_domain.geojson"
 # )
 ```
 
@@ -289,7 +302,7 @@ ggplot() +
 ```{r}
 # st_write(
 #   circumpolar_south,
-#   "./domain/data/circumpolar_south_domain.geojson"
+#   "./domain/circumpolar_south_domain.geojson"
 # )
 ```
 
@@ -328,17 +341,21 @@ ggplot() +
 ```{r}
 # st_write(
 #   circumpolar_north,
-#   "./domain/data/circumpolar_north_domain.geojson"
+#   "./domain/circumpolar_north_domain.geojson"
 # )
 ```
 
 # Subregions
 ## Clip to Domain
+The ecoregions need to be clipped to the circumpolar region.
+
 ```{r}
 subregions = ecoregions |>
   filter(BIOME_NAME %in% c("Tundra", "Boreal Forests/Taiga")) |>
   st_intersection(circumpolar) |>
-  st_as_sf()
+  st_as_sf() |>
+  select(ECO_NAME, COLOR) |>
+  arrange(ECO_NAME)
 ```
 
 ```{r}
@@ -347,44 +364,73 @@ ggplot() +
     data = subregions,
     aes(color = ECO_NAME, fill = ECO_NAME)
   ) +
-  scale_color_viridis(
-    discrete = TRUE,
-    guide = "none"
-  ) +
-  scale_fill_viridis(
-    discrete = TRUE,
-    guide = "none"
-  ) +
+  scale_color_manual(values = subregions$COLOR) +
+  scale_fill_manual(values = subregions$COLOR) +
   new_scale_color() +
   geom_sf(
     data = circumpolar,
     aes(color = "Circumpolar"),
     fill = "transparent",
-    linewidth = 1
+    linewidth = 0.5
   ) +
   scale_color_manual(values = c("black")) +
-  theme(legend.title = element_blank())
+  theme(
+    legend.position = "bottom",
+    legend.title = element_blank()
+  )
 ```
 
 ```{r}
-ggplot() +
-  geom_sf(
-    data = subregions,
-    aes(color = BIOME_NAME, fill = BIOME_NAME)
-  ) +
-  scale_color_viridis(
-    discrete = TRUE
-  ) +
-  scale_fill_viridis(
-    discrete = TRUE
-  ) +
-  new_scale_color() +
-  geom_sf(
-    data = circumpolar,
-    aes(color = "Circumpolar"),
-    fill = "transparent",
-    linewidth = 1
-  ) +
-  scale_color_manual(values = c("black")) +
-  theme(legend.title = element_blank())
+# st_write(
+#   subregions,
+#   "./domain/circumpolar_subregions.geojson"
+# )
+```
+
+## Check Training Polygon Counts by Subregion
+```{r}
+training_polys_regions = training_polys |>
+  st_join(
+    subregions |>
+      select(RegionName = ECO_NAME),
+    join = st_nearest_feature
+  )
+```
+
+```{r}
+region_poly_count = training_polys_regions |>
+  st_drop_geometry() |>
+  summarise(
+    RTSCount = n(),
+    .by = RegionName
+  ) |>
+  mutate(
+    RTSPercent = RTSCount / sum(RTSCount)
+  )
+```
+
+```{r}
+ggplot(
+  region_poly_count,
+  aes(x = RegionName, y = RTSCount)
+) +
+  geom_col() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, yjust = 1))
+```
+
+```{r}
+ggplot(
+  region_poly_count,
+  aes(x = RegionName, y = RTSPercent)
+) +
+  geom_col() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, yjust = 1))
+```
+
+```{r}
+small_clusters_percent = region_poly_count |>
+  filter(RTSPercent < 0.1) |>
+  summarise(TotalPercentSmallClusters = sum(RTSPercent))
 ```
