@@ -111,17 +111,21 @@ models/
 | extra.mean | List of 4 values [NDVI, NIR, RE, SR] |
 | extra.std | List of 4 values [NDVI, NIR, RE, SR] |
 
+
+**Risk**: Loading terabytes of GeoTIFFs to calculate mean/std can result in OOM or massive delays. Suggestion: Use Welford’s Online Algorithm to compute mean/variance in a single pass without loading all data, OR simply calculate stats on a random 5% subset of the data. For satellite imagery, 5% is statistically identical to 100%
+
 ### 4.4 Train-Inference Consistency
 
 **Critical**: The same normalization statistics used during training **must** be used during inference. The inference pipeline loads `normalization_stats.json` from the model directory and applies identical normalization.
 
 If 2025 imagery has significantly different radiometric properties than 2024 training data, this will manifest as degraded performance. Monitor inference predictions for systematic shifts.
 
+**Risk**: PlanetScope introduces new sensor generations (SuperDove flocks) frequently. The spectral response of 2025 data might differ slightly from 2024. Suggestion: Include a "Histogram Matching" step in the inference pipeline as a fallback, or ensure normalization_stats are robust. If the 2025 validation (early inference) looks poor, may need to re-calculate normalization stats on 2025 data (assuming the distribution of terrain types remains constant).
 ---
 
 ## 5. Loss Functions
 
-### 5.1 Primary: Focal Loss
+### 5.1 Focal Loss and Tversky Loss
 
 Focal loss down-weights easy examples, focusing learning on hard cases. Particularly suited for class imbalance.
 
@@ -132,7 +136,7 @@ Focal loss down-weights easy examples, focusing learning on hard cases. Particul
 | γ (gamma) | 2 | [1, 2, 3, 5] | Higher = more focus on hard examples |
 | α (alpha) | 0.25 | [0.1, 0.25, 0.5, 0.75] | Weight for positive class |
 
-### 5.2 Alternative: Tversky Loss
+### Tversky Loss
 
 Tversky loss allows explicit control over false positive vs false negative penalty.
 
@@ -324,7 +328,7 @@ Run inference at multiple effective resolutions to catch different RTS scales. S
 
 | Phase | Epochs | Backbone | Decoder | LR |
 |-------|--------|----------|---------|-----|
-| Phase 1 | 1–10 | Frozen | Training | 1e-3 |
+| Phase 1 | 1–10 | Frozen | Training | 3e-4 |
 | Phase 2 | 11+ | Training | Training | 1e-4 (backbone: 1e-5) |
 
 After unfreezing, backbone uses 0.1× the base learning rate to prevent catastrophic forgetting.
@@ -421,6 +425,8 @@ Applied on-the-fly during training using Albumentations library.
 - [ ] Boundary ignore masks created for all labels
 - [ ] Balanced batch sampler configured
 - [ ] Spatial blocking verified (no geographic overlap between splits)
+
+Create a standalone script check_data.py that iterates through the DataLoader (not just the files), to ensures that the augmentations, normalization, and tensor collating etc are actually working as expected
 
 **Environment**:
 - [ ] Docker container built and tested

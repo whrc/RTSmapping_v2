@@ -254,8 +254,10 @@ Status should show "TERMINATED".
 
 ---
 
-## Cost-Saving Tips
-
+## Cost-Saving: this part needs to improve- 
+### rule of GPU-TASK
+to formulate rules about what GPU/vm to use for different tasks, to reduce cost, do not use pdg H100 for all tasks, for sanity check or test run just use the gpu from Colab vm
+the rule needs to be applied in the actual scripts.
 1. **Always stop VMs when not in use** - GPU VMs are expensive
 2. **Use L4 VM for debugging** - cheaper than A100
 3. **Use A100 only for final training runs**
