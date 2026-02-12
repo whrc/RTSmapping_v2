@@ -4,11 +4,14 @@ format: html
 author: "Heidi Rodenhizer"
 ---
 
-This document derives the inference domain for RTSMapping_v2 based on the ArcticDEM v4 Mosaic and availability of different imagery sources (PlanetScope Global Quarterly Visual Basemaps and Sentinel-2).
+This document describes the process of creating the inference domain over which RTS will be mapped in RTSMapping_v2. This domain is based on the intersection between the Arctic boreal region, the permafrost region, and the ArcticDEM v4 Mosaic. Additionally, it was split into a northern and southern domain based on the extent of PlanetScope Global Quarterly Visual Basemaps which are only guaranteed to 74 degrees N (but actually extend to approximately 76 degrees N in most cases).
 
+::: {.content-hidden}
 # Set Up
 
 ```{r}
+#| include: false
+
 library(sf)
 library(terra)
 library(tidyterra)
@@ -18,15 +21,19 @@ library(viridis)
 ```
 
 ```{r}
+#| include: false
+
 theme_set(theme_bw())
 ```
 
 # Define Functions
-A bunch of the tiles near the horizontal origin of the CRS are missing a chunk between -180 m and 180 m. The following two functions are used to manually fix this problem.
+
+## For ArcticDEM Data Issues
+A bunch of the ArcticDEM tiles near the horizontal origin of the CRS are missing a chunk between -180 m and 180 m. The following two functions are used to manually fix this problem.
 All of the tiles are built to be 50 x 50 km with an extra 100 m buffer on either side, except the problem ones.
 These functions identify problematic tiles as tiles with two multipolygon components (`length(geometry[[1]]) == 2`). For tiles that are on the left side of the origin (`column == 2`), the first polygon component is the bulk of the tile with a few incorrect values. For tiles on the right side of the origin, it is the opposite. These functions remove the incorrect component of each multipolygon and replaces the incorrect values in the correct component.
 
-## replace_incorrect_values
+### replace_incorrect_values
 ```{r}
 replace_incorrect_values = function(x) {
   case_when(
@@ -37,7 +44,7 @@ replace_incorrect_values = function(x) {
 }
 ```
 
-## fix_geometry_at_origin
+### fix_geometry_at_origin
 ```{r}
 fix_geometry_at_origin = function(geometry, side) {
   # Extract correct component of multipolygon, if it has two components
@@ -60,7 +67,9 @@ fix_geometry_at_origin = function(geometry, side) {
 }
 ```
 
-## round_coordinates
+## For Read Errors in Planet Grids
+### round_coordinates
+There appears to be a rounding issue when the Planet Grids are read in, where some of the tiles end up with slightly different corners than the adjacent tiles. This function allows all coordinates in the Planet Grids file to be rounded to 5 decimal places to fix the problem.
 ```{r}
 round_coordinates = function(sfc, n) {
   coords = st_coordinates(sfc) |>
@@ -75,8 +84,9 @@ round_coordinates = function(sfc, n) {
 }
 ```
 
-## any_ones
-
+## For Deriving the Permafrost Zone Map
+### any_ones
+This function is used to find any pixels with a value of 1, and is used to find any 100 km x 100 km areas that contain some likelihood of permafrost within at least one pixel.
 ```{r}
 any_ones = function(values) {
   case_when(
@@ -86,9 +96,13 @@ any_ones = function(values) {
 }
 ```
 
+:::
+
 # Import Data
 ## Domain
 ```{r}
+#| output: false
+
 # ArcticDEM
 arctic_dem = st_read(
   "./domain/data/ArcticDEM_Mosaic_Index_latest_shp/ArcticDEM_Mosaic_Index_v4_1_2m.shp"
@@ -124,7 +138,7 @@ arctic_boreal = st_read(
   st_union() |>
   st_as_sf()
 
-# Permafrost Zone
+# Permafrost Probability
 template = rast(
   xmin = -5000000,
   xmax = 5000000,
@@ -141,6 +155,8 @@ perm_prob = rast("./domain/data/NIEER_Probability.tif") |>
 Ecoregions from Dinerstein et al. 2017 will be used as the starting point for our subregions.
 
 ```{r}
+#| output: false
+
 ecoregions = st_read("./domain/data/Ecoregions2017/Ecoregions2017.shp") |>
   st_transform(crs = st_crs(arctic_dem)) |>
   mutate(
@@ -168,6 +184,8 @@ arcdem_domain = arctic_dem |>
 ```
 
 ```{r}
+#| echo: false
+
 ggplot() +
   geom_sf(
     data = arcdem_domain,
@@ -180,6 +198,10 @@ ggplot() +
 ```{r}
 # planet_domain = planet_grids |>
 #   summarise(geometry = st_union(geometry)) # |>
+```
+
+```{r}
+#| include: false
 
 # st_write(
 #   planet_domain,
@@ -188,6 +210,8 @@ ggplot() +
 ```
 
 ```{r}
+#| echo: false
+
 ggplot() +
   geom_sf(
     data = arcdem_domain,
@@ -205,7 +229,7 @@ ggplot() +
 ```
 
 ## Prepare Permafrost Extent Map
-The permafrost probability map is highly spotty. We are including any areas that have some coverage of permafrost within a 100 x 100 km pixel.
+The permafrost probability map is highly spotty. We are including any areas that fall within the Arctic boreal region and have some coverage of permafrost within a 100 x 100 km pixel.
 
 ```{r}
 perm_prob[perm_prob > 0] = 1
@@ -223,18 +247,21 @@ perm_prob[perm_prob == 0] = NA
 ```
 
 ```{r}
+#| echo: false
+
 ggplot() +
   geom_spatraster(data = perm_prob) +
   scale_fill_continuous(na.value = "transparent") +
   geom_sf(
     data = perm_prob_sf,
-    fill = "transparent"
+    fill = "transparent",
+    linewidth = 0.5
   ) +
   coord_sf(expand = FALSE)
 ```
 
-## Circumpolar
-We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is limited by the extent of the ArcticDEM, because we need data from the ArcticDEM, and by the permafrost zone, because permafrost is a necessary precursor for RTS. Because our confidence in permafrost maps is low, so it may make sense to buffer use a more inclusive approach. 
+## Circumpolar Domain
+We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is first reduced by taking the intersection with the ArcticDEM, because we need data from the ArcticDEM. It is further reduced by taking the intersection with the permafrost zone, because permafrost is a necessary precursor for RTS.
 
 ```{r}
 circumpolar = arctic_boreal |>
@@ -243,6 +270,8 @@ circumpolar = arctic_boreal |>
 ```
 
 ```{r}
+#| echo: false
+
 ggplot() +
   geom_sf(
     data = arcdem_domain,
@@ -267,13 +296,15 @@ ggplot() +
 ```
 
 ```{r}
+#| include: false
+
 # st_write(
 #   circumpolar,
 #   "./domain/circumpolar_domain.geojson"
 # )
 ```
 
-## Circumpolar South
+## Circumpolar South Domain
 This is the portion of the ArcticDEM for which we have Planet imagery.
 
 ```{r}
@@ -282,6 +313,8 @@ circumpolar_south = circumpolar |>
 ```
 
 ```{r}
+#| echo: false
+
 ggplot() +
   geom_sf(
     data = circumpolar,
@@ -300,13 +333,15 @@ ggplot() +
 ```
 
 ```{r}
+#| include: false
+
 # st_write(
 #   circumpolar_south,
 #   "./domain/circumpolar_south_domain.geojson"
 # )
 ```
 
-## Circumpolar North
+## Circumpolar North Domain
 This is the portion of the Circumpolar region for which we do not have Planet data.
 
 ```{r}
@@ -315,6 +350,8 @@ circumpolar_north = circumpolar |>
 ```
 
 ```{r}
+#| echo: false
+
 ggplot() +
   geom_sf(
     data = circumpolar,
@@ -334,11 +371,13 @@ ggplot() +
     fill = "transparent",
     linewidth = 0.5
   ) +
-  scale_color_manual(values = c("black", "cyan4", "darkgoldenrod1")) +
+  scale_color_manual(values = c("black", "darkgoldenrod1", "cyan4")) +
   theme(legend.title = element_blank())
 ```
 
 ```{r}
+#| include: false
+
 # st_write(
 #   circumpolar_north,
 #   "./domain/circumpolar_north_domain.geojson"
@@ -347,7 +386,7 @@ ggplot() +
 
 # Subregions
 ## Clip to Domain
-The ecoregions need to be clipped to the circumpolar region.
+The ecoregions from Dinerstein et al. 2017 need to be clipped to the circumpolar region created above.
 
 ```{r}
 subregions = ecoregions |>
@@ -359,21 +398,30 @@ subregions = ecoregions |>
 ```
 
 ```{r}
+#| echo: false
+#| fig-width: 9.5
+#| fig-height: 15
+
 ggplot() +
   geom_sf(
     data = subregions,
     aes(color = ECO_NAME, fill = ECO_NAME)
   ) +
-  scale_color_manual(values = subregions$COLOR) +
-  scale_fill_manual(values = subregions$COLOR) +
+  scale_color_manual(
+    values = subregions$COLOR,
+    guide = guide_legend(ncol = 3)
+  ) +
+  scale_fill_manual(
+    values = subregions$COLOR,
+    guide = guide_legend(ncol = 3)
+  ) +
   new_scale_color() +
   geom_sf(
     data = circumpolar,
-    aes(color = "Circumpolar"),
+    color = "black",
     fill = "transparent",
     linewidth = 0.5
   ) +
-  scale_color_manual(values = c("black")) +
   theme(
     legend.position = "bottom",
     legend.title = element_blank()
@@ -381,6 +429,8 @@ ggplot() +
 ```
 
 ```{r}
+#| include: false
+
 # st_write(
 #   subregions,
 #   "./domain/circumpolar_subregions.geojson"
@@ -389,16 +439,12 @@ ggplot() +
 
 ## Check Training Polygon Counts by Subregion
 ```{r}
-training_polys_regions = training_polys |>
+region_poly_count = training_polys |>
   st_join(
     subregions |>
       select(RegionName = ECO_NAME),
     join = st_nearest_feature
-  )
-```
-
-```{r}
-region_poly_count = training_polys_regions |>
+  ) |>
   st_drop_geometry() |>
   summarise(
     RTSCount = n(),
@@ -410,6 +456,8 @@ region_poly_count = training_polys_regions |>
 ```
 
 ```{r}
+#| echo: false
+
 ggplot(
   region_poly_count,
   aes(x = RegionName, y = RTSCount)
@@ -420,6 +468,8 @@ ggplot(
 ```
 
 ```{r}
+#| echo: false
+
 ggplot(
   region_poly_count,
   aes(x = RegionName, y = RTSPercent)
@@ -433,4 +483,5 @@ ggplot(
 small_clusters_percent = region_poly_count |>
   filter(RTSPercent < 0.1) |>
   summarise(TotalPercentSmallClusters = sum(RTSPercent))
+small_clusters_percent
 ```
