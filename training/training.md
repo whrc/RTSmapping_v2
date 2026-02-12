@@ -2,7 +2,7 @@
 
 ## 1. Training Objective
 
-Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS) under extreme class imbalance (~0.1% positive pixels), optimizing for **high precision at acceptable recall** to minimize false positives in the final pan-arctic map.
+Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS) under extreme class imbalance (~0.1% positive pixels), optimising for **high precision at acceptable recall** to minimise false positives in the final pan-arctic map.
 
 ---
 
@@ -20,13 +20,6 @@ Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS)
 | AI-assist | Claude code |
 | Test | Colab Pro+ |
 
-
-**Environment Verification Checklist**:
-- [ ] CUDA is visible: `torch.cuda.is_available()` returns True
-- [ ] All GPUs detected: `torch.cuda.device_count()` returns 8
-- [ ] GDAL functional: `from osgeo import gdal` succeeds
-- [ ] Sample GeoTIFF loads correctly via rasterio
-- [ ] MLflow tracking server accessible
 
 ### 2.3 Reproducibility Configuration
 
@@ -57,9 +50,11 @@ Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS)
 
 | Category | Models | Notes |
 |----------|--------|-------|
-| CNN-based | UNet++, DeepLabV3+, FPN | Established segmentation architectures |
+| CNN-based | UNet++, DeepLabV3+, | Established segmentation architectures |
 | Transformer-based | SwinTransformer, SegFormer, Mask2Former | May capture long-range dependencies |
 | Vision Foundation Models | SAM, DINOv2, Prithvi, SATMAE | Require domain adaptation fine-tuning |
+
+note: these might be too much to test, can choose 1,2 from the list
 
 ### 3.3 Multi-Modal Fusion (for EXTRA dataset)
 
@@ -67,21 +62,23 @@ Fusion strategies should be tested in order of complexity:
 
 | Order | Strategy | Description | When to Use |
 |-------|----------|-------------|-------------|
-| 1 | RGB baseline | No auxiliary data | Establish performance ceiling |
+| 1 | RGB baseline | No auxiliary data | Establish performance baseline |
 | 2 | Individual channels | RGB + one auxiliary channel at a time | Identify which channels help |
 | 3 | Early fusion | Channel stack (RGB + helpful auxiliaries → single encoder) | Simple, often sufficient |
 | 4 | Late fusion | Separate encoders → feature-level fusion | Only if early fusion underperforms |
 
+Note: late fusion may require architecture redesign
 ---
 
-
-### 4.4 Train-Inference Consistency
+## 4 Train-Inference Consistency
 
 **Critical**: The same normalization statistics used during training **must** be used during inference. The inference pipeline loads `normalization_stats.json` from the model directory and applies identical normalization.
 
 If 2025 imagery has significantly different radiometric properties than 2024 training data, this will manifest as degraded performance. Monitor inference predictions for systematic shifts.
 
+
 **Risk**: PlanetScope introduces new sensor generations (SuperDove flocks) frequently. The spectral response of 2025 data might differ slightly from 2024. Suggestion: Include a "Histogram Matching" step in the inference pipeline as a fallback, or ensure normalization_stats are robust. If the 2025 validation (early inference) looks poor, may need to re-calculate normalization stats on 2025 data (assuming the distribution of terrain types remains constant).
+
 ---
 
 ## 5. Loss Functions
@@ -97,7 +94,7 @@ Focal loss down-weights easy examples, focusing learning on hard cases. Particul
 | γ (gamma) | 2 | [1, 2, 3, 5] | Higher = more focus on hard examples |
 | α (alpha) | 0.25 | [0.1, 0.25, 0.5, 0.75] | Weight for positive class |
 
-### Tversky Loss
+### 5.2 Tversky Loss
 
 Tversky loss allows explicit control over false positive vs false negative penalty.
 
@@ -110,7 +107,7 @@ Tversky loss allows explicit control over false positive vs false negative penal
 
 **For precision-focused training**: Set β > α to penalize false positives more heavily.
 
-### 5.3 Alternative: Class-Balanced Cross-Entropy
+### 5.3 Class-Balanced Cross-Entropy
 
 Weight loss inversely proportional to class frequency. Options for computing weights:
 - Linear: weight_rts = num_bg_pixels / num_rts_pixels
@@ -121,13 +118,20 @@ Weight loss inversely proportional to class frequency. Options for computing wei
 
 Label boundaries may be uncertain due to resolution mismatch or inherent ambiguity in RTS edges.
 
-**Approach: Ignore Regions**
+**Approach1 : Ignore Regions**
 
 Exclude pixels within N pixels of label boundaries from loss computation:
 - Simple to implement
 - Proven effective in medical imaging segmentation
 - Baseline: N = 3 pixels
 
+**Approach2 : Soft Labels**
+
+Soften label pixels
+- use 0.05,0.95 for background and label
+- or distance based soft labels
+
+Note: choose either
 ---
 
 ## 6. Metrics
@@ -137,8 +141,6 @@ Exclude pixels within N pixels of label boundaries from loss computation:
 | Metric | Formula | Use |
 |--------|---------|-----|
 | IoU_RTS | TP / (TP + FP + FN) | Primary pixel-level metric |
-| Pixel Precision | TP / (TP + FP) | False positive rate |
-| Pixel Recall | TP / (TP + FN) | Detection rate |
 
 ### 6.2 Object-Level Metrics
 
@@ -161,13 +163,13 @@ Object-level evaluation treats each connected component as a detection instance.
 - One prediction covering multiple ground truth objects: Count as 1 TP + (N-1) FN
 - Multiple predictions covering one ground truth: Count as 1 TP + (M-1) FP
 
+Note: need doublecheck
+
 ### 6.3 Summary Metrics
 
 | Metric | Formula | Use Case |
 |--------|---------|----------|
 | PR-AUC | Area under precision-recall curve | Overall performance under imbalance |
-| F0.5 | (1.25 × P × R) / (0.25×P + R) | Precision-weighted F-score |
-| Precision @ Fixed Recall | P when R = target | **Primary operational metric** |
 
 ### 6.4 Threshold Calibration Options
 
@@ -381,13 +383,13 @@ Applied on-the-fly during training using Albumentations library.
 ### 10.1 Pre-Training Checklist
 
 **Data Preparation**:
-- [ ] Data validation checks pass (see Data Specification Section 8)
-- [ ] Normalization statistics computed and saved
+- [ ] Data validation checks pass
+- [ ] Normalisation statistics computed and saved
 - [ ] Boundary ignore masks created for all labels
 - [ ] Balanced batch sampler configured
 - [ ] Spatial blocking verified (no geographic overlap between splits)
 
-Create a standalone script check_data.py that iterates through the DataLoader (not just the files), to ensures that the augmentations, normalization, and tensor collating etc are actually working as expected
+Create a standalone script check_data.py that iterates through the DataLoader (not just the files), to ensures that the augmentations, normalization, and tensor collating etc are actually working as expected. This is to prevent running expensive GPUs on bad data.
 
 **Environment**:
 - [ ] Docker container built and tested
@@ -527,6 +529,7 @@ For each prevalence ratio (1:200, 1:500, 1:1000):
 - pr_curves.png
 - threshold_calibration.json
 - requirements_frozen.txt
+- predictions.png (fixed 3 positive and 3 negative validation images subplot 3 columns by 2 rows)
 
 ### 13.2 Experiment Progression
 
@@ -556,6 +559,7 @@ Experiments should follow dependency order:
 - Compare: Early fusion, Late fusion
 - Select best fusion strategy
 
+Note: each experiment should have one .py file to execute.
 ---
 
 ## 14. Statistical Significance
@@ -575,76 +579,5 @@ Final results table should include:
 |--------|-------|-------|--------|
 | IoU_RTS | X.XX ± X.XX | X.XX ± X.XX | X.XX ± X.XX |
 | PR-AUC | X.XX ± X.XX | X.XX ± X.XX | X.XX ± X.XX |
-| Obj Precision @0.3 | X.XX ± X.XX | X.XX ± X.XX | X.XX ± X.XX |
-| Obj Recall @0.3 | X.XX ± X.XX | X.XX ± X.XX | X.XX ± X.XX |
 
 ---
-
-## 15. Fallback: Two-Stage Approach
-
-If precision remains problematic after tuning all hyperparameters:
-
-**Stage 1: Susceptibility Filtering**
-- Use ML RTS susceptibility model results
-- Confine detection to high-likelihood regions
-- Eliminate false positives in low-likelihood regions
-
-**Stage 2: Segmentation**
-- Run segmentation model only on filtered regions
-- Reduced search space, lower false alarm rate
-
-This approach is proven effective in fire detection modeling.
-
----
-
-## 16. Resource Estimates
-
-### 16.1 Training Compute
-
-| Stage | GPU Hours (8×H100) | Estimated Cost |
-|-------|-------------------|----------------|
-| Baseline + loss ablation | 50–100 | $5,000–10,000 |
-| Architecture experiments | 50–100 | $5,000–10,000 |
-| Auxiliary data experiments | 30–50 | $3,000–5,000 |
-| Final model (3 seeds) | 30–60 | $3,000–6,000 |
-| **Training Total** | ~200 | ~$20,000 |
-
-### 16.2 Budget Allocation
-
-| Category | Allocation |
-|----------|------------|
-| Training experiments | $25,000 |
-| Pan-arctic inference | $35,000 |
-| Buffer / reruns | $10,000 |
-| **Total** | $70,000 |
-
----
-
-## 17. Training Checklist Summary
-
-### Pre-Training
-- [ ] Docker environment verified
-- [ ] Data validation passed
-- [ ] Normalization statistics saved
-- [ ] Spatial blocking verified
-- [ ] MLflow configured
-- [ ] Config committed to git
-
-### During Training
-- [ ] Mixed precision enabled
-- [ ] Backbone frozen Phase 1
-- [ ] LR warmup active
-- [ ] Gradient clipping enabled
-- [ ] EMA updating
-- [ ] Curriculum schedule progressing
-- [ ] Monitoring Val-Realistic PR-AUC
-
-### Post-Training
-- [ ] EMA weights applied
-- [ ] Temperature scaling calibrated
-- [ ] Threshold selected on Val-Realistic
-- [ ] TTA evaluated
-- [ ] Multi-seed runs completed
-- [ ] Test-Realistic metrics reported
-- [ ] Artifacts saved to MLflow
-- [ ] normalization_stats.json packaged with model
