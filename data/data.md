@@ -5,6 +5,9 @@
 **Objective**: Semantic segmentation of Retrogressive Thaw Slumps (RTS) in Arctic satellite imagery for pan-arctic mapping (60-74°N).
 
 ---
+**Data versioning**: Use semantic versioning (major.minor)
+- Major: Added new training data or significant changes to processing
+- Minor: No new training data but changes in existing labels
 
 ## 1. Data Sources
 
@@ -39,7 +42,6 @@
 **Note**: Sentinel-2, Maxar, and other sensors exhibit domain shift from PlanetScope. Cross-sensor models require separate experimentation.
 
 ---
-
 
 ## 2. Label Source and Refinement
 
@@ -76,7 +78,7 @@ This is critical for training data quality:
 | Partial RTS with **only** headwall visible (no floor in tile) | Ignore Index：255 |
 
 
-**Rationale**: The model learns that "only barren floor associated with a headwall with shadow is RTS." Overlapping inference tiles ensure partial targets are detected where both features are visible. Use an Ignore Index （255） for pixels that are part of an RTS but lack the diagnostic headwall in that specific tile. This prevents the model from learning conflicting information while maintaining your strict detection criteria.
+**Rationale**: The model learns that "only barren floor associated with a headwall with shadow is RTS." Overlapping inference tiles ensure partial targets are detected where both features are visible. Use an Ignore Index （255） for pixels that are part of an RTS but lack the diagnostic headwall in that specific tile. This prevents the model from learning conflicting information while maintaining strict detection criteria. This is feature engineering with domain knowledge which especially important when training data is limited.
 
 ### 2.4 Label Values
 
@@ -157,8 +159,9 @@ Label: (512, 512, 1) — uint8, values {0, 1，255}
 ```
 NDVI,NIR are derived from Sentinel2
 RE is relative elevation, SR is Shaded relief, both derived from ArcticDEM
+What else do we need?
 
-**Build order**: Generate planet_rgb first for positive and negative samples, then derive EXTRA by adding auxiliary channels via script.
+**Build order**: Generate planet_rgb first for positive and negative samples, then derive EXTRA by extracting auxiliary channels with the planet_rgb extent (footprint).
 
 ### 3.4 EXTRA Channel Processing
 
@@ -176,6 +179,9 @@ All auxiliary data must be:
 
 Both PLANET-RGB and EXTRA store **raw values** (no normalization applied to stored files).
 
+### 4.1 Normalization
+before normalisation, percentage clipping to remove outliers (0-99%? minmax for clipping should be discussed - visualise the histogram first)
+
 **Normalisation** Should be calculated per-dataset, rather than per-image, to:
 - Preserves absolute radiometric information
 - Consistent inference behavior regardless of batch composition
@@ -183,12 +189,45 @@ Both PLANET-RGB and EXTRA store **raw values** (no normalization applied to stor
 
 Normalisation for EXTRA should be done channel-specific to respect the physical signal meanings
 
+Use **per-dataset statistics** computed once over the entire training set. This preserves absolute radiometric information critical for distinguishing RTS features.
+
+### 4.2 Statistics Computation
+
+Compute mean and standard deviation for each channel across all training tiles:
+- For RGB: compute over all training images (both positive and negative)
+- For EXTRA: compute separately for each channel respecting physical meaning
+
+### 4.3 Storage Specification
+
+Store normalization statistics in a JSON file that travels with the model:
+
+```
+models/
+├── experiment_name/
+│   ├── normalization_stats.json
+```
+
+**normalization_stats.json structure**:
+
+| Field | Description |
+|-------|-------------|
+| dataset_version | Version string from data/version.json |
+| computed_date | ISO timestamp of computation |
+| n_tiles_used | Number of tiles used in computation |
+| rgb.mean | List of 3 values [R, G, B] |
+| rgb.std | List of 3 values [R, G, B] |
+| extra.mean | List of 4 values [NDVI, NIR, RE, SR] |
+| extra.std | List of 4 values [NDVI, NIR, RE, SR] |
+
+Note: the above extracts mean and std for z-score standardisation, can also get mins and maxs for 0-1 normalisation.
+
+**compute**: Loading terabytes of GeoTIFFs to calculate mean/std can be challenging. Suggestion: Use Welford’s Online Algorithm to compute mean/variance in a single pass without loading all data
 
 ## 5. Imbalance and Split
 
 | Estimation | Value |
 |-----------|-------|
-| Within Positive tiles | 5–30% of tile area |
+| Within Positive tiles | 5–70% of tile area |
 | Real Arctic prevalance | 0.1-0.5% |
 
 ### 5.1 Split Ratios

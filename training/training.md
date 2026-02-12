@@ -74,45 +74,6 @@ Fusion strategies should be tested in order of complexity:
 
 ---
 
-## 4. Normalization
-
-### 4.1 Approach
-
-Use **per-dataset statistics** computed once over the entire training set. This preserves absolute radiometric information critical for distinguishing RTS features.
-
-### 4.2 Statistics Computation
-
-Compute mean and standard deviation for each channel across all training tiles:
-- For RGB: compute over all training images (both positive and negative)
-- For EXTRA: compute separately for each channel respecting physical meaning
-
-### 4.3 Storage Specification
-
-Store normalization statistics in a JSON file that travels with the model:
-
-```
-models/
-├── experiment_name/
-│   ├── best_model.pth
-│   ├── normalization_stats.json
-│   ├── config.yaml
-│   └── training_log.csv
-```
-
-**normalization_stats.json structure**:
-
-| Field | Description |
-|-------|-------------|
-| dataset_version | Version string from data/version.json |
-| computed_date | ISO timestamp of computation |
-| n_tiles_used | Number of tiles used in computation |
-| rgb.mean | List of 3 values [R, G, B] |
-| rgb.std | List of 3 values [R, G, B] |
-| extra.mean | List of 4 values [NDVI, NIR, RE, SR] |
-| extra.std | List of 4 values [NDVI, NIR, RE, SR] |
-
-
-**Risk**: Loading terabytes of GeoTIFFs to calculate mean/std can result in OOM or massive delays. Suggestion: Use Welford’s Online Algorithm to compute mean/variance in a single pass without loading all data, OR simply calculate stats on a random 5% subset of the data. For satellite imagery, 5% is statistically identical to 100%
 
 ### 4.4 Train-Inference Consistency
 
