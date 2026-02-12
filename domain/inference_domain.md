@@ -38,21 +38,34 @@ areas that fall within the Arctic boreal region and have some coverage
 of permafrost within a 100 x 100 km pixel.
 
 ``` r
-perm_prob[perm_prob > 0] = 1
-perm_prob[is.na(perm_prob)] = 0
-perm_prob_sf = perm_prob |>
+perm_prob = perm_prob |>
+  classify(
+    rcl = matrix(
+      c(0, 100, 1),
+      ncol = 3,
+      byrow = TRUE
+    )
+  ) |>
+  as.factor() |>
   crop(arctic_boreal) |>
-  mask(arctic_boreal) |>
+  mask(arctic_boreal)
+levels(perm_prob) = data_frame(id = c(1), permafrost = c("Permafrost Possible"))
+```
+
+    Warning: `data_frame()` was deprecated in tibble 1.1.0.
+    ℹ Please use `tibble()` instead.
+
+``` r
+perm_prob_sf = perm_prob |>
   aggregate(
     fact = 100,
     fun = any_ones
   ) |> # Check if there is any probability of permafrost within 100 km
   as.polygons() |>
   st_as_sf()
-perm_prob[perm_prob == 0] = NA
 ```
 
-    <SpatRaster> resampled to 501264 cells.
+    <SpatRaster> resampled to 500650 cells.
 
 ![](inference_domain_files/figure-commonmark/unnamed-chunk-15-1.png)
 
