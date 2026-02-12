@@ -9,86 +9,9 @@ northern and southern domain based on the extent of PlanetScope Global
 Quarterly Visual Basemaps which are only guaranteed to 74 degrees N (but
 actually extend to approximately 76 degrees N in most cases).
 
-# Import Data
-
-## Domain
-
-``` r
-# ArcticDEM
-arctic_dem = st_read(
-  "./domain/data/ArcticDEM_Mosaic_Index_latest_shp/ArcticDEM_Mosaic_Index_v4_1_2m.shp"
-) |>
-  separate_wider_delim(
-    tile,
-    delim = "_",
-    names = c("superrow", "supercolumn", "row", "column"),
-    cols_remove = FALSE
-  ) |>
-  mutate(across(superrow:column, ~ as.numeric(.x))) |>
-  rowwise() |>
-  mutate(geometry = fix_geometry_at_origin(geometry, column)) |>
-  ungroup() |>
-  st_as_sf()
-
-# # Planet Grids
-# planet_grids = st_read(
-#   "./domain/data/arctic_boreal_planet_basemap_grids.geojson"
-# ) |>
-#   st_make_valid() |>
-#   rowwise() |>
-#   mutate(geometry = round_coordinates(geometry, 5)) |>
-#   ungroup()
-
-# Planet Domain (derived from Planet Grids)
-planet_domain = st_read("./domain/data/circumpolar_planet_domain.geojson") |>
-  st_transform(crs = st_crs(arctic_dem))
-arctic_boreal = st_read(
-  "./domain/data/tundra_and_boreal/tundra_and_boreal.shp"
-) |>
-  st_transform(crs = st_crs(arctic_dem)) |>
-  st_union() |>
-  st_as_sf()
-
-# Permafrost Probability
-template = rast(
-  xmin = -5000000,
-  xmax = 5000000,
-  ymin = -5000000,
-  ymax = 5000000,
-  crs = "EPSG:3413",
-  resolution = 1000
-)
-perm_prob = rast("./domain/data/NIEER_Probability.tif") |>
-  project(template)
-```
-
-## Subregions
-
-Ecoregions from Dinerstein et al. 2017 will be used as the starting
-point for our subregions.
-
-``` r
-ecoregions = st_read("./domain/data/Ecoregions2017/Ecoregions2017.shp") |>
-  st_transform(crs = st_crs(arctic_dem)) |>
-  mutate(
-    across(
-      c(-geometry),
-      ~ case_when(
-        .x == "N/A" ~ NA,
-        TRUE ~ .x
-      )
-    )
-  )
-
-training_polys = st_read(
-  "./domain/data/planet_perfect_polygons_union_result.geojson"
-) |>
-  st_transform(st_crs(arctic_dem))
-```
-
 # Domain
 
-## Dissolve Internal Boundaries
+## Dissolve Internal Boundaries of ArcticDEM and Planet Grids
 
 ### ArcticDEM
 

@@ -96,8 +96,6 @@ any_ones = function(values) {
 }
 ```
 
-:::
-
 # Import Data
 ## Domain
 ```{r}
@@ -175,8 +173,10 @@ training_polys = st_read(
   st_transform(st_crs(arctic_dem))
 ```
 
+:::
+
 # Domain
-## Dissolve Internal Boundaries
+## Dissolve Internal Boundaries of ArcticDEM and Planet Grids
 ### ArcticDEM
 ```{r}
 arcdem_domain = arctic_dem |>
