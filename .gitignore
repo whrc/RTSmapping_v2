@@ -161,3 +161,7 @@ cython_debug/
 
 /.quarto/
 **/*.quarto_ipynb
+
+# Domain Data Files (too big)
+/domain/data
+/domain/inference_domain_files
