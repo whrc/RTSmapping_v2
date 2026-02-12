@@ -1,6 +1,6 @@
 ---
 title: "Inference Domain and Subregions"
-format: html
+format: gfm
 author: "Heidi Rodenhizer"
 ---
 
