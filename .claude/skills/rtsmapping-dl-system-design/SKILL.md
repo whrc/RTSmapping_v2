@@ -13,3 +13,9 @@ This document provides meta-level supervision and design philosophy without dupl
 - The full project lifecyle composes of four main components: data, training, inference and post-inference. The development of each model iteration and component should follow the markdown files in their own directories (e.g., `data/data.md`, `model/model.md`, `training/training.md`). There are also guidelines for computing and dockerization in `computing/` and `docker_training/`, the design of relevant parts should follow the markdown files in those directories. 
 
 - The development of the system should follow the best practices in AI and software engineering, but also don't overkill with overly complex design and engineering, remember this is a solo research project, the design should be simple and efficient, but also maintainable and reproducible. 
+
+- the environment should be dockerised
+
+- the experiments should be tracked with MLflow
+
+- the process and results should be well documented
