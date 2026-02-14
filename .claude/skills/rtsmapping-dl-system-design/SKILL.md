@@ -5,8 +5,6 @@ description: Deep learning system design best practices for rtsmapping DL model 
 
 # Overall Guidance
 
-This document provides meta-level supervision and design philosophy without duplicating technical specifications.
-
 ---
 - This document serves as a high-level guide to ensure consistency, quality, and reproducibility across all aspects of the project. 
 
@@ -18,4 +16,8 @@ This document provides meta-level supervision and design philosophy without dupl
 
 - the experiments should be tracked with MLflow
 
-- the process and results should be well documented
+- the process and results should be documented in details and in a living document (e.g., a markdown file in `docs/`), the documentation should be updated with every iteration and should include the design decisions, the implementation details, the results and the analysis.
+
+- the training and inference should be consistent in terms of data processing 
+
+- input, output and intermediate data should follow the data format standards in `data/data_format.md`
