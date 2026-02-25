@@ -2,40 +2,44 @@
 
 ## 1. Overview
 
-Containerize the training pipeline for reproducible execution on GCP H100 GPUs.
+Containerize the training pipeline for reproducible execution on GCP VMs.
 
-**Workflow**: Colab (develop/test) → Cloud Build (build image) → PDG VM (run training)
+**Workflow**: Develop locally via VSCode Remote-SSH → Cloud Build (build image) → GCP VM (run training)
 
 ```
 ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│  Google Colab   │      │  Cloud Build    │      │    PDG VM       │
+│  VSCode Remote  │      │  Cloud Build    │      │    GCP VM       │
+│  (L4 dev VM)    │      │                 │      │  (A100/H100)    │
 │                 │      │                 │      │                 │
 │ - Develop code  │ ──── │ - Build image   │ ──── │ - Pull image    │
-│ - Test on T4/A100│      │ - Push to GCR   │      │ - Run on H100s  │
-│ - No Docker     │      │ - No local env  │      │                 │
+│ - Test on L4    │      │ - Push to GCR   │      │ - Run training  │
+│ - No Colab      │      │ - No local env  │      │                 │
 └─────────────────┘      └─────────────────┘      └─────────────────┘
 ```
+
+**Dev environment**: VSCode Remote-SSH connected to `gpu-vm-l4` (see `computing/vm_instruction.md`).
+No Colab in this workflow.
 
 ---
 
 ## 2. Project Structure
 
-Maintain this structure in your repo/GCS:
-
 ```
-rts-segmentation-v2/
+RTSmappingDL/
 ├── Dockerfile.train
 ├── requirements.txt
 ├── .dockerignore
 ├── configs/
 │   └── baseline.yaml
-├── src/
-│   ├── data/
-│   ├── models/
-│   ├── losses/
-│   └── ...
+├── data/              ← data loading modules
+├── models/            ← model definitions
+├── losses/            ← loss functions
+├── utils/             ← shared utilities
 └── scripts/
-    └── train.py
+    ├── train.py
+    ├── inference.py
+    ├── check_data.py
+    └── create_splits.py
 ```
 
 ---
@@ -49,10 +53,18 @@ FROM nvcr.io/nvidia/pytorch:24.05-py3
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# System dependencies for geospatial
+# System dependencies for geospatial + gcsfuse
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev \
     gdal-bin \
+    fuse \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install gcsfuse for GCS bucket mounting
+RUN echo "deb https://packages.cloud.google.com/apt gcsfuse-jammy main" \
+    | tee /etc/apt/sources.list.d/gcsfuse.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
+    && apt-get update && apt-get install -y gcsfuse \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
@@ -61,11 +73,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY src/ /app/src/
+COPY data/ /app/data/
+COPY models/ /app/models/
+COPY losses/ /app/losses/
+COPY utils/ /app/utils/
 COPY configs/ /app/configs/
 COPY scripts/ /app/scripts/
 
-# Create mount points
+# Mount points
 RUN mkdir -p /data /outputs
 
 # Default command
@@ -79,22 +94,25 @@ CMD ["scripts/train.py", "--config", "configs/baseline.yaml"]
 
 ```
 # Segmentation
-segmentation-models-pytorch==0.3.4
-albumentations==1.4.11
+segmentation-models-pytorch
+albumentations
 
 # Geospatial
-rasterio==1.3.10
-geopandas==1.0.1
+rasterio
+geopandas
 
 # Experiment tracking
-mlflow==2.15.0
+mlflow[gcs]          # includes GCS artifact store support
 
 # Utilities
-tqdm==4.66.5
-pyyaml==6.0.2
-pandas==2.2.2
-scikit-learn==1.5.1
+tqdm
+pyyaml
+pandas
+scikit-learn
+scipy
 ```
+
+Use latest stable versions. Pin exact versions in `requirements_frozen.txt` after verifying compatibility (saved as MLflow artifact per run).
 
 ---
 
@@ -104,131 +122,93 @@ scikit-learn==1.5.1
 .git/
 __pycache__/
 *.pyc
-data/
-outputs/
-mlruns/
 *.egg-info/
 .pytest_cache/
 notebooks/
 *.ipynb
+docs/
 ```
 
 ---
 
-## 6. Phase 1: Develop and Test in Colab
+## 6. Development Workflow (VSCode Remote-SSH on L4 VM)
 
-### 6.1 Setup Colab Environment
+### 6.1 Connect to Dev VM
 
-```python
-# Mount Google Drive (for code) or clone from repo
-from google.colab import drive
-drive.mount('/content/drive')
-
-# Or clone repo
-!git clone https://github.com/your-org/rts-segmentation-v2.git
-%cd rts-segmentation-v2
-
-# Install same dependencies as Docker (test compatibility)
-!pip install segmentation-models-pytorch==0.3.4 \
-             albumentations==1.4.11 \
-             rasterio==1.3.10 \
-             geopandas==1.0.1 \
-             mlflow==2.15.0
+```bash
+# From local machine
+gcloud compute instances start gpu-vm-l4 --zone=us-west1-a
+gcloud compute ssh gpu-vm-l4 --zone=us-west1-a
 ```
+
+Or use VSCode Remote-SSH extension (see `vm_instruction.md`).
 
 ### 6.2 Mount GCS Data
 
-```python
-# Authenticate
-from google.colab import auth
-auth.authenticate_user()
-
-# Mount GCS bucket via gcsfuse
-!echo "deb https://packages.cloud.google.com/apt gcsfuse-jammy main" | sudo tee /etc/apt/sources.list.d/gcsfuse.list
-!curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-!sudo apt-get update && sudo apt-get install -y gcsfuse
-
-!mkdir -p /content/data
-!gcsfuse abruptthawmapping /content/data
+```bash
+# In the VM (or inside container with --privileged)
+mkdir -p /data
+gcsfuse --implicit-dirs abruptthawmapping /data
 ```
 
-### 6.3 Test Training Code
+### 6.3 Run Code Directly on VM (fast iteration, no Docker rebuild)
 
-```python
-# Test data loading
-from src.data.dataset import RTSDataset
-dataset = RTSDataset('/content/data/PLANET-RGB', '/content/data/labels')
-print(f"Dataset size: {len(dataset)}")
+For rapid development cycles, run directly in the VM's Python environment:
 
-# Test model
-import segmentation_models_pytorch as smp
-model = smp.UnetPlusPlus(encoder_name='efficientnet-b7', in_channels=3, classes=1)
-print("Model created")
-
-# Test forward pass
-import torch
-x = torch.randn(2, 3, 512, 512).cuda()
-model = model.cuda()
-out = model(x)
-print(f"Output shape: {out.shape}")
-
-# Test a few training steps
-# ... your training loop ...
+```bash
+source ~/ml-env/bin/activate
+python scripts/check_data.py --config configs/baseline.yaml
+python scripts/train.py --config configs/baseline.yaml
 ```
 
-### 6.4 Iterate Until Code Works
+### 6.4 Run via Docker (mirrors production environment)
 
-- Fix bugs in Colab (fast feedback loop)
-- Test data augmentation pipeline
-- Verify loss computation
-- Run a few epochs to confirm training progresses
+```bash
+docker run --rm --gpus '"device=0"' \
+    --privileged \           # required for gcsfuse inside container
+    -v /mnt/outputs:/outputs \
+    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_key.json \
+    gcr.io/abruptthawmapping/rts-train:v2 \
+    scripts/train.py --config configs/baseline.yaml
+```
 
 ---
 
-## 7. Phase 2: Build Image with Cloud Build
+## 7. Build Image with Cloud Build
 
-Once code works in Colab, build the Docker image.
+Once code works on the dev VM, build the production Docker image.
 
 ### 7.1 Authenticate and Set Project
 
-```python
-from google.colab import auth
-auth.authenticate_user()
-
-!gcloud config set project abruptthawmapping
+```bash
+gcloud config set project abruptthawmapping
+gcloud auth configure-docker
 ```
 
-### 7.2 Build and Push with Cloud Build
+### 7.2 Build and Push
 
-```python
-# Navigate to project directory
-%cd /content/rts-segmentation-v2
-
-# Build and push in one command
-# Cloud Build will:
-#   1. Upload your code to Cloud Storage
-#   2. Build the Docker image remotely
-#   3. Push to Google Container Registry
-!gcloud builds submit --tag gcr.io/abruptthawmapping/rts-train:v2 .
+```bash
+# From repo root
+gcloud builds submit --tag gcr.io/abruptthawmapping/rts-train:v2 . --timeout=1800
 ```
 
-This takes ~10-15 minutes (mostly pulling the base image and pip install).
+This takes ~10–15 minutes (base image pull + pip install).
 
 ### 7.3 Verify Image Exists
 
-```python
-!gcloud container images list --repository=gcr.io/abruptthawmapping
-!gcloud container images list-tags gcr.io/abruptthawmapping/rts-train
+```bash
+gcloud container images list-tags gcr.io/abruptthawmapping/rts-train
 ```
 
 ---
 
-## 8. Phase 3: Run on PDG VM
+## 8. Run on Production VM (A100/H100)
 
-### 8.1 SSH to VM
+### 8.1 SSH to Production VM
 
 ```bash
-gcloud compute ssh rts-vm --zone=us-central1-a
+gcloud compute ssh ml-training-vm --zone=us-west1-b
 ```
 
 ### 8.2 Pull Image
@@ -248,98 +228,82 @@ docker run --rm --gpus all gcr.io/abruptthawmapping/rts-train:v2 \
 
 ```bash
 docker run --rm --gpus '"device=0"' \
-    -v /mnt/data:/data:ro \
+    --privileged \
     -v /mnt/outputs:/outputs \
+    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_key.json \
     gcr.io/abruptthawmapping/rts-train:v2 \
     scripts/train.py --config configs/baseline.yaml
 ```
 
-### 8.5 Run Training (Multi-GPU with DDP)
+### 8.5 Run Training (Multi-GPU — DDP, when implemented)
 
 ```bash
 docker run --rm --gpus all \
     --shm-size=32g \
-    -v /mnt/data:/data:ro \
+    --privileged \
     -v /mnt/outputs:/outputs \
+    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
     gcr.io/abruptthawmapping/rts-train:v2 \
     -m torch.distributed.run \
     --nproc_per_node=8 \
     scripts/train.py --config configs/baseline.yaml
 ```
 
-**Note**: `--shm-size=32g` is required for DataLoader workers with multi-GPU.
+Note: `--shm-size=32g` required for DataLoader workers with multi-GPU.
 
 ### 8.6 Run in Background (Detached)
 
 ```bash
 docker run -d --gpus all \
+    --privileged \
     --shm-size=32g \
     --name rts-training \
-    -v /mnt/data:/data:ro \
     -v /mnt/outputs:/outputs \
+    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
     gcr.io/abruptthawmapping/rts-train:v2 \
-    -m torch.distributed.run \
-    --nproc_per_node=8 \
     scripts/train.py --config configs/baseline.yaml
 
-# Check logs
+# Monitor logs
 docker logs -f rts-training
 
-# Stop if needed
+# Stop
 docker stop rts-training
 ```
 
 ---
 
-## 9. Volume Mounts
+## 9. Volume Mounts and Environment Variables
 
-| Container Path | Host Path | Mode | Purpose |
-|----------------|-----------|------|---------|
-| `/data` | `/mnt/data` or GCS | ro | Training data |
-| `/outputs` | `/mnt/outputs` | rw | Checkpoints, logs |
+| Container Path | Host/Config | Mode | Purpose |
+|----------------|-------------|------|---------|
+| `/data` | GCS via gcsfuse (inside container) | ro | Training data |
+| `/outputs` | `/mnt/outputs` on VM | rw | Checkpoints, logs |
 
----
-
-## 10. Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CUDA_VISIBLE_DEVICES` | all | GPU selection |
-| `MLFLOW_TRACKING_URI` | `/outputs/mlruns` | MLflow storage |
-| `NCCL_DEBUG` | - | Set to `INFO` for multi-GPU debugging |
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `MLFLOW_TRACKING_URI` | `gs://abruptthawmapping/mlflow/` | MLflow GCS backend |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP service account JSON | GCS authentication |
+| `CUDA_VISIBLE_DEVICES` | all (default) | GPU selection |
+| `NCCL_DEBUG` | `INFO` | Multi-GPU debugging (set when needed) |
 
 ---
 
-## 11. Iteration Workflow
-
-When you need to change code:
+## 10. Iteration Workflow
 
 ```
-1. Edit code in Colab
-2. Test changes in Colab
-3. Rebuild image:
-   !gcloud builds submit --tag gcr.io/abruptthawmapping/rts-train:v2 .
-4. On PDG VM, pull new image:
+1. Edit code via VSCode Remote-SSH on L4 VM
+2. Run directly on L4 VM to test (fast feedback, no Docker rebuild)
+3. When ready for production run:
+   gcloud builds submit --tag gcr.io/abruptthawmapping/rts-train:v2 .
+4. On production VM, pull new image:
    docker pull gcr.io/abruptthawmapping/rts-train:v2
 5. Run training
 ```
 
-For quick iterations, you can mount code as a volume (dev mode):
-
-```bash
-# On VM - mount local code instead of baked-in code
-docker run --rm --gpus all \
-    -v /home/user/rts-segmentation-v2/src:/app/src:ro \
-    -v /home/user/rts-segmentation-v2/scripts:/app/scripts:ro \
-    -v /mnt/data:/data:ro \
-    -v /mnt/outputs:/outputs \
-    gcr.io/abruptthawmapping/rts-train:v2 \
-    scripts/train.py --config configs/baseline.yaml
-```
-
 ---
 
-## 12. Troubleshooting
+## 11. Troubleshooting
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
@@ -349,29 +313,32 @@ docker run --rm --gpus all \
 | `Permission denied` on /outputs | Volume ownership | `--user $(id -u):$(id -g)` |
 | `rasterio` import error | GDAL missing | Verify Dockerfile has `libgdal-dev` |
 | Image not found on VM | Auth issue | Run `gcloud auth configure-docker` |
+| gcsfuse fails in container | Missing --privileged | Add `--privileged` flag |
 
 ---
 
-## 13. Checklist
+## 12. Checklist
 
 ### Before Cloud Build
-- [ ] Code runs in Colab without errors
+- [ ] Code runs on dev VM without errors
 - [ ] All imports work
-- [ ] Training loop runs for a few steps
-- [ ] requirements.txt has all dependencies
+- [ ] `scripts/check_data.py` passes
+- [ ] Training loop runs for a few steps on L4 VM
+- [ ] requirements.txt complete
 
 ### After Cloud Build
 - [ ] Image appears in GCR
-- [ ] Can pull image on VM
+- [ ] Can pull image on production VM
 - [ ] GPU accessible in container
-- [ ] Training runs and saves checkpoints
+- [ ] Training runs and saves checkpoints to GCS outputs
+- [ ] MLflow logs appear in `gs://abruptthawmapping/mlflow/`
 
 ---
 
-## 14. Next Steps
+## 13. Next Steps
 
 After training works end-to-end:
-1. Run full training experiment
+1. Run full training experiment (baseline.yaml)
 2. Verify checkpoint saving/loading
-3. Confirm MLflow tracking
-4. Build inference container (docker_inference.md)
+3. Confirm MLflow tracking on GCS
+4. Build inference container (separate Dockerfile.inference when inference spec is ready)

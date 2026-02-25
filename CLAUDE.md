@@ -19,18 +19,21 @@ RTSmappingDL/
 ├── inference/
 │   └── inference.md           ← inference pipeline and deployment
 ├── post-inference/
-│   └── post-inference.md      ← post-processing, evaluation
+│   └── post-inference.md      ← post-processing, evaluation (spec TBD)
 ├── computing/
 │   ├── docker_training.md     ← Docker environment
 │   └── vm_instruction.md      ← GCP VM setup
-├── src/                       ← all source code
-│   ├── data/                  ← data loading, transforms, normalization
-│   ├── models/                ← model definitions
-│   ├── losses/                ← loss functions
-│   └── ...
+├── models/                    ← model definitions
+├── losses/                    ← loss functions
+├── utils/                     ← shared utilities
+├── src/                       ← package init only
 ├── tests/                     ← unit and integration tests
-├── configs/                   ← experiment YAML configs
-├── scripts/                   ← entry-point scripts (train.py, inference.py)
+├── configs/                   ← experiment YAML configs (one per experiment)
+├── scripts/                   ← entry-point scripts
+│   ├── train.py               ← single training entry point (config-driven)
+│   ├── inference.py           ← inference entry point
+│   ├── check_data.py          ← standalone data validation script
+│   └── create_splits.py       ← generate splits.yaml from metadata + regions
 ├── notebooks/                 ← exploration only, not production code
 └── docs/                      ← living documentation of results and decisions
 ```
@@ -58,7 +61,7 @@ Build in this order: **data → training → inference → post-inference**. Do 
 
 ### Rule 3: Shared Preprocessing
 
-Data normalization and transforms **must** be implemented as shared modules in `src/data/` that both training and inference import from. Never duplicate preprocessing logic. Training–inference consistency is critical (see `training/training.md` §4).
+Data normalization and transforms **must** be implemented as shared modules in `data/` that both training and inference import from. Never duplicate preprocessing logic. Training–inference consistency is critical (see `training/training.md` §4).
 
 ### Rule 4: Test Before Moving On
 
@@ -80,7 +83,9 @@ Write tests in `tests/` for each module. Tests should be runnable without GPU wh
 - **Augmentation**: albumentations
 - **Experiment tracking**: MLflow
 - **Environment**: Docker (see `computing/docker_training.md`)
-- **Compute**: Test/sanity check with GPU provided by Google colab Pro+ (H100), and full scale training and inference with GCP VMs.
+- **Compute**: GCP VMs only. Dev/test on L4 VM via VSCode Remote-SSH; production training on A100/H100 VM. No Colab. See `computing/vm_instruction.md`.
+- **MLflow**: GCS-backed at `gs://abruptthawmapping/mlflow/`. Tracking URI configurable via `mlflow.tracking_uri` in YAML.
+- **Data storage**: GCS bucket `gs://abruptthawmapping/`, mounted via gcsfuse in Docker. All paths configured in YAML — no hardcoded GCS paths.
 
 ## Code Style
 

@@ -13,12 +13,12 @@ Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS)
 | Resource | Specification |
 |----------|---------------|
 | Cloud | Google Cloud Platform |
-| GPUs | 8× NVIDIA H100 |
+| GPUs | A100 or H100 VM (multi-GPU spec TBD with PDG team) |
 | Budget | $70,000 (training + inference combined) |
 | Framework | PyTorch 2.x |
-| IDE | VSCode |
-| AI-assist | Claude code |
-| Test | Colab Pro+ |
+| IDE | VSCode + Remote-SSH (GCP VMs only — no Colab) |
+| AI-assist | Claude Code |
+| Dev/test | L4 VM (`gpu-vm-l4`) — cheaper, same Docker image |
 
 
 ### 2.3 Reproducibility Configuration
@@ -48,13 +48,16 @@ Train a semantic segmentation model that detects Retrogressive Thaw Slumps (RTS)
 
 ### 3.2 Candidate Models for Experimentation
 
-| Category | Models | Notes |
-|----------|--------|-------|
-| CNN-based | UNet++, DeepLabV3+, | Established segmentation architectures |
-| Transformer-based | SwinTransformer, SegFormer, Mask2Former | May capture long-range dependencies |
-| Vision Foundation Models | SAM, DINOv2, Prithvi, SATMAE | Require domain adaptation fine-tuning |
+Experiment in priority order (stop when diminishing returns):
 
-note: these might be too much to test, can choose 1,2 from the list
+| Priority | Model | Notes |
+|----------|-------|-------|
+| 1 (baseline) | UNet++ + EfficientNet-B7 | Proven in v1; strong CNN baseline |
+| 2 | SegFormer-B5 | Efficient Vision Transformer; strong on dense prediction tasks |
+| 3 | DINOv3 encoder + dense head | Latest DINO self-supervised ViT; confirm model version at time of implementation |
+
+SAM is not a direct fit for pixel-level semantic segmentation (prompt-based mask decoder). Skip unless UNet++ and SegFormer both fail to meet precision targets and a dedicated feasibility study is done.
+Skip Prithvi, SATMAE, SwinTransformer, Mask2Former unless experiments clearly plateau.
 
 ### 3.3 Multi-Modal Fusion (for EXTRA dataset)
 
@@ -118,20 +121,25 @@ Weight loss inversely proportional to class frequency. Options for computing wei
 
 Label boundaries may be uncertain due to resolution mismatch or inherent ambiguity in RTS edges.
 
-**Approach1 : Ignore Regions**
+Both approaches will be implemented and selected via YAML config for ablation:
+```yaml
+boundary_handling: ignore   # options: none | ignore | soft_labels
+boundary_ignore_width: 3    # pixels (used when boundary_handling: ignore)
+soft_label_value: 0.05      # P(background near boundary) when boundary_handling: soft_labels
+```
 
-Exclude pixels within N pixels of label boundaries from loss computation:
-- Simple to implement
-- Proven effective in medical imaging segmentation
-- Baseline: N = 3 pixels
+**Approach 1: Ignore Regions** (`boundary_handling: ignore`)
+- Exclude pixels within `boundary_ignore_width` pixels of label boundaries from loss computation (set to ignore index 255)
+- Applied on-the-fly in the DataLoader using scipy binary dilation on label mask
+- Simple, proven in medical imaging segmentation
+- Default for baseline experiments
 
-**Approach2 : Soft Labels**
+**Approach 2: Soft Labels** (`boundary_handling: soft_labels`)
+- Near-boundary pixels get softened labels: background → `soft_label_value`, RTS → `1 - soft_label_value`
+- Options: constant soft values (0.05/0.95) or distance-based softening
+- Requires using BCE with soft targets (not cross-entropy with integer labels)
 
-Soften label pixels
-- use 0.05,0.95 for background and label
-- or distance based soft labels
-
-Note: choose either
+**Experiment order**: Run baseline with `ignore` first; ablate vs `soft_labels` and `none` in Phase 2 loss experiments.
 ---
 
 ## 6. Metrics
@@ -159,11 +167,16 @@ Object-level evaluation treats each connected component as a detection instance.
 | 0.3 | Relaxed | **Preferred** — approximate detections acceptable |
 | 0.1 | Very relaxed | "Did we find something here?" |
 
-**Matching Rules**:
-- One prediction covering multiple ground truth objects: Count as 1 TP + (N-1) FN
-- Multiple predictions covering one ground truth: Count as 1 TP + (M-1) FP
+**Matching Algorithm**: Greedy 1-to-1 matching:
+1. Threshold probability map → binary mask; extract connected components (blobs) for both prediction and ground truth
+2. Compute pairwise IoU for all (predicted blob, GT blob) pairs
+3. Sort predicted blobs by mean probability (highest first)
+4. Match each predicted blob to its highest-IoU GT blob, only if IoU ≥ threshold and that GT blob is unmatched
+5. Matched pairs → TP; unmatched predictions → FP; unmatched GT blobs → FN
 
-Note: need doublecheck
+**Edge cases** (expected to be rare given RTS morphology — noted for awareness, not implemented):
+- One large prediction overlapping multiple GT objects → matched to the best-IoU GT; remaining GT blobs count as FN
+- Multiple predictions overlapping one GT → only the first (highest confidence) matches; the rest count as FP
 
 ### 6.3 Summary Metrics
 
@@ -291,10 +304,18 @@ Run inference at multiple effective resolutions to catch different RTS scales. S
 
 | Phase | Epochs | Backbone | Decoder | LR |
 |-------|--------|----------|---------|-----|
-| Phase 1 | 1–10 | Frozen | Training | 3e-4 |
-| Phase 2 | 11+ | Training | Training | 1e-4 (backbone: 1e-5) |
+| Phase 1 | 1–freeze_epochs | Frozen | Training | frozen_lr |
+| Phase 2 | freeze_epochs+ | Training | Training | base_lr (backbone: base_lr × backbone_lr_multiplier) |
 
-After unfreezing, backbone uses 0.1× the base learning rate to prevent catastrophic forgetting.
+All LR values configurable in YAML:
+```yaml
+lr:
+  frozen_lr: 1e-3           # decoder-only phase (suggested default)
+  base_lr: 1e-4             # full fine-tuning base LR
+  backbone_lr_multiplier: 0.1  # backbone LR = base_lr × multiplier
+freeze_backbone_epochs: 10  # number of epochs for Phase 1
+```
+After unfreezing, backbone uses `backbone_lr_multiplier × base_lr` to prevent catastrophic forgetting.
 
 **EMA (Exponential Moving Average)**:
 
@@ -311,11 +332,13 @@ EMA maintains a smoothed copy of model weights. Final model uses EMA weights.
 |-----------|-------|
 | Mixed precision | FP16 (enabled) |
 | Batch size (per GPU) | 32 |
-| Effective batch size | 256 (32 × 8 GPUs) |
+| Effective batch size | 32 × n_gpus |
+| Multi-GPU (DDP) | Not implemented initially; code structured to allow DDP addition later |
 | Max epochs | 300 |
 | Early stopping patience | 20 epochs |
 | Early stopping metric | Val-Realistic PR-AUC |
 | Early stopping min delta | 0.001 |
+| Validation frequency | Every 5 epochs (configurable: `val_frequency`) |
 
 **Data Loading**:
 
@@ -413,7 +436,7 @@ Create a standalone script check_data.py that iterates through the DataLoader (n
 1. Unfreeze backbone with lower learning rate (0.1× base LR)
 2. Apply curriculum learning schedule for negative ratio
 3. Update EMA weights after each optimizer step
-4. Validate on Val-Realistic every N epochs (N determined by dataset size)
+4. Validate on Val-Realistic every `val_frequency` epochs (configurable in YAML; suggested default 5)
 5. Check early stopping criterion on Val-Realistic PR-AUC
 6. Save checkpoint if best metric achieved
 
@@ -501,6 +524,14 @@ For each prevalence ratio (1:200, 1:500, 1:1000):
 
 ### 13.1 MLflow Configuration
 
+**Tracking URI**: GCS-backed MLflow at `gs://abruptthawmapping/mlflow/`. Configurable via YAML:
+```yaml
+mlflow:
+  tracking_uri: "gs://abruptthawmapping/mlflow/"
+  experiment_name: "rts-segmentation-v2"
+```
+The `MLFLOW_TRACKING_URI` environment variable overrides the YAML value if set (for flexibility).
+
 **Experiment Structure**:
 - Experiment name: `rts-segmentation-v2`
 - Each run includes: hyperparameters, metrics, artifacts, system info
@@ -559,7 +590,16 @@ Experiments should follow dependency order:
 - Compare: Early fusion, Late fusion
 - Select best fusion strategy
 
-Note: each experiment should have one .py file to execute.
+**Experiment execution**: A single `scripts/train.py` handles all experiments. Each experiment is defined by its own YAML config file in `configs/`:
+```
+configs/
+├── baseline.yaml         # Phase 1: UNet++, focal loss
+├── exp02_loss.yaml       # Phase 2: loss ablation (focal vs tversky vs class-balanced CE)
+├── exp03_curriculum.yaml # Phase 3: curriculum schedule ablation
+├── exp04_arch.yaml       # Phase 4: architecture comparison
+└── exp05_aux.yaml        # Phase 5: auxiliary data ablation
+```
+Run an experiment: `python scripts/train.py --config configs/baseline.yaml`
 ---
 
 ## 14. Statistical Significance

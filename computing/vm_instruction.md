@@ -1,5 +1,13 @@
 # GCP VM Guide for ML Training (Windows)
 
+## Development Environment
+
+**Primary workflow**: VSCode Remote-SSH connected to `gpu-vm-l4`. This replaces any Colab-based development.
+- Install the VSCode "Remote - SSH" extension
+- Add SSH config: `Host gpu-vm-l4` → `gcloud compute ssh gpu-vm-l4 --zone=us-west1-a` output
+- Open the repo folder remotely: all editing, running, and debugging happens on the VM
+- Same Docker image used on dev VM and production VM — no environment drift
+
 Instructions: https://docs.google.com/document/d/1BFwFRtXIYNjjQ7ovyEp6O1v31oTO8dSn8IDPotUBxhM/edit?tab=t.0#heading=h.lesqdidddz9v
 
 
@@ -254,12 +262,21 @@ Status should show "TERMINATED".
 
 ---
 
-## Cost-Saving: this part needs to improve- 
-### rule of GPU-TASK
-to formulate rules about what GPU/vm to use for different tasks, to reduce cost, do not use pdg H100 for all tasks, for sanity check or test run just use the gpu from Colab vm
-the rule needs to be applied in the actual scripts.
-1. **Always stop VMs when not in use** - GPU VMs are expensive
-2. **Use L4 VM for debugging** - cheaper than A100
-3. **Use A100 only for final training runs**
-4. **Store large datasets in Filestore** - don't re-upload each time
-5. **Use preemptible/spot instances** for fault-tolerant training (ask Todd to set up)
+## Cost-Saving: GPU-Task Rules
+
+Assign the right VM to the right task. These rules apply to all training and inference jobs.
+
+| Task | VM | Rationale |
+|------|----|-----------|
+| Code editing, exploration, debugging | L4 VM (`gpu-vm-l4`) | Cheapest GPU; sufficient for single-step tests |
+| `scripts/check_data.py`, data validation | L4 VM | No heavy compute needed |
+| Short training runs, sanity checks (< 1 epoch) | L4 VM | Fast feedback loop |
+| Full experiment training | A100 VM (`ml-training-vm`) or PDG H100 | High throughput needed |
+| Pan-arctic inference | PDG workflow VMs | Coordinate with Luigi/Todd |
+
+**Rules**:
+1. **Always stop VMs when not in use** — GPU VMs are expensive even when idle
+2. **Develop and iterate on L4** — same Docker image as production, cheaper cost
+3. **Use A100/H100 only for full training runs** — confirm runs are ready before switching
+4. **Data lives in GCS** — never upload the full dataset to VM local disk; use gcsfuse
+5. **Use preemptible/spot instances** for long training runs when possible (ask Todd to set up for PDG VMs)

@@ -122,11 +122,12 @@ Overlapping tiles ensure RTS at tile boundaries are detected where both headwall
 
 ### 4.3 Tile Grid Generation
 
+The inference tile grid is **pre-filtered externally** (land-only, permafrost zones) before the inference pipeline runs. The inference code receives a pre-filtered tile list and processes it as-is — no filtering logic inside the inference container.
+
 1. Define bounding box for inference region (or per-region bounding boxes)
 2. Generate tile grid with specified overlap
-3. Filter tiles to land areas only (exclude ocean)
-4. Optionally filter to permafrost regions (reduces false positives)
-5. Save tile grid as GeoPackage with tile IDs and bounding boxes
+3. Apply land/permafrost filtering externally (outside this pipeline)
+4. Save filtered tile grid as CSV with tile IDs and bounding boxes → this is the `--tile-list` input to the inference script
 
 ---
 
@@ -455,28 +456,44 @@ The inference pipeline integrates with the existing PDG (Permafrost Discovery Ga
 - Logging: Compatible format for PDG monitoring
 - Parallelization: Workflow handles VM orchestration
 
-### 13.2 Parallelization Strategy
+### 13.2 Docker Entry Point
+
+The inference container exposes a CLI interface for PDG workflow integration:
+
+```bash
+python scripts/inference.py --config configs/inference.yaml --tile-list tiles.csv
+```
+
+- `--config`: YAML file specifying model path, GCS paths, scales, TTA config, threshold
+- `--tile-list`: CSV file with tile IDs and bounding boxes to process (pre-filtered by PDG/RTS team)
+- Output: Prediction tiles written to GCS path defined in config; `inference_log.json` updated on completion
+
+### 13.3 Parallelization Strategy
 
 **Tile-level parallelism** (managed by PDG workflow):
-1. Partition tile grid into chunks (e.g., by region or tile ID range)
-2. Spawn multiple VMs, each processing a chunk
-3. Each VM runs the inference Docker container
-4. Merge outputs after all chunks complete
+1. RTS team generates the full filtered tile grid (CSV)
+2. PDG team (Luigi/Todd) partitions the CSV into chunks and spawns VMs
+3. Each VM runs the inference container with its assigned tile list chunk
+4. RTS team merges outputs after all chunks complete
 
 **Within-VM parallelism**:
 - Single GPU processes tiles in batches
 - Multiple CPU workers handle I/O prefetching
 - No multi-GPU within single VM (simplifies code)
 
-### 13.3 Coordination
+### 13.4 Coordination
 
 | Responsibility | Owner |
 |----------------|-------|
-| Tile grid generation | RTS team |
-| VM orchestration | PDG team (Luigi/Todd) |
-| Inference container | RTS team |
+| Tile grid generation (filtered CSV) | RTS team |
+| VM orchestration + tile partitioning | PDG team (Luigi/Todd) |
+| Inference Docker container | RTS team |
 | Output merging | RTS team |
 | Quality control | RTS team |
+
+**Interface contract** (to finalize with PDG team):
+- Input: `configs/inference.yaml` + `tiles.csv` (tile_id, bbox columns)
+- Output: Prediction tiles at `{config.output_path}/{tile_id}.tif`; log at `{config.output_path}/inference_log.json`
 
 ---
 
