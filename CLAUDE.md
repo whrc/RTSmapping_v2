@@ -94,6 +94,7 @@ Write tests in `tests/` for each module. Tests should be runnable without GPU wh
 - Config via YAML files in `configs/`, not hardcoded values.
 - Log with Python `logging` module, not print statements.
 - No wildcard imports.
+- Install packages via requirements.txt, not ad-hoc pip install
 
 ## Documentation
 
