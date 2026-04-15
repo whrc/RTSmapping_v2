@@ -1,53 +1,56 @@
 # Data Check
 
-## Goal
+Two separate checks at different lifecycle stages. Source of truth is `data/data.md`.
 
-Confirm the dataset in `gs://abrupt_thaw/RTS_MODEL_V2/DATA` matches `data/data.md`（ignore irrelevant files or folders）, and report dataset statistics.
+---
 
-## Deliverable
+## 1. Format Check
 
-`scripts/check_data_bucket.py` — one script, flat, `argparse` + `logging`. Stream files via `/vsigs/` and `google-cloud-storage`; do not download the dataset.
+**When**: after a dataset is crafted in the bucket, before any data loading.
 
-Run:
+**What**: verifies all required files are present with correct names and folder structure per `data.md` §3. Does **not** open or read raster contents.
+
+**Script**: `scripts/check_data_format.py`
+
 ```bash
-python scripts/check_data_bucket.py --bucket gs://abrupt_thaw/RTS_MODEL_V2/DATA
+python scripts/check_data_format.py --bucket gs://abrupt_thaw/RTS_MODEL_V2/DATA
 ```
 
-Output: printed report + `docs/data_check_v{version}.log`. Exit 0 on pass, 1 on fail.
+Output: printed report. Exit 0 on pass, 1 on fail.
 
-## Source of Truth
+### Checks
 
-Read `data/data.md` first. If this file and `data.md` disagree, `data.md` wins — flag the conflict.
+1. **Folder structure** — bucket root contains required directories (`PLANET-RGB/`, `labels/`) and files (`metadata.csv`, `splits.yaml`). Optional: `EXTRA/`, `version.json`.
+2. **File presence** — the directory for image (RGB or EXTRA) contains `.tif` files only; no unexpected nesting or non-`.tif` files.
+3. **Naming convention** — all `.tif` filenames follow `{tile_id}.tif` pattern (numeric IDs, consistent zero-padding).
+4. **Tile ID correspondence** — tile IDs identical across `PLANET-RGB/`, `labels/`, `EXTRA/` (if present), and `metadata.csv` `Tile_id` column. Lists files and reads CSV column values only — never opens rasters.
+5. **metadata.csv schema** — has all required columns in correct order: `Tile_id`, `centroid_lat`, `centroid_lon`, `TrainClass`, `RegionName`, `UIDs`.
+6. **splits.yaml structure** — valid YAML; each split key maps to a list of region name strings.
 
-## Checks
+Report: Checks that passed/failed. Number of positive/negative tiles, number of tiles in train/val/test, number of regions in train/val/test.
+---
 
-Run all checks, aggregate results, do not fail fast.
+## 2. Content Check
 
-1. **Layout** — bucket root has `PLANET-RGB/`, `EXTRA/`(optional), `labels/`, `metadata.csv`, `splits.yaml`, `version.json`(optional).
-2. **Tile correspondence** — set of tile IDs is identical across `PLANET-RGB/`, `EXTRA/`, `labels/`, and `metadata.csv`. Report mismatches.
-3. **metadata.csv schema** — columns match `data.md` §3.3 exactly; `Tile_id` unique; `TrainClass ∈ {Positive, Negative}`; `UIDs` empty iff `TrainClass=Negative`; `RegionName` non-empty.
-4. **Splits** — every region in `splits.yaml` exists in `metadata.csv`; no region in more than one split; flag any metadata region unassigned to a split.
-5. **Rasters (sample all positives + 200 random negatives, seed 42)** — for each sampled `tile_id`:
-   - RGB: `(3, 512, 512)` uint8, values in `[0, 255]`, no NaN.
-   - EXTRA: `(4, 512, 512)`, all finite.
-   - Label: `(512, 512)` uint8, values ⊂ `{0, 1, 255}`.
-   - CRS = `EPSG:3857`; bounds and transform identical across the three files of each tile.
-6. **Label semantics (same sample)** — `Positive` tiles have ≥1 pixel equal to `1`; `Negative` tiles have zero pixels equal to `1`.
+**When**: at data loading time, as a sanity check before training or inference.
 
-## Statistics to Report
+**What**: validates actual data values, shapes, dtypes, geospatial properties, and semantic correctness by reading file contents. Check random 5% of the data.
 
-Compute and print (also save alongside the log):
+**Script**: `scripts/check_data_content.py`
 
-**Tile counts**
-- Total tiles, positive tiles, negative tiles, positive:negative ratio.
-- Tiles per split (train/val/test), with positive/negative breakdown per split.
-- Tiles per region, with positive/negative breakdown.
+```bash
+python scripts/check_data_content.py --bucket gs://abrupt_thaw/RTS_MODEL_V2/DATA
+```
 
-**Polygon / RTS counts**
-- Total unique RTS UIDs across all Positive tiles (parse `UIDs` column).
+Output: printed report. Exit 0 on pass, 1 on fail.
 
-**Label pixel statistics (on sampled rasters)**
-- Number of Positive tiles with 1–10%, 10–50%, >50% RTS pixel coverage.
+### Content checks
 
-**Data version**
-- Contents of `version.json`.
+1. **Metadata values** — `Tile_id` unique; `TrainClass` ∈ {Positive, Negative}; `UIDs` non-empty if Positive; `RegionName` non-empty for all rows.
+2. **Splits consistency** — every region in `splits.yaml` exists in metadata; no region in multiple splits; flag unassigned regions.
+3. **Raster shape & dtype** — RGB: `(3, 512, 512)` uint8, no NaN. EXTRA: `(4, 512, 512)`, all finite. Label: `(512, 512)` uint8, values ⊂ {0, 1, 255}.
+4. **CRS & geospatial** — CRS = EPSG:3857; bounds and transform identical across RGB, label, and EXTRA for each tile.
+5. **Label semantics** — Positive tiles have ≥1 pixel equal to 1; Negative tiles have 0 pixels equal to 1.
+6. 
+
+Report：checks that passed/failed.

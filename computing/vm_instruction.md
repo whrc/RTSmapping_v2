@@ -35,7 +35,10 @@ gcloud compute instances list
 
 ### 1.3 Authorize Your IP (if SSH fails after IP change)
 ```
-curl ifconfig.me
+curl ifconfig.me 
+
+# if ipv4 #
+curl -4 ifconfig.me
 ```
 Then (replace YOUR_IP):
 ```
@@ -46,8 +49,6 @@ gcloud container clusters update autopilot-cluster-1 --region us-west1 --enable-
 ```
 gcloud compute instances start gpu-vm-l4 --zone=us-west1-a
 ```
-
-**Watch out**: `gpu-vm-l4` uses a lowercase **L**, not the number **1**. These look identical in most terminal fonts.
 
 ---
 
