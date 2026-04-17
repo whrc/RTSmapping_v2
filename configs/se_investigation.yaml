@@ -13,8 +13,9 @@ gcs:
 paths:
   vis_dir: "plots/extra_channel_vis"
   cache_dir: "plots/extra_channel_vis/.cache"
-  correlation_output: "plots/extra_channel_vis/correlation"
-  se_v2_output: "plots/extra_channel_vis/se_v2"
+  correlation_output: "plots/extra_channel_vis/se_derived/correlation"
+  variants_output: "plots/extra_channel_vis/se_derived/variants"
+  comparison_output: "plots/extra_channel_vis/se_derived/variants/comparison"
 
 correlation:
   n_held_out: 150

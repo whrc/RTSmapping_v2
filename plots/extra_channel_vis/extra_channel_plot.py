@@ -5,8 +5,8 @@ Produces two figures per polygon comparing auxiliary channels with RTS overlay:
   1. ArcticDEM derivatives (3x3 grid)
   2. Sentinel-derived channels (2x5 grid)
 
-Reads polygon-tile pairs from selected_7_polygons_for_vis.geojson and
-polygon_image_mapping.csv.
+Reads polygon-tile pairs from inputs/polygons.geojson and
+inputs/polygon_image_mapping.csv.
 
 Requires: earthengine-api, numpy, matplotlib, Pillow
 Environment: conda env rts_dataset
@@ -49,7 +49,7 @@ def load_mapping() -> list[dict]:
     polygon_coords, origin_x, origin_y, pixel_scale.
     """
     # Read CSV mapping
-    csv_path = SCRIPT_DIR / "polygon_image_mapping.csv"
+    csv_path = SCRIPT_DIR / "inputs" / "polygon_image_mapping.csv"
     oid_to_tile = {}
     with open(csv_path) as f:
         for row in csv.reader(f):
@@ -60,7 +60,7 @@ def load_mapping() -> list[dict]:
             oid_to_tile[oid] = tile_name
 
     # Read GeoJSON polygons
-    geojson_path = SCRIPT_DIR / "selected_7_polygons_for_vis.geojson"
+    geojson_path = SCRIPT_DIR / "inputs" / "polygons.geojson"
     with open(geojson_path) as f:
         gj = json.load(f)
 
@@ -70,7 +70,7 @@ def load_mapping() -> list[dict]:
         if oid not in oid_to_tile:
             continue
         tile_name = oid_to_tile[oid]
-        tile_path = SCRIPT_DIR / f"{tile_name}.tif"
+        tile_path = SCRIPT_DIR / "inputs" / "tiles" / f"{tile_name}.tif"
         coords = [(c[0], c[1]) for c in feature["geometry"]["coordinates"][0]]
 
         # Read tile metadata from GeoTIFF tags
@@ -438,12 +438,14 @@ def main() -> None:
         s1_data = fetch_sentinel1_sar(bbox, grid)
 
         out_prefix = f"oid{oid}"
+        dem_out = SCRIPT_DIR / "dem_derived" / f"{out_prefix}_arcticdem.png"
+        s2_out = SCRIPT_DIR / "sentinel_derived" / "sentinel2" / f"{out_prefix}_sentinel.png"
+        dem_out.parent.mkdir(parents=True, exist_ok=True)
+        s2_out.parent.mkdir(parents=True, exist_ok=True)
         plot_dem_figure(
-            rgb, dem_data, pixel_coords, label,
-            SCRIPT_DIR / f"{out_prefix}_arcticdem.png")
+            rgb, dem_data, pixel_coords, label, dem_out)
         plot_sentinel_figure(
-            rgb, s2_data, s1_data, pixel_coords, label,
-            SCRIPT_DIR / f"{out_prefix}_sentinel.png")
+            rgb, s2_data, s1_data, pixel_coords, label, s2_out)
 
         logger.info("  Total for %s: %.1fs", label, time.time() - t_start)
 

@@ -14,8 +14,8 @@ GCS paths:
   - gs://abrupt_thaw/RTS_MODEL_V2/DATA/labels/{tile_id}.tif
 
 Outputs:
-  - plots/extra_channel_vis/oid{OID}_se_feasibility.png
-  - plots/extra_channel_vis/oid{OID}_sar_extended.png
+  - plots/extra_channel_vis/se_derived/feasibility/oid{OID}_se_feasibility.png
+  - plots/extra_channel_vis/sentinel_derived/sar_extended/oid{OID}_sar_extended.png
 
 Environment: conda env rts_dataset
 GEE auth: must run `earthengine authenticate` first
@@ -411,18 +411,27 @@ def _load_label_rts_coords(
 
 def _sample_se_at_points(
     se_col: ee.ImageCollection, points: np.ndarray,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Sample SE values at EPSG:4326 points via GEE sampleRegions.
+
+    Each input feature is tagged with its row index via an `idx` property so
+    returned rows can be aligned with the original input order. Rows dropped
+    by GEE (e.g. points falling outside any image) are reported via the
+    ``kept_indices`` return value, which is monotonically increasing.
 
     Args:
         se_col: the SE ImageCollection (tiled, will be mosaicked per chunk)
         points: (n, 2) array of [lon, lat]
 
     Returns:
-        (n_successful, 64) float32 array of SE values
+        (se_vectors, kept_indices):
+          - se_vectors: (m, 64) float32 array of SE values (m <= n), sorted so
+            that row i corresponds to original index kept_indices[i]
+          - kept_indices: (m,) int64 array of input-row indices that survived
     """
     n = len(points)
     all_rows: list[list[float]] = []
+    all_idx: list[int] = []
     band_names_ref: list[str] | None = None
 
     n_chunks = math.ceil(n / PROTOTYPE_CHUNK_SIZE)
@@ -433,8 +442,11 @@ def _sample_se_at_points(
         chunk = points[start:end]
 
         features = [
-            ee.Feature(ee.Geometry.Point([float(lon), float(lat)]))
-            for lon, lat in chunk
+            ee.Feature(
+                ee.Geometry.Point([float(lon), float(lat)]),
+                {"idx": int(start + i)},
+            )
+            for i, (lon, lat) in enumerate(chunk)
         ]
         fc = ee.FeatureCollection(features)
 
@@ -444,7 +456,10 @@ def _sample_se_at_points(
 
         try:
             result = se_image.sampleRegions(
-                collection=fc, scale=10, geometries=False,
+                collection=fc,
+                properties=["idx"],
+                scale=10,
+                geometries=False,
             )
             info = result.getInfo()
         except ee.ee_exception.EEException as exc:
@@ -457,9 +472,10 @@ def _sample_se_at_points(
             if band_names_ref is None:
                 band_names_ref = sorted(
                     k for k in props.keys()
-                    if k not in ("system:index",)
+                    if k not in ("system:index", "idx")
                 )
             all_rows.append([props[b] for b in band_names_ref])
+            all_idx.append(int(props["idx"]))
         pbar.update(1)
 
     pbar.close()
@@ -467,7 +483,10 @@ def _sample_se_at_points(
     if not all_rows:
         raise RuntimeError("sampleRegions returned no data for any chunk")
 
-    return np.array(all_rows, dtype=np.float32)
+    rows_arr = np.array(all_rows, dtype=np.float32)
+    idx_arr = np.array(all_idx, dtype=np.int64)
+    order = np.argsort(idx_arr)
+    return rows_arr[order], idx_arr[order]
 
 
 def build_rts_prototype(
@@ -543,7 +562,7 @@ def build_rts_prototype(
     n_sampled = len(all_points)
 
     # Step 4: sample SE values at those points
-    se_values = _sample_se_at_points(se_col, all_points)
+    se_values, _kept = _sample_se_at_points(se_col, all_points)
     logger.info("  Got SE values for %d points", len(se_values))
 
     # Step 5: compute prototype (mean, re-normalize to unit length)
@@ -951,6 +970,7 @@ def plot_se_feasibility(
                 axes[row, col].set_yticks([])
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     logger.info("Saved: %s", output_path)
@@ -1118,6 +1138,7 @@ def plot_sar_extended(
         ax.set_yticks([])
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     logger.info("Saved: %s", output_path)
@@ -1219,7 +1240,7 @@ def main() -> None:
             polygon_mean_sim=polygon_mean_sim,
             proto_meta=proto_meta,
             title_prefix=label,
-            output_path=SCRIPT_DIR / f"{out_prefix}_se_feasibility.png",
+            output_path=(SCRIPT_DIR / "se_derived" / "feasibility" / f"{out_prefix}_se_feasibility.png"),
         )
 
         # --- Extended SAR ---
@@ -1230,7 +1251,7 @@ def main() -> None:
             pixel_coords=pixel_coords,
             sar_meta=sar_meta,
             title_prefix=label,
-            output_path=SCRIPT_DIR / f"{out_prefix}_sar_extended.png",
+            output_path=(SCRIPT_DIR / "sentinel_derived" / "sar_extended" / f"{out_prefix}_sar_extended.png"),
         )
 
         logger.info("  Total for %s: %.1fs", label, time.time() - t_start)
