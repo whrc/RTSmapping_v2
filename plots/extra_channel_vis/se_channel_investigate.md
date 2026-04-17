@@ -74,8 +74,6 @@ Per-tile PCA is excluded: the basis is fit per tile, so PC semantics drift acros
 
 ### 2.2 Shared Foundation: Per-Tile Standardization
 
-Before any cosine is computed, z-score each RGB channel per tile. Both Phase 2 approaches operate on this standardized space.
-
 Also evaluate as a standalone ablation: single-prototype cosine on per-tile-standardized features. This isolates whether feature-space alone explains the current failure. Output to `plots/extra_channel_vis/se_v2/standardized_single/`.
 
 ### 2.3 Approach 1 — Multi-Prototype Cosine

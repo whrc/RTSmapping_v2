@@ -208,6 +208,7 @@ def select_held_out_tiles(
     """
     cache_dir = Path(config["paths"]["cache_dir"])
     cache_file = cache_dir / "held_out_tile_ids.json"
+    pos_cache_file = cache_dir / "positive_tile_ids.json"
     seed = config["seed"]
     n_held_out = n_override or config["correlation"]["n_held_out"]
 
@@ -219,28 +220,38 @@ def select_held_out_tiles(
             logger.info("Loaded %d held-out tile IDs from cache", len(cached))
             return cached
 
-    # Discover all label tiles
-    logger.info("Discovering label tiles on GCS...")
-    all_tile_ids = _list_label_tiles()
-    logger.info("Found %d label tiles", len(all_tile_ids))
+    # Reuse positive-tile cache if present (shared with se_variants.py)
+    if pos_cache_file.exists():
+        with open(pos_cache_file) as f:
+            positive_ids = sorted(json.load(f))
+        logger.info(
+            "Loaded %d positive tile IDs from cache", len(positive_ids),
+        )
+    else:
+        logger.info("Discovering label tiles on GCS...")
+        all_tile_ids = _list_label_tiles()
+        logger.info("Found %d label tiles", len(all_tile_ids))
 
-    # Filter to positive tiles (those with RTS pixels)
-    logger.info("Checking which tiles have RTS pixels (parallel)...")
-    positive_ids = []
-    with ThreadPoolExecutor(max_workers=32) as pool:
-        futures = {
-            pool.submit(_check_tile_has_rts, tid): tid for tid in all_tile_ids
-        }
-        for future in tqdm(
-            as_completed(futures), total=len(futures),
-            desc="Filtering positive tiles", unit="tile",
-        ):
-            tid, has_rts = future.result()
-            if has_rts:
-                positive_ids.append(tid)
+        logger.info("Checking which tiles have RTS pixels (parallel)...")
+        positive_ids = []
+        with ThreadPoolExecutor(max_workers=32) as pool:
+            futures = {
+                pool.submit(_check_tile_has_rts, tid): tid
+                for tid in all_tile_ids
+            }
+            for future in tqdm(
+                as_completed(futures), total=len(futures),
+                desc="Filtering positive tiles", unit="tile",
+            ):
+                tid, has_rts = future.result()
+                if has_rts:
+                    positive_ids.append(tid)
 
-    positive_ids.sort()
-    logger.info("Found %d positive tiles", len(positive_ids))
+        positive_ids.sort()
+        logger.info("Found %d positive tiles", len(positive_ids))
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        with open(pos_cache_file, "w") as f:
+            json.dump(positive_ids, f, indent=2)
 
     # Random sample
     rng = np.random.RandomState(seed)
@@ -390,8 +401,18 @@ def compute_correlations(
         if np.ndim(corr) == 0:
             corr = np.array([[1.0, corr], [corr, 1.0]])
         return corr
-    else:
-        return np.corrcoef(data, rowvar=False)
+    # Pearson: mask zero-variance columns so they produce NaN cells instead of
+    # poisoning the whole matrix via divide-by-zero in np.corrcoef.
+    stds = data.std(axis=0)
+    valid = stds > 0
+    n = data.shape[1]
+    corr = np.full((n, n), np.nan)
+    if valid.sum() >= 2:
+        sub = np.corrcoef(data[:, valid], rowvar=False)
+        idx = np.where(valid)[0]
+        corr[np.ix_(idx, idx)] = sub
+    np.fill_diagonal(corr, 1.0)
+    return corr
 
 
 # ---------------------------------------------------------------------------
@@ -683,8 +704,16 @@ def main() -> None:
             output_dir / f"heatmap_{regime}.png",
         )
 
-    # Pearson heatmap
-    if not np.any(np.isnan(pearson_all)):
+    # Pearson heatmap: allow NaN cells (zero-variance columns); skip only if
+    # the full matrix is unusable.
+    if np.any(~np.isnan(pearson_all)):
+        n_nan = int(np.isnan(pearson_all).sum())
+        if n_nan:
+            logger.warning(
+                "Pearson heatmap has %d NaN cells (zero-variance cols); "
+                "rendering with NaN masked",
+                n_nan,
+            )
         plot_heatmap(
             pearson_all,
             "Pearson Correlation — all pixels",
