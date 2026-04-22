@@ -1,0 +1,32 @@
+# PyTorch installed separately with the CUDA index on the VM:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Keep that out of this file so pip install -r requirements.txt stays index-agnostic.
+
+# Geospatial
+rasterio>=1.3
+geopandas>=0.14
+shapely>=2.0
+pyproj>=3.6
+
+# Data / numerics
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+scikit-learn>=1.3
+
+# Modeling
+segmentation-models-pytorch>=0.3
+albumentations>=1.4
+
+# Experiment tracking
+mlflow[gcs]>=2.10
+
+# GCS
+google-cloud-storage>=2.14
+
+# Config / utils
+pyyaml>=6.0
+tqdm>=4.66
+
+# Tests
+pytest>=7.4

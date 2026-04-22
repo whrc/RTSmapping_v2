@@ -7,7 +7,7 @@ All project outputs must follow these format conventions:
 | Data Type | Format | Extension | Compression | Notes |
 |-----------|--------|-----------|-------------|-------|
 | Training images (RGB) | GeoTIFF | `.tif` | LZW | 512×512, EPSG:3857 |
-| Training images (EXTRA) | GeoTIFF | `.tif` | LZW | 512×512, 4 channels |
+| Training images (EXTRA) | GeoTIFF | `.tif` | LZW | 512×512, N channels (N chosen per experiment; stacked order must match `configs/*.yaml §channels.extra`) |
 | Training labels | GeoTIFF | `.tif` | LZW | uint8, values {0, 1, 255} |
 | Prediction tiles | COG | `.tif` | Deflate | float32 probability |
 | Regional mosaics | COG | `.tif` | Deflate | With overviews |

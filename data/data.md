@@ -195,17 +195,21 @@ Label: (512, 512, 1) — uint8, values {0, 1， 255}
 
 **EXTRA: derived from other sources, resolution resampled to match the RGB**
 ```
-Image: (512, 512, N) — multi-band GeoTIFF, fixed band order defined in §9
+Image: (512, 512, N) — multi-band GeoTIFF, band count N and band order chosen per experiment
 Label: (512, 512, 1) — uint8, values {0, 1, 255}
 ```
-Current bands: NDVI, NIR (from Sentinel-2), RE (Relative Elevation), SR (Shaded Relief) from ArcticDEM.
-Additional channels may be added in future (e.g. slope, aspect from ArcticDEM， NDMI, NBR).
+Example bands currently in use: NDVI, NIR (from Sentinel-2), RE (Relative Elevation), SR (Shaded Relief) from ArcticDEM. These are *examples*, not a fixed contract — any multi-band EXTRA raster works (e.g. slope, aspect from ArcticDEM, NDMI, NBR, SAR, GEE satellite embeddings).
 
-**Channel selection at training time**: Specified in YAML config by name:
+**Channel selection at training time**: Specified in the YAML config (see `configs/baseline.yaml` §channels) as a list of `{name, band}` entries. `name` is an arbitrary label used in `normalization_stats.json` and logs; `band` is the 0-indexed position inside the EXTRA GeoTIFF. Example:
 ```yaml
-extra_channels e.g.: [ndvi, nir, re, sr]   # subset or all channels
+channels:
+  extra:
+    - {name: ndvi, band: 0}
+    - {name: nir,  band: 1}
+    - {name: re,   band: 2}
+    - {name: sr,   band: 3}
 ```
-The DataLoader maps each name to its band index using the fixed registry in §9. Adding a new channel requires: (1) adding it to the §9 registry, (2) regenerating EXTRA .tif files with the new band appended.
+Changing the stacked EXTRA set = edit the YAML. No code change. §9 below shows one concrete layout but is not authoritative.
 
 **Build order**: Generate planet_rgb first for positive and negative samples, then derive EXTRA by extracting auxiliary channels with the planet_rgb extent (footprint).
 
@@ -215,7 +219,7 @@ All auxiliary data must be:
 1. Reprojected to EPSG:3857
 2. Resampled to match PlanetScope nominal resolution (~3 m) using **bilinear interpolation** for all channels
 3. Co-registered with RGB using GeoTIFF bounding box information
-4. Stacked as channels in the fixed order defined in §9
+4. Stacked as channels in an order you keep stable across the dataset (that same order is what you reference by `band` index in the YAML config). §9 shows one example layout.
 
 ---
 
@@ -264,10 +268,12 @@ models/
 | dataset_version | Version string from `data/version.json` (e.g. "2.0"). This file is created as part of the data pipeline and committed to the repo. |
 | computed_date | ISO timestamp of computation |
 | n_tiles_used | Number of tiles used in computation |
-| rgb.mean | List of 3 values [R, G, B] |
-| rgb.std | List of 3 values [R, G, B] |
-| extra.mean | List of 4 values [NDVI, NIR, RE, SR] |
-| extra.std | List of 4 values [NDVI, NIR, RE, SR] |
+| rgb.channel_names | Fixed: `["R", "G", "B"]` |
+| rgb.mean | List of 3 values, order matches `rgb.channel_names` |
+| rgb.std | List of 3 values, order matches `rgb.channel_names` |
+| extra.channel_names | List of N names declared in the config (e.g. `["ndvi", "nir", "re", "sr"]`). Omit the whole `extra` block when training RGB-only. |
+| extra.mean | List of N values, order matches `extra.channel_names` |
+| extra.std | List of N values, order matches `extra.channel_names` |
 
 Note: the above extracts mean and std for z-score standardisation, can also get mins and maxs for 0-1 normalisation.
 
@@ -362,20 +368,24 @@ Run before training:
 
 ## 9. Channel Index Reference
 
-### RGB
-| Index | Channel | 
-|-------|---------|
-| 0 | Red | 
-| 1 | Green | 
-| 2 | Blue | 
+RGB band order is fixed. EXTRA is declared per-experiment in the YAML config — the table below is *one example*, not a contract. Keep whatever layout you write to disk consistent across the dataset and referenced correctly in `configs/*.yaml §channels.extra`.
 
-### EXTRA
-| Index | Channel | 
+### RGB (fixed)
+| Index | Channel |
 |-------|---------|
-| 0 | NDVI |
-| 1 | NIR | 
-| 2 | Relative Elevation (RE) | 
-| 3 | Shaded Relief (SR) |
+| 0 | Red |
+| 1 | Green |
+| 2 | Blue |
+
+### EXTRA (example layout — adjust freely per experiment)
+| Index | Channel | Source |
+|-------|---------|--------|
+| 0 | NDVI | Sentinel-2 |
+| 1 | NIR | Sentinel-2 |
+| 2 | Relative Elevation (RE) | ArcticDEM |
+| 3 | Shaded Relief (SR) | ArcticDEM |
+
+Other examples: slope, aspect, NDMI, NBR, SAR backscatter, GEE satellite embeddings. Any combination works as long as the YAML points at the right band indices.
 
 ### Label File
 | Value | Meaning |

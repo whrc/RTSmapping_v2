@@ -67,6 +67,8 @@ Data normalization and transforms **must** be implemented as shared modules in `
 
 Write tests in `tests/` for each module. Tests should be runnable without GPU where possible. For the data pipeline, create a standalone `scripts/check_data.py` that iterates through the DataLoader to verify augmentations, normalization, and tensor collation work end-to-end (see `training/training.md` §10.1).
 
+See `tests/tests.md` for the test-suite living doc — per-test inventory, strictness ratings, known coverage gaps, and conventions. **When you add, remove, or meaningfully change a test, update `tests/tests.md` in the same change.**
+
 ## Technical Constraints
 
 - **CRS**: EPSG:3857 everywhere. No exceptions.
