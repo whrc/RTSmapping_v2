@@ -66,6 +66,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY data/ /app/data/
 COPY models/ /app/models/
 COPY losses/ /app/losses/
+COPY training/ /app/training/
 COPY utils/ /app/utils/
 COPY configs/ /app/configs/
 COPY scripts/ /app/scripts/

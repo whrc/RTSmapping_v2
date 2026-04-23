@@ -23,13 +23,15 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
-## Status — 2026-04-22
+## Status — 2026-04-23
 
-- **Spec phase**: complete except `post-inference/post-inference.md` (deferred until after inference is built).
-- **SE-channel investigation**: landed (`scripts/channel_correlation.py`, `scripts/se_variants.py`, plots). Done.
-- **Production code**: none yet. Only `scripts/check_data_format.py` exists from the data-ops side.
-- **Dataset v2.0**: partially ready in `gs://abruptthawmapping/training/v2.0/` — some tiles/metadata/region boundaries exist, not all. Phase 0 runs on synthetic fixtures for tests; real-data validation happens as the bucket finalizes.
-- **Next step**: Phase 0 — build the shared data pipeline on the L4 VM.
+- **Spec phase**: complete except `post-inference/post-inference.md`; `training/training.md` and `inference/inference.md` expanded with the §4 train-inference consistency contract, overlap math, multi-scale / TTA gates, NoData handling, deployment-package layout (Phase 1 Step 0.5).
+- **Phase 0** (data pipeline): complete, merged as PR #8.
+- **Phase 1** (training loop): code-complete on synthetic fixtures; real-data smoke pending.
+  - Models, losses, training utilities, scripts/train.py, MLflow wiring, visualizations, packaging & evaluation scripts, deployment-config template — all landed. 113 tests green (105 fast + 8 end-to-end training smoke).
+  - Pending: real-data smoke on L4 VM (`scripts/train.py --config configs/smoke.yaml`) → then Dockerfile materialization → then production run on A100/H100. Phase 1 Step 8.5 (inference feasibility gates) and Step 8 (one-shot test eval) run after the production baseline completes.
+- **Dataset v2.0**: see status below — Phase 0 runs on synthetic fixtures for tests; real-data validation is the next gate.
+- **Next step**: Phase 1 Step 7b — real-data smoke on L4 VM once v2.0 bucket is finalized enough to have sample tiles for at least 2 regions.
 
 ---
 
@@ -37,9 +39,9 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
-| **Phase 0** | Data pipeline (`data/`, `utils/`, `scripts/create_splits.py`, `scripts/compute_normalization_stats.py`, `scripts/check_data_content.py`, `scripts/check_data.py`, tests, `configs/baseline.yaml`) | **in progress** (2026-04-22 start) |
-| Phase 1 | Training loop (`models/`, `losses/`, `scripts/train.py`, MLflow wiring, Dockerfile build) | pending |
-| Phase 2 | Inference (`scripts/inference.py`: tiling, multi-scale, TTA, COG output, vectorization) | pending |
+| **Phase 0** | Data pipeline (`data/`, `utils/`, `scripts/create_splits.py`, `scripts/compute_normalization_stats.py`, `scripts/check_data_content.py`, `scripts/check_data.py`, tests, `configs/baseline.yaml`) | **complete** (PR #8 merged 2026-04-23) |
+| **Phase 1** | Training loop (`models/`, `losses/`, `training/`, `scripts/train.py`, `scripts/evaluate_test.py`, `scripts/package_model.py`, `scripts/check_inference_normalization.py`, `scripts/inference_feasibility.py`, `configs/deployment.yaml`, MLflow, visualizations, Dockerfile build) | **code-complete on synthetic** (2026-04-23); pending real-data smoke on L4 and Dockerfile build |
+| Phase 2 | Inference (`scripts/inference.py`: overlap-aggregated tiling per inference.md §4, optional multi-scale / TTA per §6.4/§7.4, COG output, vectorization) | pending |
 | Phase 3 | Post-inference spec finalization + implementation (`scripts/post_inference.py`) | pending |
 
 Build order is strict (`CLAUDE.md` §Rule 2): complete and test each phase before moving on.
@@ -63,3 +65,4 @@ For the coding agent: on first load, read this doc and the relevant spec md(s) f
 ### Log
 
 - 2026-04-22 — Living doc seeded. Phase 0 data pipeline build started on L4 VM.
+- 2026-04-23 — Phase 0 PR #8 merged to `main`; `phase1-training-loop` rebased. Phase 1 Step 0.5 methodology lock-in committed (train-inference consistency contract in training.md §4.1–§4.6; overlap math + NoData + deployment-package layout in inference.md). Phase 1 code shipped in 7 logical commits: Step 0.5 (methodology), Steps 1–2 (models + losses), Step 3 (training utilities), Step 5 (MLflow + visualizations), Steps 4 + 7a (train.py + synthetic end-to-end smoke), Steps 6a + 8 + 8.5 (deployment package + test eval + feasibility gates), and docs updates. 113 tests green (105 fast ~12 s + 8 end-to-end train-smoke ~130 s). Deferred: Step 6b Dockerfile.train (after real-data smoke), Step 7b real-data smoke on L4, the actual A100/H100 300-epoch production run, and the Step 8/8.5 gates against that run's deployment package.

@@ -1,0 +1,38 @@
+FROM nvcr.io/nvidia/pytorch:24.05-py3
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# System dependencies for geospatial + GCS mounting
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgdal-dev gdal-bin fuse curl ca-certificates gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# gcsfuse for GCS bucket mounting
+RUN echo "deb https://packages.cloud.google.com/apt gcsfuse-jammy main" \
+        | tee /etc/apt/sources.list.d/gcsfuse.list \
+    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && apt-get update && apt-get install -y gcsfuse \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps. Swap `requirements.txt` for `requirements_frozen.txt` after the
+# L4 smoke test produces one (`pip freeze > requirements_frozen.txt`).
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Source code
+COPY data/ /app/data/
+COPY models/ /app/models/
+COPY losses/ /app/losses/
+COPY training/ /app/training/
+COPY utils/ /app/utils/
+COPY configs/ /app/configs/
+COPY scripts/ /app/scripts/
+
+# Mount points for gcsfuse and writable outputs
+RUN mkdir -p /data /outputs
+
+ENTRYPOINT ["python", "-u"]
+CMD ["scripts/train.py", "--config", "configs/baseline.yaml"]

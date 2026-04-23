@@ -1,0 +1,12 @@
+.git/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+notebooks/
+*.ipynb
+docs/
+plots/
+runs/
+mlruns/
+tests/fixtures/
