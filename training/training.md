@@ -77,9 +77,70 @@ Note: late fusion may require architecture redesign
 
 ## 4 Train-Inference Consistency
 
-**Critical**: The same normalization statistics used during training **must** be used during inference. The inference pipeline loads `normalization_stats.json` from the model directory and applies identical normalization.
+The training and inference pipelines share a contract along six axes. Divergence on any of these causes silent degradation that pixel-level tests miss. Each subsection below is normative — inference code must conform.
 
-If 2025 imagery has significantly different radiometric properties than 2024 training data, this will manifest as degraded performance. Monitor inference predictions for systematic shifts.
+### 4.1 Normalization
+
+Per-dataset statistics computed on the train split only, saved as `normalization_stats.json` alongside the checkpoint. Inference loads identical stats and applies identical mean-subtract / std-divide. If 2025 imagery has materially different radiometric properties than 2024 training data, this manifests as degraded performance; see `scripts/check_inference_normalization.py` for the pre-deployment drift report.
+
+### 4.2 Model output convention
+
+Models output **logits**, not probabilities. Training losses (focal, BCE, Dice, Tversky, compound) operate on logits directly using `F.logsigmoid` internally for numerical stability. Sigmoid is applied only at two points:
+1. Metric computation during validation (IoU, F1, object metrics, PR-AUC).
+2. Inference probability-raster generation (§9.1 of `inference.md`).
+
+Rationale: naive `log(sigmoid(x))` underflows at extreme logits; `logsigmoid(x)` is stable across the full float range. Focal's `(1-p)^γ` term is derived from `logsigmoid(-x)`.
+
+### 4.3 Checkpoint convention
+
+Two distinct checkpoint files:
+
+| File | Purpose | Contents |
+|------|---------|----------|
+| `best_deployment.pth` | Inference artifact, shipped in deployment package | `model_state_dict` = **EMA weights**; `normalization_stats_hash`, `channel_names`, `git_sha`, `epoch`, `best_metric`, `trained_with: {precision, seed, config_sha}` |
+| `resume_latest.pth` | Training continuation only; never loaded by inference | `live_state_dict`, `ema_state_dict`, `optimizer_state_dict`, `scheduler_state_dict`, `scaler_state_dict`, `epoch`, `rng_states` |
+
+Inference never needs to know about EMA — the deployment checkpoint's `model_state_dict` is already the EMA copy. `resume_latest.pth` rotates last-N.
+
+### 4.4 NoData handling
+
+Satellite basemaps contain NoData pixels (ocean, cloud, non-permafrost masked regions). Model behavior on NoData is undefined unless training explicitly saw it.
+
+| Side | Treatment |
+|------|-----------|
+| Training — partial NoData tile | NoData pixels receive `label = 255` (ignore index, reuses boundary-ignore machinery). Input NoData pixels substituted with the per-channel training mean before normalization. Loss ignores them; gradient contribution is zero. |
+| Training — full NoData tile | Skipped at the dataset level; never enters a batch. |
+| Inference — partial NoData tile | Predict normally; post-step set `pred_raster[input_nodata_mask] = -1.0` (the NoData value declared in `inference.md §9.1`). |
+| Inference — full NoData tile | Skipped, manifest-log per §8.3 of `inference.md`. |
+
+Phase 0's `data/transforms.py` boundary-ignore logic is reused — a NoData mask becomes an additional source of ignore=255 labels merged with the boundary-dilated mask.
+
+### 4.5 Normalization-stats schema
+
+`normalization_stats.json` carries channel-name bindings (not positional):
+
+```json
+{
+  "version": "2.0",
+  "dataset_hash": "...",
+  "channels": ["R", "G", "B"],
+  "per_channel": {
+    "R": {"mean": ..., "std": ...},
+    "G": {"mean": ..., "std": ...},
+    "B": {"mean": ..., "std": ...}
+  },
+  "clip_percentiles": [0.1, 99.9]
+}
+```
+
+At load time, training and inference both assert `stats.channels == cfg.channels.declared_order`. Prevents silent R-stats-applied-to-G-channel bugs if the 2025 basemap API shifts band ordering. `normalization_stats_hash` (MD5) is persisted in the deployment checkpoint metadata for end-to-end verification.
+
+### 4.6 Calibration-deployment parity
+
+Threshold selection (§12.2) and temperature scaling (§12.1) **must** run with identical precision, TTA config, and `torch.compile` setting as the planned deployment. If deployment uses BF16 + minimal TTA and calibration was done in FP32 + no TTA, the calibrated threshold is systematically wrong — numerical differences in sigmoid outputs shift which pixels cross the threshold.
+
+Implementation: a shared `configs/deployment.yaml` holds `{threshold, temperature, tta, precision, torch_compile, scales, fusion}`. Both `scripts/evaluate_test.py` (post-calibration verification) and the Phase 2 inference pipeline load it. Calibration writes the learned `threshold` and `temperature` back into this file; everything else is set before calibration.
+
 ---
 
 ## 5. Loss Functions
@@ -266,9 +327,13 @@ Run inference at multiple effective resolutions to catch different RTS scales. S
 
 ### 8.3 Multi-Resolution Training
 
-**Current recommendation**: Train at native resolution only. Multi-resolution inference is sufficient for most cases.
+**Current recommendation**: Train at native resolution only.
 
-**Trigger for multi-resolution training**: If post-inference analysis shows recall for large RTS (>1km) is significantly worse than small/medium RTS, consider adding downscaled training samples.
+**Multi-scale inference without retraining — fractal hypothesis**: EfficientNet-B5 + UNet++ skip connections give multi-scale receptive fields, and RTS features have some self-similarity across 3 m ↔ 6 m views. Scale-0.5 inference on a scale-1.0-trained model may work out-of-the-box. This is tested post-calibration in the inference feasibility step (Phase 1 Step 8.5; see `inference.md §6.4`) before any retraining is considered. Gate: ship multi-scale if large-RTS (bbox > 500 m) PR-AUC gain ≥ 2% and global FP-rate delta ≤ +10%.
+
+**Trigger for multi-resolution training**: If the feasibility test fails AND post-inference analysis shows recall for large RTS (>1 km) is the bottleneck, add context-expanded training samples in Phase 1.5. Context-expansion means fetching 1024×1024 physical pixels (2× field of view) and downsampling to 512×512 — not the current `RandomScale` which blurs within a fixed 1.5 km footprint. These are distributionally different operations.
+
+**Known limitation — EPSG:3857 at high latitudes**: Web Mercator pixels are nominally 3 m but the physical area per pixel varies ~1.7× across 60–74°N (3 m at equator → ~0.9 m at 74°N ground). The same pan-arctic strip spans this range. `RandomScale(0.5, 1.0)` partially absorbs the variation, but latitude-stratified performance analysis belongs in Phase 3 post-inference. Accepting this compromise in exchange for web-map compatibility.
 
 ---
 
@@ -548,6 +613,8 @@ For each prevalence ratio (1:200, 1:500, 1:1000):
 2. Find threshold achieving target precision (e.g., Precision ≥ 0.8)
 3. Record corresponding recall
 4. Document threshold and expected performance
+
+**Calibration-deployment parity (per §4.6)**: the PR curve must be computed with the **exact** precision, TTA config, `torch.compile` setting, and scale/fusion choices that Phase 2 inference will use. Calibration loads `configs/deployment.yaml`, writes the learned `threshold` (and §12.1 `temperature`) back into the same file, and that file then travels with the deployment package. Any mismatch between calibration and deployment silently biases all 40M deployment-time decisions.
 
 ---
 

@@ -23,10 +23,13 @@ The data and model operation in inference should exactly match those in training
 ```
 gs://abruptthawmapping/
 ├── models/
-│   └── rts-v2/
-│       ├── best_model.pth
-│       ├── normalization_stats.json
-│       └── config.yaml
+│   └── rts-v2-seed42/                   # one deployment package per seed
+│       ├── weights.pth                  # EMA weights only (see training.md §4.3)
+│       ├── normalization_stats.json     # channels[] + md5 hash (training.md §4.5)
+│       ├── model_config.yaml            # architecture, backbone, channels, input_size
+│       ├── deployment_config.yaml       # threshold, temperature, tta, precision, torch_compile, scales, fusion
+│       ├── run_metadata.json            # git_sha, mlflow_run_id, training_date, seed
+│       └── requirements_frozen.txt      # exact env for reproducibility
 ├── inference/
 │   ├── 2025-Q3/
 │   │   ├── tiles/                    # Raw prediction tiles
@@ -110,42 +113,87 @@ gs://abruptthawmapping/
 | CRS | EPSG:3857 | Consistent with training |
 | Format | GeoTIFF | Preserves georeferencing |
 
-### 4.2 Overlap Configuration
+### 4.2 Overlap Configuration (math-derived)
 
-Overlapping tiles ensure RTS at tile boundaries are detected where both headwall and floor are visible.
+Overlap exists so that an RTS straddling a tile boundary is captured fully in *some* tile. At tile size T = 1536 m (512 px × 3 m), an RTS of length L fits entirely in at least one tile iff stride **S ≤ T − L**.
 
-| Parameter | Value | Rationale |
-|-----------|-------|-----------|
-| Overlap (stride) | 256 pixels (50%) | Ensures most partial RTS captured in adjacent tile |
-| Step size | 256 pixels | tile_size - overlap |
+Known RTS-size distribution (source: training label statistics):
 
-**Overlap rationale**: An RTS split at a tile boundary may show only floor in tile A and only headwall in tile B. With 50% overlap, an intermediate tile C will likely contain both features.
+| RTS population | Max bbox edge L | Required stride S | Stride in pixels | Overlap % | Coverage multiplier (1/(1−p))² |
+|----------------|-----------------|-------------------|------------------|-----------|-------------------------------|
+| 99.5% | ≤ 800 m | ≤ 736 m | ≤ 245 px | ≥ 52% | 4.4× |
+| 99.9% | ≤ 1300 m | ≤ 236 m | ≤ 78 px | ≥ 85% | 44× |
 
-### 4.3 Tile Grid Generation
+**Default: stride 245 px (~52% overlap)** — guarantees any RTS ≤ 800 m lands entirely inside at least one tile, covering 99.5% of the population at a modest 4.4× compute multiplier. Blanket 85% overlap would cost 11× more GPU for 0.4% extra coverage globally, which is not an acceptable tradeoff on 40M tiles.
+
+**Overlap rationale**: An RTS split at a tile boundary may show only floor in tile A and only headwall in tile B. At stride 245, intermediate tiles will contain both features for 99.5% of the RTS size distribution.
+
+### 4.3 Two-Pass Strategy for Large RTS
+
+The 0.5% tail (RTS in 800–1300 m range) gets a targeted second pass. The full-inference first pass runs at stride 245. After first-pass merge + vectorization (§4.4, §9.3), any candidate polygon with bounding-box edge > 600 m triggers a **stride 78 px (85% overlap)** second pass on that polygon's covering tiles only. Total compute stays bounded because large-RTS candidates are a thin subset of the pan-arctic map.
+
+Flow:
+1. First pass — stride 245 across all filtered tiles.
+2. Merge per §4.4 → regional probability rasters.
+3. Threshold + vectorize → candidate polygons.
+4. Flag polygons with bbox edge > 600 m.
+5. Rerun inference on the tiles covering each flagged polygon at stride 78.
+6. Re-merge just those regions; replace first-pass predictions with second-pass.
+
+### 4.4 Overlap Aggregation
+
+At stride 245, each pixel is covered by ~4 tile predictions (floor((1536−1)/245)² ≈ 36 tile centers within a 1536 m window, of which ~4 overlap any given pixel). Fusion method: **distance-from-tile-center weighted average**, Gaussian weighting with σ = 128 px in tile coordinates, normalized per pixel.
+
+Rationale: edge-of-tile predictions come from locations where the model has seen fewer surrounding pixels within *this* tile. Center-of-tile predictions are more trustworthy. Max fusion (taking the highest probability across tiles) is recall-biased and contradicts §1's precision-over-recall goal; averaging preserves calibration.
+
+Implementation: per-tile probability rasters persist to GCS first, then a separate regional merge pass computes the weighted average per output pixel.
+
+**Note on training loss**: this edge-down-weighting is an **inference-only fusion decision** across multiple predictions of the same physical pixel. Training loss weights all pixels uniformly — weighting by tile position during training would teach the model to ignore edges, which would hurt exactly the inference scenario where edge predictions are being averaged in. Orthogonal decisions.
+
+### 4.5 Tile Grid Generation
 
 The inference tile grid is **pre-filtered externally** (land-only, permafrost zones) before the inference pipeline runs. The inference code receives a pre-filtered tile list and processes it as-is — no filtering logic inside the inference container.
 
 1. Define bounding box for inference region (or per-region bounding boxes)
-2. Generate tile grid with specified overlap
+2. Generate tile grid with stride 245 px
 3. Apply land/permafrost filtering externally (outside this pipeline)
 4. Save filtered tile grid as CSV with tile IDs and bounding boxes → this is the `--tile-list` input to the inference script
 
 ---
 
 ## 5. Normalization
-Implement a simple Histogram Matching script or a "Mini-Normalization" check. Before running full inference on a new region, calculate the mean/std of a small 2025 sample and compare it to the 2024 normalization_stats.json.
 
 ### 5.1 Loading Statistics
 
-**Critical**: Use the exact normalization statistics from training.
+**Critical**: Use the exact normalization statistics from training. Training-inference consistency on normalization is codified in `training.md §4.1` and §4.5.
 
-1. Load `normalization_stats.json` from model directory
-2. Verify dataset version matches expected training data version
-3. Apply mean subtraction and std division to each input tile
+1. Load `normalization_stats.json` from the deployment package.
+2. **Assert channel-name binding** (`training.md §4.5`): `stats["channels"] == model_config["channels"]["declared_order"]`. Prevents silent position-vs-name mismatches if the 2025 basemap API changes band ordering. Abort inference on mismatch.
+3. Verify `normalization_stats_hash` (MD5) in the deployment checkpoint metadata matches the MD5 of the loaded `normalization_stats.json`. End-to-end integrity check.
+4. Apply mean subtraction and std division per channel using the name-keyed stats (not positional).
 
 ### 5.2 Application
 
 Use the exact normalization methods and statistics identically to training.
+
+### 5.3 NoData Handling
+
+Per `training.md §4.4`, the training side labels NoData pixels as ignore=255 so the model never receives gradient signal from them. The inference side mirrors this:
+
+| Case | Treatment |
+|------|-----------|
+| Full-NoData tile | Skipped at the tile-list stage. Manifest-logged with reason `"all_nodata"`. |
+| Partial-NoData tile | Predict normally (substitute per-channel training mean for NoData pixels before normalization, matching training). After prediction, **mask the output**: `pred_raster[input_nodata_mask] = -1.0` (the NoData value declared in §9.1). |
+
+Rationale: the model output on NoData input is undefined. Propagating NoData through to the probability raster ensures downstream overlap aggregation (§4.4) and vectorization (§9.3) treat those pixels correctly.
+
+### 5.4 Pre-deployment drift check
+
+Before running full inference on a new region, run `scripts/check_inference_normalization.py` (owned by the training team) against a sample of 2025 tiles from that region:
+- Computes per-channel mean/std on the 2025 sample.
+- Compares to `normalization_stats.json`.
+- Reports drift as `|Δmean| / σ_training` and `|σ_sample / σ_training − 1|` per channel.
+- **Concern thresholds**: |Δmean| > 0.5σ_training OR |σ_sample / σ_training − 1| > 0.25. If tripped, pause deployment and investigate — likely distribution shift from 2024 to 2025 imagery, a region-specific radiometric issue, or a basemap-API change.
 
 ---
 
@@ -164,7 +212,7 @@ RTS range from ~50m to 2+ km. A single resolution cannot optimally detect all si
 | 1.0 | 3m (native) | 1.5 km | Small-medium (50m-500m) |
 | 0.5 | 6m | 3 km | Medium-large (200m-1km) |
 
-First 1.0, if large RTS is problematic then 0.5
+**Phase 1 default: scale 1.0 only.** Multi-scale deployment is gated by a feasibility test (§6.4). Training is at scale 1.0 only per `training.md §8.3`, but the fractal nature of earth features plus the encoder's multi-scale receptive fields suggest scale-0.5 inference *may* work without retraining. Test before assuming.
 
 ### 6.3 Multi-Scale Procedure
 
@@ -175,13 +223,32 @@ For each tile location:
 2. Normalize using training statistics
 3. Run inference → probability map P_1.0
 
-**Scale 0.5**:
+**Scale 0.5** (only if §6.4 gate passes):
 1. Load 1024×1024 region centered on tile location
 2. Downsample to 512×512 (bilinear interpolation)
 3. Normalize using training statistics
 4. Run inference → probability map at 512×512
 5. Upsample prediction back to 1024×1024
 6. Crop center 512×512 → P_0.5
+
+### 6.4 Multi-Scale Feasibility Gate
+
+Run once per trained model, post-calibration, pre-deployment. Owned by `scripts/inference_feasibility.py` (Phase 1 Step 8.5). Procedure:
+
+1. Run scale-0.5 inference on the val set using the baseline (scale-1.0-trained) model.
+2. Average-fuse with cached scale-1.0 val predictions (per §7.3).
+3. Compute three measurements at the calibrated threshold:
+   - PR-AUC on the **large-RTS subset** (bbox > 500 m).
+   - PR-AUC on the full val set.
+   - Global false-positive-rate delta vs scale-1.0-only.
+
+**Decision gate** — ship multi-scale if **both**:
+- Large-RTS PR-AUC gain ≥ +2%
+- Global FP-rate delta ≤ +10%
+
+Otherwise keep `scales: [1.0]`. Context-expanded training (fetch 2× physical area, downsample to 512) is a Phase-1.5 consideration triggered only if the gate fails *and* post-inference analysis identifies large-RTS recall as the primary precision bottleneck.
+
+The gate's outcome is written into `deployment_config.yaml.scales` and the feasibility report is attached to the MLflow run.
 
 ---
 
@@ -209,16 +276,35 @@ For each input tile:
 Order of operations:
 1. For each scale:
    a. Apply TTA transforms
-   b. Average TTA predictions at this scale
-2. Take maximum across scales
+   b. Average TTA predictions at this scale (arithmetic mean of probabilities after inverse-transforming each)
+2. **Average probability maps across scales**, then apply the calibrated threshold.
+
+Max fusion was the original spec but biases toward recall (any scale says "positive" → positive), directly contradicting §1's precision-over-recall priority. Arithmetic averaging preserves probability calibration and lets the threshold do its job.
 
 Total inference passes per tile location: n_scales × n_tta_transforms
 
 | Configuration | Passes per Location |
 |---------------|---------------------|
+| 1 scale, no TTA (Phase 1 default) | 1 |
+| 1 scale, minimal TTA | 2 |
 | 2 scales, no TTA | 2 |
 | 2 scales, minimal TTA | 4 |
 | 2 scales, standard TTA | 8 |
+
+### 7.4 TTA Cost–Benefit
+
+Pan-arctic cost analysis for 40M tile inferences on A100 (~$3.67/hr on-demand):
+
+| Config | Passes/tile | Throughput (tiles/s) | Wallclock @ 40M | GPU-hrs | Cost |
+|--------|-------------|----------------------|-----------------|---------|------|
+| No TTA | 1 | ~150 | 74 hr | 74 | ~$270 |
+| Minimal (identity, hflip) | 2 | ~75 | 148 hr | 148 | ~$540 |
+| Standard (identity, hflip, vflip, rot180) | 4 | ~37 | 300 hr | 300 | ~$1100 |
+| Full D4 (8 symmetries) | 8 | ~19 | 600 hr | 600 | ~$2200 |
+
+Against the $70K training+inference budget, all four configs are affordable — the choice is driven by **precision preservation at the calibrated threshold**, not cost. TTA averaging can either improve calibration (good) or pull confident positives below the threshold (bad for precision-over-recall).
+
+**TTA is validated before deployment, not assumed**: Step 8.5b of Phase 1 measures val PR-AUC and precision@threshold under each TTA config using the cached val predictions. Ship the cheapest config that (a) gains ≥ 1% PR-AUC *and* (b) drops precision by ≤ 0.5% at the calibrated threshold. Default in `configs/deployment.yaml`: `tta: none`.
 
 ---
 
@@ -234,15 +320,23 @@ Total inference passes per tile location: n_scales × n_tta_transforms
 
 ### 8.2 Inference Loop
 
-1. **Initialize**: Load model, load normalization stats, set model to eval mode
+1. **Initialize**:
+   - Load deployment package directory (see §2.2). Required files: `weights.pth`, `normalization_stats.json`, `model_config.yaml`, `deployment_config.yaml`.
+   - Build model per `model_config.yaml`; load `weights.pth` into `model_state_dict` (already EMA — see `training.md §4.3`).
+   - Load `normalization_stats.json`; assert channel-name binding per §5.1.
+   - Load `deployment_config.yaml`: `threshold`, `temperature`, `tta`, `precision`, `torch_compile`, `scales`, `fusion`. These must match the values used during calibration (`training.md §4.6`).
+   - `model.eval()`; if `torch_compile: true`, run `torch.compile(model)` here.
 2. **Tile iteration**:
-   - Load batch of tiles from GCS (with prefetching)
-   - Normalize batch
-   - For each scale: run inference (with TTA if enabled)
-   - Fuse scales
-   - Save predictions to GCS
-3. **Progress tracking**: Log completed tiles, estimated time remaining
-4. **Checkpointing**: Save progress every N tiles for resumability
+   - Load batch of tiles from GCS (with prefetching).
+   - Handle NoData per §5.3 (skip full-NoData tiles; mean-substitute partial NoData before normalization).
+   - Normalize batch per §5.2.
+   - For each scale in `scales`: run inference (with TTA if enabled); collect probability maps.
+   - Fuse across scales per §7.3 (arithmetic mean).
+   - Apply `temperature` scaling: `probs = sigmoid(logits / T)`.
+   - Mask NoData in output raster per §5.3 (`pred[nodata_mask] = -1.0`).
+   - Save probability tile to GCS.
+3. **Progress tracking**: Log completed tiles, estimated time remaining.
+4. **Checkpointing**: Save progress every N tiles for resumability.
 
 ### 8.3 Resumability
 
@@ -310,15 +404,23 @@ Save with each inference run:
 
 | Field | Description |
 |-------|-------------|
-| model_version | Model identifier |
-| model_checkpoint | Path to model weights |
+| model_version | Model identifier (e.g., `rts-v2-seed42`) |
+| deployment_package_path | `gs://` URI of the deployment package directory |
+| model_checkpoint_sha | SHA256 of `weights.pth` |
 | normalization_stats_hash | MD5 hash of normalization file |
 | inference_date | ISO timestamp |
 | basemap_version | 2025-Q3 |
-| scales_used | [1.0, 0.5] |
-| tta_config | "minimal" |
-| threshold | 0.XX (from calibration) |
+| scales_used | e.g., `[1.0]` or `[1.0, 0.5]` (per §6.4 gate) |
+| fusion_method | `weighted_mean` \| `max` \| `consensus` (default `weighted_mean`) |
+| tta_config | `none` \| `minimal` \| `standard` \| `full` |
+| precision | `bf16` \| `fp16` \| `fp32` (must match calibration) |
+| torch_compile | boolean (must match calibration) |
+| threshold | Calibrated threshold from `deployment_config.yaml` |
+| temperature | Calibrated temperature (§12.1 of training.md) |
+| stride_px | 245 (default) or 78 (second-pass large-RTS) |
+| overlap_aggregation | `gaussian_weighted_mean` (σ=128 px) |
 | n_tiles_processed | Total tiles |
+| n_tiles_skipped_nodata | Tiles skipped per §5.3 |
 | n_tiles_with_detection | Tiles with any RTS prediction |
 | total_rts_area_km2 | Sum of predicted RTS area |
 | processing_time_hours | Wall clock time |
@@ -362,10 +464,10 @@ Performed before releasing results (detailed in post-inference.md):
 
 | Technique | Description |
 |-----------|-------------|
-| Mixed precision (FP16) | 2× throughput on tensor cores |
+| Mixed precision | BF16 on A100/H100 (preferred — no dynamic loss scaling); FP16 fallback on older GPUs. Must match `training.md §4.6` calibration precision. |
 | Batch size tuning | Maximize GPU utilization |
 | Multiple streams | Overlap data transfer and compute |
-| Model compilation | torch.compile() for additional speedup |
+| Model compilation | **Opt-in only.** `torch.compile()` changes numerics slightly; if enabled at deployment but disabled during calibration (or vice versa), the calibrated threshold is systematically wrong. Phase 1 baseline: `torch_compile: false`. Enable only when a benchmark demonstrates > 15% throughput gain *and* calibration is re-run with compile enabled. |
 
 ### 11.3 Estimated Throughput
 
@@ -466,5 +568,7 @@ python scripts/inference.py --config configs/inference.yaml --tile-list tiles.cs
 | Slow inference | I/O bottleneck | Enable prefetching, use local cache |
 | Inconsistent predictions | Wrong normalization | Verify normalization_stats.json hash |
 | Missing tiles in output | Job interrupted | Check manifest, restart from checkpoint |
-| High false positive rate | Threshold too low | Re-calibrate threshold on validation set |
-| Predictions all zero | Model loading error | Verify model checkpoint, test on known positive |
+| Global FP rate ≫ val reported | Train-inference distribution shift | Run `scripts/check_inference_normalization.py` on a 2025 sample (§5.4) and compare per-channel drift vs `normalization_stats.json`. If drift is real, consider histogram matching or retraining with 2025 data included. |
+| Regional FP rate ≫ val reported | Region has characteristics under-represented in val | Collect 50–100 hand-labelled negatives from that region; calibrate a region-specific threshold per `training.md §6.4`. Do not re-run the global calibration — re-running on the same val set cannot fix a regional bias. |
+| Calibration-deployment mismatch | Precision / TTA / compile differ between calibration and run | Verify `inference_log.json.precision`, `.tta_config`, `.torch_compile` match the deployment package's `deployment_config.yaml`. Inference aborts at startup on mismatch. |
+| Predictions all zero | Model loading error | Verify `weights.pth` SHA256 in run log matches deployment package; confirm EMA weights loaded (not random-init). Test on a known-positive val tile first. |

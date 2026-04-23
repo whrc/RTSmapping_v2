@@ -1,9 +1,9 @@
-# Baseline config for Phase 0 data pipeline.
-# Training-specific fields (model, lr, scheduler, ema, etc.) are stubs — Phase 1 fills them.
-# See training/training.md for field semantics.
+# Baseline config for RTS Segmentation v2 — data pipeline (Phase 0) + training loop (Phase 1).
+# See training/training.md and inference/inference.md for field semantics and
+# train-inference consistency contract (§4 of training.md).
 
 seed: 42
-deterministic: true
+deterministic: false   # exploration runs; set true in configs/final_seed.yaml for the [42,43,44] triplet
 
 # ---------------------------------------------------------------------------
 # Data
@@ -149,14 +149,34 @@ training:
   early_stopping:
     patience: 20
     min_delta: 0.005
-    start_epoch: 50
-    metric: "val_realistic_pr_auc_ratio_200"
-  mixed_precision: true
+    # Gated to epoch 101 — curriculum reaches 1:20 at 101, matching val prevalence.
+    # Before 101, val-realistic is evaluated on a harder distribution than the model
+    # is currently trained on, risking false early-stop.
+    start_epoch: 101
+    # Geometric mean of PR-AUC at 1:200/500/1000; 3-validation moving average.
+    # Single ratio (e.g. 1:200) would bias model selection toward recall-happy models.
+    metric: "val_realistic_pr_auc_geomean"
+    # Checkpoint "best" uses the same smoothed metric, not the raw value.
+    smoothing_window: 3
+  # Precision: bf16 preferred on A100/H100 (wider exponent range, no loss scaling
+  # needed — safer under focal loss with extreme imbalance). fp16 fallback for L4.
+  precision: "bf16"          # bf16 | fp16 | fp32
   num_workers: 8
   pin_memory: true
   prefetch_factor: 2
   persistent_workers: true
   drop_last: true
+
+  # gcsfuse mount config for training data; applied in docker run (see
+  # computing/docker_training.md Part 4). At stride-245 inference the tile
+  # churn exceeds Phase-0 smoke patterns; these flags turn gcsfuse from a thin
+  # proxy into a real on-disk cache.
+  gcsfuse:
+    file_cache_capacity_mb: 20480
+    stat_cache_ttl: "24h"
+    type_cache_ttl: "24h"
+    file_cache_cache_file_for_range_read: true
+    metadata_prefetch_on_mount: "async"
 
 optimizer:
   name: "adamw"
@@ -170,9 +190,13 @@ lr_schedule:
   backbone_lr_multiplier: 0.1
   freeze_backbone_epochs: 10
   scheduler: "cosine"
-  warmup_epochs: 5
+  warmup_epochs: 5            # decoder warmup after unfreeze
   warmup_start_lr: 1.0e-6
   min_lr: 1.0e-6
+  # Separate linear warmup on the backbone param group specifically. Backbone
+  # LR jumps 0 → (base_lr × multiplier) = 1e-5 at unfreeze, risking catastrophic
+  # forgetting. 3-epoch linear ramp on just the backbone group.
+  backbone_warmup_epochs: 3
 
 ema:
   enabled: true
@@ -184,6 +208,28 @@ model:
   pretrained: true
   input_size: 512
   # input_channels is derived from `channels` (3 if extra=[], else 3 + len(extra))
+  # Output: logits (no sigmoid) — see training.md §4.2.
+  # Final-conv bias initialized to -log((1-π)/π) to align early sigmoid output
+  # with class prior. Reduces first-step loss dominance by negatives (focal
+  # paper trick). 0.5 matches the 1:1 curriculum start; revisit if curriculum
+  # schedule changes.
+  output_bias_prior: 0.5
+
+# ---------------------------------------------------------------------------
+# Metrics (training.md §6; inference-shared values)
+# ---------------------------------------------------------------------------
+metrics:
+  # Minimum connected-component size after thresholding (post-sigmoid).
+  # 10 px ≈ 90 m² at 3 m/px — smaller than any real RTS. Strips speckle FPs.
+  # Shared with inference vectorization (inference.md §9.3).
+  min_blob_size_px: 10
+  # Object-level matching IoU threshold for TP/FP/FN (training.md §6.2).
+  object_iou_threshold: 0.3
+  # Pixel-level ops threshold for in-training reporting (training.md §6.2).
+  # Deployment threshold is set post-calibration in configs/deployment.yaml.
+  reporting_threshold: 0.5
+  # Fixed 3+3 preview tiles (seeded pass 1 → informed pass 2; see plan Step 5).
+  preview_tile_config: "configs/preview_tiles.yaml"
 
 # ---------------------------------------------------------------------------
 # Experiment tracking
