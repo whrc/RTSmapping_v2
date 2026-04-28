@@ -704,7 +704,6 @@ def main() -> int:
                     ema_state_dict=ema_state,
                     epoch=epoch,
                     best_metric=smoothed,
-                    normalization_stats_path=data["normalization_stats_path"],
                     channel_names=["R", "G", "B"] + [c.name for c in data["extra_channels"]],
                     trained_with=trained_with,
                 )

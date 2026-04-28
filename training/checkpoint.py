@@ -2,8 +2,9 @@
 
 Two distinct checkpoint types (training.md §4.3):
     - best_deployment.pth — EMA weights under `model_state_dict`,
-      plus the normalization-stats hash, channel names, git SHA, epoch,
-      best_metric, and a `trained_with` block. Inference loads this file.
+      plus channel names, git SHA, epoch, best_metric, and a `trained_with`
+      block. Inference loads this file. Channel-name binding (training.md §4.5)
+      is the integrity guarantee for normalization stats.
     - resume_latest.pth  — full state (live + EMA weights, optimizer,
       scheduler state, scaler state, RNG states). Training continuation
       only; rotated last-N.
@@ -16,8 +17,6 @@ called on the current epoch's metrics; the train loop passes it in.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import subprocess
 from dataclasses import asdict, dataclass
@@ -42,15 +41,6 @@ def _git_sha(repo_path: Path | None = None) -> str:
         return out.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"
-
-
-def _hash_file(path: Path) -> str:
-    """MD5 hash of a file's bytes (used for normalization_stats.json)."""
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 @dataclass
@@ -87,24 +77,20 @@ class CheckpointManager:
         ema_state_dict: dict[str, torch.Tensor],
         epoch: int,
         best_metric: float,
-        normalization_stats_path: str | Path,
         channel_names: list[str],
         trained_with: TrainedWith,
     ) -> Path:
         """Write best_deployment.pth atomically.
 
         Contains EMA weights under `model_state_dict` — inference never needs
-        to know about EMA (training.md §4.3). The normalization_stats file is
-        copied alongside the checkpoint; its md5 hash is stored for the
-        inference-side integrity check (training.md §4.5).
+        to know about EMA (training.md §4.3). Channel-name binding
+        (training.md §4.5) is the integrity guarantee — both training and
+        inference assert names against config; no separate file hash is kept.
         """
-        norm_path = Path(normalization_stats_path)
-        norm_hash = _hash_file(norm_path) if norm_path.exists() else "missing"
         payload = {
             "model_state_dict": ema_state_dict,
             "epoch": int(epoch),
             "best_metric": float(best_metric),
-            "normalization_stats_hash": norm_hash,
             "channel_names": list(channel_names),
             "git_sha": _git_sha(),
             "trained_with": asdict(trained_with),

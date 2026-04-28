@@ -171,8 +171,8 @@ def build_loss(cfg: dict) -> nn.Module:
 
     Supported: focal | dice | tversky | compound. See training.md §5.
 
-    Soft-label handling is deferred — it's needed only for
-    `boundary_handling: soft_labels`, which is not the baseline.
+    Soft-label handling is deferred to v2.1 — `data/dataset.py` raises if
+    `boundary_handling: soft_labels` is requested (training.md §5.5).
     """
     loss_cfg = cfg["loss"]
     ignore_index = int(cfg["data"]["label_ignore_index"])

@@ -22,7 +22,7 @@ The `MLFLOW_TRACKING_URI` environment variable overrides the YAML value if set (
 
 | Category | Parameters |
 |----------|------------|
-| Model | architecture, backbone, pretrained, input_channels, input_size |
+| Model | architecture, backbone, pretrained, input_channels (input size = data.tile_size) |
 | Loss | loss_function, focal_gamma, focal_alpha, boundary_ignore_width |
 | Optimizer | optimizer, learning_rate, weight_decay, gradient_clip_norm |
 | Schedule | scheduler, warmup_epochs, base_lr, freeze_backbone_epochs |

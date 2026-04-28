@@ -8,7 +8,7 @@ a hand-calibrated configs/deployment.yaml.
 Output layout:
     {output_dir}/
         weights.pth                  # from best_deployment.pth (EMA state_dict)
-        normalization_stats.json     # with channel names + md5 verified against checkpoint
+        normalization_stats.json     # carries channel-name bindings (training.md §4.5)
         model_config.yaml            # derived from training config (model + channels blocks)
         deployment_config.yaml       # as-supplied (threshold/temperature must be set)
         run_metadata.json            # git SHA, mlflow run id, training date, seed
@@ -27,7 +27,6 @@ Refuses to write if deployment_config.yaml has null threshold or temperature
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import shutil
@@ -43,14 +42,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
-
-
-def _md5(path: Path) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _assert_calibration_complete(deployment_cfg: dict) -> None:
@@ -132,16 +123,10 @@ def package_model(
         weights = ckpt["model_state_dict"]
         torch.save(weights, output_dir / "weights.pth")
 
-        # 2. Normalization stats — verify hash matches checkpoint metadata.
-        # In Phase 1 we expect it co-located in the MLflow run artifacts.
+        # 2. Normalization stats — carried alongside weights. Channel-name
+        # binding (training.md §4.5) is the integrity guarantee at load time;
+        # no separate hash is computed or verified here.
         stats_local = Path(client.download_artifacts(run_id, "normalization_stats.json", dst_path=str(staging)))
-        stats_md5 = _md5(stats_local)
-        expected = ckpt.get("normalization_stats_hash", "")
-        if expected != "missing" and stats_md5 != expected:
-            raise ValueError(
-                f"normalization_stats.json md5 {stats_md5} does not match "
-                f"checkpoint's stored hash {expected}"
-            )
         shutil.copy2(stats_local, output_dir / "normalization_stats.json")
 
         # 3. Model config — derived from the source training config.

@@ -67,9 +67,18 @@ class RTSDataset(Dataset):
         transform,  # albumentations Compose
         tile_size: int = 512,
         label_ignore_index: int = 255,
-        boundary_handling: str = "none",   # none | ignore
+        boundary_handling: str = "none",   # none | ignore (soft_labels deferred to v2.1)
         boundary_ignore_width: int = 3,
     ):
+        if boundary_handling == "soft_labels":
+            raise NotImplementedError(
+                "boundary_handling='soft_labels' is deferred to v2.1 "
+                "(training.md §5.5). Use 'none' or 'ignore' for v2.0."
+            )
+        if boundary_handling not in ("none", "ignore"):
+            raise ValueError(
+                f"boundary_handling must be 'none' or 'ignore'; got {boundary_handling!r}"
+            )
         self.tile_ids = tile_ids
         self.metadata = metadata.set_index("Tile_id")
         self.data_root = data_root.rstrip("/")

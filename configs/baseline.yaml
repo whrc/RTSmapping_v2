@@ -147,7 +147,8 @@ training:
   max_epochs: 300
   val_frequency: 5
   early_stopping:
-    patience: 20
+    # 8 validation events ≈ 40 epochs at val_frequency=5 (training.md §9.1).
+    patience: 8
     min_delta: 0.005
     # Gated to epoch 101 — curriculum reaches 1:20 at 101, matching val prevalence.
     # Before 101, val-realistic is evaluated on a harder distribution than the model
@@ -168,9 +169,9 @@ training:
   drop_last: true
 
   # gcsfuse mount config for training data; applied in docker run (see
-  # computing/docker_training.md Part 4). At stride-245 inference the tile
-  # churn exceeds Phase-0 smoke patterns; these flags turn gcsfuse from a thin
-  # proxy into a real on-disk cache.
+  # computing/docker_training.md Part 4). Tile churn under balanced sampling +
+  # curriculum negatives exceeds Phase-0 smoke patterns; these flags turn
+  # gcsfuse from a thin proxy into a real on-disk cache.
   gcsfuse:
     file_cache_capacity_mb: 20480
     stat_cache_ttl: "24h"
@@ -206,8 +207,9 @@ model:
   architecture: "unetplusplus"
   backbone: "efficientnet-b5"
   pretrained: true
-  input_size: 512
-  # input_channels is derived from `channels` (3 if extra=[], else 3 + len(extra))
+  # Input spatial size is derived from `data.tile_size` — model and data must
+  # always agree, so there is one source. input_channels is derived from
+  # `channels` (3 if extra=[], else 3 + len(extra)).
   # Output: logits (no sigmoid) — see training.md §4.2.
   # Final-conv bias initialized to -log((1-π)/π) to align early sigmoid output
   # with class prior. Reduces first-step loss dominance by negatives (focal
@@ -220,7 +222,7 @@ model:
 # ---------------------------------------------------------------------------
 metrics:
   # Minimum connected-component size after thresholding (post-sigmoid).
-  # 10 px ≈ 90 m² at 3 m/px — smaller than any real RTS. Strips speckle FPs.
+  # 10 px ≈ 228 m² at 4.77 m/px projected — smaller than any real RTS. Strips speckle FPs.
   # Shared with inference vectorization (inference.md §9.3).
   min_blob_size_px: 10
   # Object-level matching IoU threshold for TP/FP/FN (training.md §6.2).

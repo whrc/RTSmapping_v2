@@ -2,11 +2,9 @@
 
 Runs inference on Test-Realistic exactly once, using the deployment package's
 precision / TTA / torch_compile / scales / threshold / temperature. Refuses
-to run if:
-    - The deployment package's threshold or temperature is null (calibration
-      not run yet).
-    - The deployment package's normalization_stats_hash doesn't match the
-      packaged stats file (integrity violation).
+to run if the deployment package's threshold or temperature is null
+(calibration not run yet). Channel-name binding (training.md §4.5) is the
+integrity guarantee for normalization stats.
 
 Per training.md §10.3, Test-Realistic is touched exactly once, after every
 experimental decision is frozen. Running this script twice on the same
@@ -29,7 +27,6 @@ Outputs:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import sys
@@ -51,14 +48,6 @@ from utils.config import load_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
-
-
-def _md5(path: Path) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _assert_deployment_package_complete(pkg: Path) -> tuple[dict, dict, dict]:
@@ -84,17 +73,9 @@ def _assert_deployment_package_complete(pkg: Path) -> tuple[dict, dict, dict]:
     model_cfg = yaml.safe_load((pkg / "model_config.yaml").read_text())
     meta = json.loads((pkg / "run_metadata.json").read_text())
 
-    # Integrity: normalization_stats hash vs checkpoint metadata.
-    stats_md5 = _md5(pkg / "normalization_stats.json")
-    weights = torch.load(pkg / "weights.pth", map_location="cpu", weights_only=False)
-    # In a proper deployment package, weights.pth is a bare state_dict; the
-    # hash was checked at packaging time. Here we just confirm the run
-    # metadata records a hash that we can surface in the output.
-    meta["normalization_stats_hash_local"] = stats_md5
-
-    # Integrity: MLflow run is FINISHED (already required at packaging time, but
-    # test-time eval re-verifies from run_metadata status if stored).
-    # (run_metadata doesn't carry status; packaging refuses un-FINISHED runs.)
+    # Integrity for normalization stats lives in channel-name binding at load
+    # time (training.md §4.5), not in a content hash. Packaging already
+    # refuses un-FINISHED MLflow runs.
 
     return model_cfg, deployment_cfg, meta
 

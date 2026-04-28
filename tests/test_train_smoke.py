@@ -132,7 +132,6 @@ def _build_smoke_cfg(data_root: str, mlruns_dir: Path) -> dict:
             "architecture": "unetplusplus",
             "backbone": "resnet18",    # tiny; no ImageNet download when pretrained=False
             "pretrained": False,
-            "input_size": 64,
             "output_bias_prior": 0.5,
         },
         "metrics": {
@@ -212,8 +211,7 @@ def test_deployment_checkpoint_contract(trained_run):
     loaded = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     required = {
         "model_state_dict", "epoch", "best_metric",
-        "normalization_stats_hash", "channel_names", "git_sha",
-        "trained_with", "checkpoint_type",
+        "channel_names", "git_sha", "trained_with", "checkpoint_type",
     }
     assert required <= set(loaded.keys())
     assert loaded["checkpoint_type"] == "deployment"

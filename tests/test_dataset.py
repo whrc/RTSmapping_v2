@@ -49,6 +49,42 @@ def test_parse_extra_spec_rejects_missing_keys():
         parse_extra_spec([{"name": "ndvi"}])
 
 
+def test_dataset_rejects_soft_labels(synthetic_dataset):
+    """boundary_handling='soft_labels' is deferred to v2.1 (training.md §5.5);
+    construction must raise rather than silently fall through to none."""
+    import pytest
+    ds = synthetic_dataset
+    metadata = load_metadata(f"{ds['root']}/metadata.csv")
+    splits = load_splits_yaml(f"{ds['root']}/splits.yaml")
+    ids = get_tile_ids("train", metadata, splits)
+    with pytest.raises(NotImplementedError, match="soft_labels"):
+        RTSDataset(
+            tile_ids=ids, metadata=metadata, data_root=ds["root"],
+            rgb_dir="PLANET-RGB", extra_dir="EXTRA", labels_dir="labels",
+            extra_channels=[], norm_stats_path=None,
+            transform=build_eval_transforms(),
+            tile_size=64,
+            boundary_handling="soft_labels",
+        )
+
+
+def test_dataset_rejects_unknown_boundary_handling(synthetic_dataset):
+    import pytest
+    ds = synthetic_dataset
+    metadata = load_metadata(f"{ds['root']}/metadata.csv")
+    splits = load_splits_yaml(f"{ds['root']}/splits.yaml")
+    ids = get_tile_ids("train", metadata, splits)
+    with pytest.raises(ValueError, match="boundary_handling"):
+        RTSDataset(
+            tile_ids=ids, metadata=metadata, data_root=ds["root"],
+            rgb_dir="PLANET-RGB", extra_dir="EXTRA", labels_dir="labels",
+            extra_channels=[], norm_stats_path=None,
+            transform=build_eval_transforms(),
+            tile_size=64,
+            boundary_handling="bogus",
+        )
+
+
 def test_dataset_rgb_only(synthetic_dataset):
     ds = synthetic_dataset
     metadata = load_metadata(f"{ds['root']}/metadata.csv")

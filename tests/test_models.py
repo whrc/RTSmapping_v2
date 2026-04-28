@@ -23,7 +23,6 @@ def _base_cfg(**model_overrides) -> dict:
             "architecture": "unetplusplus",
             "backbone": "efficientnet-b5",
             "pretrained": False,
-            "input_size": 512,
             "output_bias_prior": 0.5,
             **model_overrides,
         },

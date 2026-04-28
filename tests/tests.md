@@ -98,6 +98,8 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_parse_extra_spec_empty` | `None` and `[]` both → `[]` | shallow |
 | `test_parse_extra_spec_flexible_names` | Arbitrary names parsed, band indices preserved | real — flexible-EXTRA guarantee |
 | `test_parse_extra_spec_rejects_missing_keys` | Missing `name` or `band` → `ValueError` | real |
+| `test_dataset_rejects_soft_labels` | `boundary_handling="soft_labels"` raises `NotImplementedError` (deferred to v2.1, training.md §5.5) | real — guards a config option that isn't wired to code |
+| `test_dataset_rejects_unknown_boundary_handling` | Unknown value (e.g. `"bogus"`) raises `ValueError` | real |
 | `test_dataset_rgb_only` | `(3, 64, 64) float32` image, `(64, 64) int64` label, str `tile_id` | real — end-to-end plumbing |
 | `test_dataset_with_variable_extra` | Bands [0, 2] + arbitrary names → `(5, 64, 64)` | real — flexible-EXTRA end-to-end |
 | `test_dataset_label_values_in_set` | Every label's unique values ⊂ {0, 1, 255} | real |
@@ -168,7 +170,7 @@ Fresh temp dir per test — no cross-test state leakage.
 
 | Test | Checks | Strictness |
 |---|---|---|
-| `test_save_deployment_contains_contracted_fields` | best_deployment.pth has model_state_dict, normalization_hash, channel_names, git_sha, trained_with, etc. | real — training.md §4.3 |
+| `test_save_deployment_contains_contracted_fields` | best_deployment.pth has model_state_dict, channel_names, git_sha, trained_with, etc. (no separate stats hash; channel-name binding is the integrity guarantee per training.md §4.5) | real — training.md §4.3 |
 | `test_save_resume_contains_full_state` | resume_latest-*.pth carries live+ema+optimizer+scheduler+scaler+epoch+es+rng | real |
 | `test_resume_rotation_keeps_last_n` | Beyond keep_last_n=2, only newest 2 snapshots survive | real |
 | `test_update_best_tracks_smoothed_monotone` | update_best returns True only on strict improvement | real |

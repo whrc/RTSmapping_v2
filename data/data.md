@@ -20,7 +20,7 @@
 | Training year | 2024 composites |
 | Inference year | 2025 composites |
 | Bands | RGB (3 channels) |
-| Resolution | 1.3–3.0 m (varies by latitude; ~3 m in study region) |
+| Resolution | 4.77 m projected (EPSG:3857; Web Mercator zoom 15; constant in projected space). Ground sample = 4.77 × cos(latitude) m: ~1.63 m at 70°N, ~1.32 m at 74°N. |
 | Effective GSD | ~10 m (due to mosaic processing) |
 | Coverage | Below 74°N only |
 | Notes | Proprietary color-correction optimized for CV analytics |
@@ -110,7 +110,7 @@ The ignore values could be applied to several conditions, for example:
 | Parameter | Value |
 |-----------|-------|
 | Tile size | 512 × 512 pixels |
-| Spatial coverage | ~1.5 km × 1.5 km (at 3 m resolution) |
+| Spatial coverage | ~2.4 km × 2.4 km projected (512 × 4.77 m); ground coverage shrinks with latitude. |
 | CRS | EPSG:3857 (Pseudo-Mercator -- Spherical Mercator, Google Maps, OpenStreetMap, Bing, ArcGIS, ESRI) |
 | Format | GeoTIFF |
 | Grid alignment | Planet tile grid (same grid used for polygon refinement) |
@@ -217,7 +217,7 @@ Changing the stacked EXTRA set = edit the YAML. No code change. §9 below shows 
 
 All auxiliary data must be:
 1. Reprojected to EPSG:3857
-2. Resampled to match PlanetScope nominal resolution (~3 m) using **bilinear interpolation** for all channels
+2. Resampled to match PlanetScope nominal resolution (~4.77 m projected) using **bilinear interpolation** for all channels
 3. Co-registered with RGB using GeoTIFF bounding box information
 4. Stacked as channels in an order you keep stable across the dataset (that same order is what you reference by `band` index in the YAML config). §9 shows one example layout.
 

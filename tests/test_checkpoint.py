@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
-
 import torch
 import torch.nn as nn
 
-from training.checkpoint import CheckpointManager, TrainedWith, _hash_file
+from training.checkpoint import CheckpointManager, TrainedWith
 
 
 def _tiny_model() -> nn.Module:
@@ -15,23 +13,15 @@ def _tiny_model() -> nn.Module:
     return nn.Sequential(nn.Linear(4, 4), nn.Linear(4, 1))
 
 
-def _write_fake_norm_stats(tmp_path):
-    p = tmp_path / "normalization_stats.json"
-    p.write_text(json.dumps({"version": "test", "channels": ["R", "G", "B"]}))
-    return p
-
-
 def test_save_deployment_contains_contracted_fields(tmp_path):
     model = _tiny_model()
     ema_state = {k: v.clone() for k, v in model.state_dict().items()}
-    norm_path = _write_fake_norm_stats(tmp_path)
     mgr = CheckpointManager(tmp_path)
 
     mgr.save_deployment(
         ema_state_dict=ema_state,
         epoch=42,
         best_metric=0.75,
-        normalization_stats_path=norm_path,
         channel_names=["R", "G", "B"],
         trained_with=TrainedWith(precision="bf16", seed=42, config_sha="abc123"),
     )
@@ -41,14 +31,15 @@ def test_save_deployment_contains_contracted_fields(tmp_path):
     # Contracted keys per training.md §4.3.
     assert set(loaded.keys()) >= {
         "model_state_dict", "epoch", "best_metric",
-        "normalization_stats_hash", "channel_names", "git_sha",
-        "trained_with", "checkpoint_type",
+        "channel_names", "git_sha", "trained_with", "checkpoint_type",
     }
+    # Channel-name binding (training.md §4.5) is the integrity guarantee —
+    # no separate file hash is kept on the checkpoint.
+    assert "normalization_stats_hash" not in loaded
     assert loaded["checkpoint_type"] == "deployment"
     assert loaded["epoch"] == 42
     assert loaded["best_metric"] == 0.75
     assert loaded["channel_names"] == ["R", "G", "B"]
-    assert loaded["normalization_stats_hash"] == _hash_file(norm_path)
     assert loaded["trained_with"]["precision"] == "bf16"
 
 

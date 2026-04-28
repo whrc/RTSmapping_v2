@@ -41,3 +41,10 @@ fusion: "weighted_mean"     # weighted_mean | max | consensus
 # lives in configs/baseline.yaml metrics.min_blob_size_px and is echoed here
 # so the deployment package is self-contained.
 min_blob_size_px: 10
+
+# Inference-time runtime values. Single source of truth; specs reference these
+# keys instead of restating numbers (inference.md §4.1, §4.2, §4.3, §8.1).
+inference:
+  stride_px: 344            # tile-grid stride; 33% overlap at 512 tile size (inference.md §4.2)
+  fusion_sigma_px: 128      # σ for distance-from-center weighted-mean fusion (inference.md §4.3)
+  batch_size: 64            # per-GPU batch at inference (inference.md §8.1)
