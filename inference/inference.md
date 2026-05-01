@@ -49,6 +49,8 @@ gs://abruptthawmapping/
         └── ... (input imagery)
 ```
 
+This section owns the post-calibration deployment-package layout. MLflow-side artifacts produced during training (per-epoch metrics, figures, `run_summary.md`, etc.) are spec'd in `training/experiments.md §1.3`; on-disk checkpoint payloads (`best_deployment.pth`, `resume_latest-*.pth`) in `training.md §4.3`.
+
 ### 2.3 Docker Environment
 
 **Base Image**: Same as training — see `computing/docker_training.md` for the authoritative Dockerfile and base image.
@@ -256,7 +258,7 @@ The gate's outcome is written into `deployment_config.yaml.scales` and the feasi
 | Minimal | Identity, hflip | 2× |
 | Standard | Identity, hflip, vflip, rot180 | 4× |
 
-**Recommendation**: For pan-arctic inference, use **Minimal TTA** (2×) as balance between accuracy and compute cost. Full TTA on ~14.9M tiles (per §3.2) is expensive.
+**Recommendation**: For pan-arctic inference, use **Minimal TTA** (2×) as balance between accuracy and compute cost. Full TTA on the §3.2 tile count is expensive.
 
 ### 7.2 TTA Procedure
 
@@ -295,14 +297,14 @@ Total inference passes per tile location: n_scales × n_tta_transforms
 
 ### 7.4 TTA Cost–Benefit
 
-Pan-arctic cost analysis for ~14.9M tile inferences (per §3.2) on A100 (~$3.67/hr on-demand):
+Pan-arctic cost analysis for the §3.2 tile count (~7.5M at default stride 344) on A100 (~$3.67/hr on-demand):
 
-| Config | Passes/tile | Throughput (tiles/s) | Wallclock @ 14.9M | GPU-hrs | Cost |
-|--------|-------------|----------------------|-------------------|---------|------|
-| No TTA | 1 | ~150 | 28 hr | 28 | ~$100 |
-| Minimal (identity, hflip) | 2 | ~75 | 55 hr | 55 | ~$200 |
-| Standard (identity, hflip, vflip, rot180) | 4 | ~37 | 112 hr | 112 | ~$410 |
-| Full D4 (8 symmetries) | 8 | ~19 | 218 hr | 218 | ~$800 |
+| Config | Passes/tile | Throughput (tiles/s) | Wallclock @ 7.5M | GPU-hrs | Cost |
+|--------|-------------|----------------------|------------------|---------|------|
+| No TTA | 1 | ~150 | 14 hr | 14 | ~$50 |
+| Minimal (identity, hflip) | 2 | ~75 | 28 hr | 28 | ~$100 |
+| Standard (identity, hflip, vflip, rot180) | 4 | ~37 | 56 hr | 56 | ~$210 |
+| Full D4 (8 symmetries) | 8 | ~19 | 110 hr | 110 | ~$400 |
 
 Against the $70K training+inference budget, all four configs are affordable — the choice is driven by **precision preservation at the calibrated threshold**, not cost. TTA averaging can either improve calibration (good) or pull confident positives below the threshold (bad for precision-over-recall).
 

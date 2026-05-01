@@ -116,6 +116,8 @@ Inference never needs to know about EMA — `weights.pth` is already the EMA cop
 
 Storing metadata in inspectable sibling files (instead of inside the `.pth` blob) means the deployment package can be audited without `torch.load`.
 
+Per-validation MLflow artifacts (figures, metrics, `run_summary.md`) and per-epoch metric names are spec'd in `experiments.md §1.3` — checkpoints are local-disk artifacts; the MLflow side is owned by that section.
+
 ### 4.4 NoData handling
 
 Satellite basemaps contain NoData pixels (ocean, cloud, non-permafrost masked regions). Model behavior on NoData is undefined unless training explicitly saw it.
@@ -144,9 +146,9 @@ Phase 0's `data/transforms.py` boundary-ignore logic is reused — a NoData mask
     "std":  [..., ..., ...]
   },
   "extra": {
-    "channel_names": ["ndvi", "nir", "re", "sr"],
-    "mean": [..., ..., ..., ...],
-    "std":  [..., ..., ..., ...]
+    "channel_names": ["ndvi", "nbr", "se_pca_1", "se_pca_2", "se_pca_3", "se_proto", "tc_1", "tc_2"],
+    "mean": [..., ..., ..., ..., ..., ..., ..., ...],
+    "std":  [..., ..., ..., ..., ..., ..., ..., ...]
   }
 }
 ```
@@ -646,7 +648,7 @@ For each prevalence ratio (1:200, 1:500, 1:1000):
 3. Record corresponding recall
 4. Document threshold and expected performance
 
-**Calibration-deployment parity (per §4.6)**: the PR curve must be computed with the **exact** precision, TTA config, `torch.compile` setting, and scale/fusion choices that Phase 2 inference will use. Calibration loads `configs/deployment.yaml`, writes the learned `threshold` (and §12.1 `temperature`) back into the same file, and that file then travels with the deployment package. Any mismatch between calibration and deployment silently biases all ~14.9M deployment-time decisions.
+**Calibration-deployment parity (per §4.6)**: the PR curve must be computed with the **exact** precision, TTA config, `torch.compile` setting, and scale/fusion choices that Phase 2 inference will use. Calibration loads `configs/deployment.yaml`, writes the learned `threshold` (and §12.1 `temperature`) back into the same file, and that file then travels with the deployment package. Any mismatch between calibration and deployment silently biases all ~7.5M deployment-time decisions (per `inference.md §3.2`).
 
 ---
 
