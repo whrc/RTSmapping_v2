@@ -1,8 +1,16 @@
 """One-shot test-set evaluation (Phase 1 Step 8).
 
 Runs inference on Test-Realistic exactly once, using the deployment package's
-precision / TTA / torch_compile / scales / threshold / temperature. Refuses
-to run if the deployment package's threshold or temperature is null
+precision / TTA / torch_compile / threshold / temperature at scale 1.0.
+
+Multi-scale evaluation is **optional and deferred**: per `training.md §4.6`,
+the 1× test number is the canonical Test-Realistic result. Multi-scale
+evaluation is a separate optional pass that runs only after the 1× number is
+finalized. This script refuses to proceed when the deployment package selects
+multi-scale (`len(scales) > 1`) — point users at the inference pipeline
+(`scripts/inference.py`) for that path.
+
+Refuses to run if the deployment package's threshold or temperature is null
 (calibration not run yet). Channel-name binding (training.md §4.5) is the
 integrity guarantee for normalization stats.
 
@@ -44,7 +52,7 @@ from data.splits import get_tile_ids, load_metadata, load_splits_yaml  # noqa: E
 from data.transforms import build_eval_transforms  # noqa: E402
 from models import build_model  # noqa: E402
 from training import metrics as metrics_mod  # noqa: E402
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, resolve_path  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -68,6 +76,13 @@ def _assert_deployment_package_complete(pkg: Path) -> tuple[dict, dict, dict]:
         raise ValueError(
             "Deployment config has null threshold/temperature. Run calibration "
             "on val (training.md §12) before evaluating on test."
+        )
+    scales = deployment_cfg.get("scales", [1.0])
+    if len(scales) > 1:
+        raise ValueError(
+            f"Deployment config selects multi-scale ({scales}); evaluate_test.py "
+            "is the 1× contract per training.md §4.6. Run scripts/inference.py "
+            "(Phase 2) for the optional multi-scale eval pass."
         )
 
     model_cfg = yaml.safe_load((pkg / "model_config.yaml").read_text())
@@ -150,8 +165,8 @@ def evaluate_test(
     device_t = torch.device(
         device or ("cuda" if torch.cuda.is_available() else "cpu")
     )
-    logger.info("Device: %s  Precision: %s  TTA: %s  Scales: %s",
-                device_t, dep_cfg["precision"], dep_cfg["tta"], dep_cfg["scales"])
+    logger.info("Device: %s  Precision: %s  TTA: %s  Scale: 1.0 (1×-only contract)",
+                device_t, dep_cfg["precision"], dep_cfg["tta"])
 
     # Load model with EMA weights.
     model = build_model(merged).to(device_t).eval()
@@ -163,8 +178,8 @@ def evaluate_test(
         model = torch.compile(model)
 
     # Data: test_realistic split.
-    metadata = load_metadata(f"{train_cfg['data']['data_root'].rstrip('/')}/{train_cfg['data']['metadata_csv']}")
-    splits = load_splits_yaml(f"{train_cfg['data']['data_root'].rstrip('/')}/{train_cfg['data']['splits_yaml']}")
+    metadata = load_metadata(resolve_path(train_cfg["data"]["data_root"], train_cfg["data"]["metadata_csv"]))
+    splits = load_splits_yaml(resolve_path(train_cfg["data"]["data_root"], train_cfg["data"]["splits_yaml"]))
     test_ids = get_tile_ids("test_realistic", metadata, splits)
     logger.info("Evaluating on %d test_realistic tiles", len(test_ids))
 
@@ -237,7 +252,7 @@ def evaluate_test(
     metrics["_tta"] = tta
     metrics["_threshold"] = dep_cfg["threshold"]
     metrics["_temperature"] = temperature
-    metrics["_scales"] = dep_cfg["scales"]
+    metrics["_scale"] = 1.0
 
     output_path = output_path or (deployment_package / "test_metrics.json")
     # Convert numpy/python floats to plain floats for JSON.

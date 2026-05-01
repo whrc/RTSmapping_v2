@@ -23,10 +23,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import rasterio
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from data.normalization import stats_to_arrays  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -54,15 +54,8 @@ def compute_sample_stats(
 ) -> dict:
     """Single-pass Welford mean/std over a sample of tiles.
 
-    Args:
-        tile_iter: Iterable of (C, H, W) arrays. Values cast to float64 for
-            numeric stability.
-        n_channels: Expected channel count (for dimension check).
-        clip_percentiles: (low, high) to clip pixels before accumulation. If
-            None, no clipping.
-
-    Returns:
-        {"per_channel": [{"mean": ..., "std": ...}], "n_pixels": int}
+    Returns the same schema as the RGB block of `normalization_stats.json`:
+        {"mean": [m_R, m_G, m_B], "std": [s_R, s_G, s_B], "n_pixels": int}
     """
     count = 0
     mean = np.zeros(n_channels, dtype=np.float64)
@@ -89,22 +82,38 @@ def compute_sample_stats(
     var = M2 / count
     std = np.sqrt(var)
     return {
-        "per_channel": [{"mean": float(m), "std": float(s)} for m, s in zip(mean, std)],
+        "mean": mean.tolist(),
+        "std": std.tolist(),
         "n_pixels": int(count),
     }
 
 
 def compute_drift(
     sample_stats: dict,
-    training_stats: dict,
+    training_stats_block: dict,
     channel_names: list[str],
 ) -> pd.DataFrame:
-    """Compare sample vs training stats per channel. Returns a DataFrame."""
+    """Compare sample vs training stats per channel.
+
+    `training_stats_block` is one of `stats["rgb"]` or `stats["extra"]` from
+    `data/normalization.py:build_stats_dict` — i.e. it carries `channel_names`,
+    `mean`, `std` as parallel arrays. `sample_stats` is the dict returned by
+    `compute_sample_stats`.
+    """
+    train_means = list(training_stats_block["mean"])
+    train_stds = list(training_stats_block["std"])
+    if not (len(channel_names) == len(train_means) == len(train_stds)):
+        raise ValueError(
+            f"Channel-array length mismatch: names={len(channel_names)}, "
+            f"means={len(train_means)}, stds={len(train_stds)}"
+        )
+    sample_means = sample_stats["mean"]
+    sample_stds = sample_stats["std"]
+
     rows = []
-    for name, sample_ch in zip(channel_names, sample_stats["per_channel"]):
-        train_ch = training_stats["per_channel"][name]
-        t_mean, t_std = float(train_ch["mean"]), float(train_ch["std"])
-        s_mean, s_std = sample_ch["mean"], sample_ch["std"]
+    for i, name in enumerate(channel_names):
+        t_mean, t_std = float(train_means[i]), float(train_stds[i])
+        s_mean, s_std = float(sample_means[i]), float(sample_stds[i])
         d_mean = abs(s_mean - t_mean)
         d_std_frac = abs(s_std / t_std - 1.0) if t_std > 0 else float("inf")
         concerning = (d_mean > MEAN_DRIFT_K * t_std) or (d_std_frac > STD_DRIFT_FRAC)
@@ -141,35 +150,35 @@ def main() -> int:
 
     # Load training stats + model config from the package.
     training_stats = json.loads((pkg / "normalization_stats.json").read_text())
-    import yaml
     model_cfg = yaml.safe_load((pkg / "model_config.yaml").read_text())
 
-    channel_names = training_stats.get("channels", [])
-    if not channel_names:
+    # Schema (per data/normalization.py:build_stats_dict): {"rgb": {"channel_names": [...], "mean": [...], "std": [...]}, "extra": {...}}
+    if "rgb" not in training_stats:
         raise ValueError(
-            "normalization_stats.json has no 'channels' key — package appears "
+            "normalization_stats.json has no 'rgb' block — package appears "
             "to be pre-schema-update (training.md §4.5). Re-package from a newer run."
+        )
+    rgb_block = training_stats["rgb"]
+    rgb_names = list(rgb_block["channel_names"])
+    if rgb_names != ["R", "G", "B"]:
+        raise ValueError(
+            f"Expected RGB channel order ['R', 'G', 'B'] in training stats; got {rgb_names}"
         )
 
     data_root = args.data_root or model_cfg.get("data", {}).get("data_root", ".")
-    # Sample tile list.
     df = pd.read_csv(args.tile_list, dtype={"Tile_id": str})
     tile_ids = df["Tile_id"].tolist()
     logger.info("Computing sample stats across %d tiles", len(tile_ids))
 
-    # Only RGB for now — mirror training's per-channel stats structure.
-    rgb_names = [n for n in channel_names if n in ("R", "G", "B")]
-    if len(rgb_names) != 3:
-        raise ValueError(
-            f"Expected R/G/B channels in training stats; found {channel_names}"
-        )
+    # RGB-only drift check. EXTRA channels live in separate GeoTIFFs and are
+    # checked separately (TODO: extend when Phase 4 EXTRA stats land).
     sample_stats = compute_sample_stats(
         _iter_tile_arrays(data_root, "PLANET-RGB", tile_ids),
         n_channels=3,
         clip_percentiles=None,
     )
 
-    drift = compute_drift(sample_stats, training_stats, rgb_names)
+    drift = compute_drift(sample_stats, rgb_block, rgb_names)
     out_path = args.output or (args.tile_list.parent / "drift_report.csv")
     drift.to_csv(out_path, index=False)
 

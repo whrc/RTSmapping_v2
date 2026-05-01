@@ -1,24 +1,21 @@
 # Phase 0 — LR range test, unfrozen-phase (training/experiments.md §3.2).
 #
-# Run on a 30 % positive-tile subset for ~1 epoch with the backbone unfrozen from the start.
-# A custom one-shot LR scheduler ramps LR from 1e-7 to 1e-1 across the epoch.
-# Output: the order of magnitude where the loss curve has the steepest stable
-# descent before divergence — that value lands in `lr_schedule.base_lr` for
-# subsequent runs.
+# Run on a 30 % positive-tile subset for ~1 epoch with the backbone unfrozen
+# from the start. Logarithmic per-step LR ramp from 1e-7 to 1e-1 across the
+# run, implemented in training/scheduler.py:_make_lr_range_test_setter and
+# driven per-step from scripts/train.py. Output: lr_range_test.csv (step, lr,
+# loss) — the order of magnitude where the loss curve has the steepest stable
+# descent before divergence becomes `lr_schedule.base_lr` for subsequent runs.
 #
 # Diff from baseline.yaml:
-#   - splits.train_positive_subset_pct: 30          (Phase 2-style subset; TBD impl)
+#   - splits.train_positive_subset_pct: 30          (positive-tile subset)
 #   - training.max_epochs: 1                        (single-epoch test)
 #   - training.early_stopping.start_epoch: 9999     (effectively disabled for the test)
-#   - lr_schedule.scheduler: "lr_range_test"        (TBD impl: 1e-7 → 1e-1 linear ramp)
-#   - lr_schedule.lr_range_min: 1.0e-7              (TBD impl)
-#   - lr_schedule.lr_range_max: 1.0e-1              (TBD impl)
+#   - lr_schedule.scheduler: "lr_range_test"
+#   - lr_schedule.lr_range_min: 1.0e-7
+#   - lr_schedule.lr_range_max: 1.0e-1
 #   - lr_schedule.freeze_backbone_epochs: 0          (backbone unfrozen for the test)
 #   - mlflow.run_name: "phase0_lr_test_unfrozen"
-#
-# **TBD impl**: scripts/lr_range_test.py (or a new scheduler in
-# training/scheduler.py keyed by `lr_schedule.scheduler == "lr_range_test"`).
-# This config records the intent; the runner does not exist yet.
 
 seed: 42
 deterministic: false
@@ -50,7 +47,7 @@ splits:
   min_val_ecoregions: 2
   min_train_positive_fraction: 0.70
   max_drift: 0.10
-  train_positive_subset_pct: 30   # TBD impl per data/data.md §3.3 + experiments.md §5.2
+  train_positive_subset_pct: 30
 
 normalization:
   rgb_clip_percentiles: [0.1, 99.9]
@@ -124,7 +121,7 @@ optimizer:
   gradient_clip_norm: 1.0
 
 lr_schedule:
-  scheduler: "lr_range_test"   # TBD impl
+  scheduler: "lr_range_test"
   lr_range_min: 1.0e-7
   lr_range_max: 1.0e-1
   frozen_lr: 1.0e-3            # ignored under lr_range_test scheduler

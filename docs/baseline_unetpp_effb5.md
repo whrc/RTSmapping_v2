@@ -19,9 +19,9 @@ Semantic segmentation of Retrogressive Thaw Slumps on 2024 PlanetScope RGB basem
 - Precision: BF16 on A100/H100; FP16 fallback on L4
 - Curriculum: 1:1 → 1:20 over 300 epochs (training.md §7.3)
 - Augmentation: geometric + color + multi-scale (training.md §9.2); `worker_init_fn` seeds each DataLoader worker independently
-- Early stopping: geomean PR-AUC at 1:200/500/1000, 3-validation moving average, `start_epoch=101` (plan risk #5), `patience=20`
+- Early stopping: geomean PR-AUC at 1:200/500/1000, 3-validation moving average, `start_epoch=101` (plan risk #5), `patience=8` validation events (≈ 40 epochs at `val_frequency=5`; matches `configs/baseline.yaml`)
 - Checkpointing: best-by-smoothed-metric deployment (EMA), rotating last-3 resumes
-- Output-bias init: `-log((1-π)/π)` with π=0.5 — focal-paper stability trick (plan risk #1)
+- Output-bias init: `-log((1-π)/π)` with π=0.005 (per `configs/baseline.yaml:model.output_bias_prior` — set to the realistic positive-pixel prevalence so the bias init is non-zero)
 
 ---
 

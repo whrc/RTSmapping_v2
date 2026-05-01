@@ -51,6 +51,8 @@ gs://abruptthawmapping/
 
 This section owns the post-calibration deployment-package layout. MLflow-side artifacts produced during training (per-epoch metrics, figures, `run_summary.md`, etc.) are spec'd in `training/experiments.md §1.3`; on-disk checkpoint payloads (`best_deployment.pth`, `resume_latest-*.pth`) in `training.md §4.3`.
 
+Note: `scripts/package_model.py` renames the training-time `best_deployment.pth` to `weights.pth` when assembling this deployment package — same EMA state dict, new filename.
+
 ### 2.3 Docker Environment
 
 **Base Image**: Same as training — see `computing/docker_training.md` for the authoritative Dockerfile and base image.
@@ -228,6 +230,8 @@ For each tile location:
 **Edge case — basemap boundary.** A scale-0.5 fetch needs 1024 × 1024 projected pixels centered on the tile. If any side of that window falls outside the basemap coverage of the input region (geographic edge or NoData border wider than 256 px), **skip scale 0.5 for that tile** and treat its scale-0.5 prediction as NoData in the §7.3 fusion. Do not pad with reflection or zeros — the model has not seen such patterns. The §7.3 valid-scales rule degrades gracefully to scale-1.0-only for these edge tiles.
 
 ### 6.4 Multi-Scale Feasibility Gate
+
+Multi-scale evaluation is **optional and deferred**: the canonical Test-Realistic result comes from `scripts/evaluate_test.py` at `scales: [1.0]` (see `training.md §4.6`). Multi-scale runs **after** the 1× number is locked, lives in this Phase 2 inference pipeline, and is gated as below — it never runs inside `evaluate_test.py`.
 
 Run once per trained model, post-calibration, pre-deployment. Owned by `scripts/inference_feasibility.py` (Phase 1 Step 8.5). Procedure:
 

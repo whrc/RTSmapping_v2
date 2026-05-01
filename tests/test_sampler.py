@@ -81,3 +81,47 @@ def test_sampler_requires_both_classes():
     ids, df = _make_metadata(n_pos=16, n_neg=0)
     with pytest.raises(ValueError, match="both classes"):
         BalancedBatchSampler(ids, df, batch_size=4, schedule={"1-10": 1}, seed=42)
+
+
+# --------------------------------------------------------------------------
+# train_positive_subset_pct (consumed by scripts/train.py:_filter_train_positive_subset)
+# --------------------------------------------------------------------------
+
+
+def test_filter_train_positive_subset_keeps_negatives_intact():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from train import _filter_train_positive_subset
+
+    ids, df = _make_metadata(n_pos=20, n_neg=80)
+    out = _filter_train_positive_subset(ids, df, subset_pct=25)
+    class_by_id = df.set_index("Tile_id")["TrainClass"].to_dict()
+    pos_kept = [t for t in out if class_by_id[t] == "Positive"]
+    neg_kept = [t for t in out if class_by_id[t] == "Negative"]
+    # 25% of 20 positives = 5; all 80 negatives untouched.
+    assert len(pos_kept) == 5
+    assert len(neg_kept) == 80
+
+
+def test_filter_train_positive_subset_is_deterministic():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from train import _filter_train_positive_subset
+
+    ids, df = _make_metadata(n_pos=20, n_neg=80)
+    a = _filter_train_positive_subset(ids, df, subset_pct=25)
+    b = _filter_train_positive_subset(ids, df, subset_pct=25)
+    assert a == b
+
+
+def test_filter_train_positive_subset_full_pct_no_op():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from train import _filter_train_positive_subset
+
+    ids, df = _make_metadata(n_pos=20, n_neg=80)
+    out = _filter_train_positive_subset(ids, df, subset_pct=100)
+    assert len(out) == 100

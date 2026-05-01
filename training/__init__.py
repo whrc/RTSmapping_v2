@@ -2,7 +2,8 @@
 
 Modules:
     ema              — EMAModel + swap_in context manager
-    scheduler        — two-phase LR schedule (frozen -> cosine with warmup)
+    scheduler        — two-phase LR schedule (frozen → warmup_cosine) plus
+                       lr_range_test mode for Phase 0 §3.2
     metrics          — pixel IoU/F1, object P/R/F1, PR-AUC at ratios
     checkpoint       — deployment + resume checkpoint managers
     freeze           — backbone freeze/unfreeze + param group builder

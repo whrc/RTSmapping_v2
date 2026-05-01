@@ -90,6 +90,9 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_sampler_ratio_1_5_shifts_distribution` | batch=12, ratio 1:5 → exactly 2 pos / 10 neg | real |
 | `test_sampler_determinism_across_epochs` | Same seed+epoch → identical sequence; different epoch → different sequence | real — reproducibility lock |
 | `test_sampler_requires_both_classes` | Zero negatives → `ValueError("both classes")` | real |
+| `test_filter_train_positive_subset_keeps_negatives_intact` | `_filter_train_positive_subset` (in `scripts/train.py`): subset_pct=25 keeps 25% of positives, all negatives untouched | real — Phase 0 §3.2 + Phase 2 §5.1 contract |
+| `test_filter_train_positive_subset_is_deterministic` | Two invocations with the same input give the same output (seed=42 hard-coded) | real — reproducibility |
+| `test_filter_train_positive_subset_full_pct_no_op` | subset_pct=100 keeps every tile | shallow — boundary case |
 
 ### [test_dataset.py](test_dataset.py)
 
@@ -154,6 +157,10 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_cosine_lr_between_peak_and_min_during_decay` | Interior cosine LR strictly in (min_lr, base_lr), monotone decreasing | real |
 | `test_cosine_exact_halfway_at_t_over_tmax_0p5` | Mid-cosine LR brackets (base_lr + min_lr)/2 | real |
 | `test_phase1_epoch_zero_handled_safely` | epoch=0 treated as Phase 1, no crash | shallow |
+| `test_lr_range_test_endpoints_and_log_midpoint` | lr_range_test: step 0 → lr_min, last step → lr_max, midpoint → geometric mean | real — Phase 0 §3.2 implementation |
+| `test_lr_range_test_applies_same_lr_to_all_groups` | All param groups receive the same LR under range-test mode | real |
+| `test_lr_range_test_rejects_invalid_bounds` | lr_min ≥ lr_max → `ValueError` | shallow — guard |
+| `test_unknown_scheduler_raises` | Unknown `scheduler:` value → `ValueError` | shallow — dispatch guard |
 
 ### [test_early_stopping.py](test_early_stopping.py)
 
@@ -228,6 +235,15 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_null_temperature_rejected` | temperature=null → `ValueError` | real |
 | `test_both_null_rejected_together` | Both null → error mentions threshold first | shallow |
 | `test_both_set_accepted` | Properly calibrated config passes guard | shallow |
+
+> **Coverage gap (acknowledged 2026-05-01):** these four tests exercise only
+> `_assert_calibration_complete` (~6 LOC). The end-to-end packaging path
+> (MLflow run resolution, `weights.pth` extraction from
+> `best_deployment.pth`, `model_config.yaml` + `deployment_config.yaml`
+> assembly) is not unit-tested; it relies on real MLflow runs at deploy time.
+> The training smoke test does not call `package_model.main()`. Close this gap
+> when packaging misbehaves on a real run, or by feeding the smoke test's
+> synthetic MLflow run into `package_model()` end-to-end.
 
 ### [test_train_smoke.py](test_train_smoke.py)
 

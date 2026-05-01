@@ -28,7 +28,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import mlflow
 import numpy as np
@@ -56,7 +56,7 @@ from training import (  # noqa: E402
     scheduler as scheduler_mod,
     visualizations as viz,
 )
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, resolve_path  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 from utils.seed import seed_everything  # noqa: E402
 
@@ -170,9 +170,25 @@ def _worker_init_fn(worker_id: int) -> None:
     random.seed(seed)
 
 
-def _resolve_path(data_root: str, subpath: str) -> str:
-    """Join `data_root` (file path or gs:// URI) with a subpath."""
-    return f"{data_root.rstrip('/')}/{subpath}"
+def _filter_train_positive_subset(
+    train_ids: list[str],
+    metadata: pd.DataFrame,
+    subset_pct: int,
+) -> list[str]:
+    """Deterministic seeded subsample of positive train tiles; negatives untouched.
+
+    Used by Phase 0 §3.2 LR range test (30 %) and Phase 2 §5.1 (25/50/75/100 %).
+    Seed is fixed at 42 so subset composition is stable across runs.
+    """
+    if not 1 <= subset_pct <= 100:
+        raise ValueError(f"train_positive_subset_pct must be 1..100; got {subset_pct}")
+    class_by_id = metadata.set_index("Tile_id")["TrainClass"].to_dict()
+    positives = sorted(tid for tid in train_ids if class_by_id.get(tid) == "Positive")
+    negatives = [tid for tid in train_ids if class_by_id.get(tid) == "Negative"]
+    n_keep = max(1, round(len(positives) * subset_pct / 100.0))
+    rng = random.Random(42)
+    kept_positives = sorted(rng.sample(positives, n_keep))
+    return kept_positives + negatives
 
 
 def _setup_data(cfg: dict) -> dict:
@@ -187,15 +203,16 @@ def _setup_data(cfg: dict) -> dict:
     boundary = cfg["loss"]["boundary_handling"]
     boundary_w = int(cfg["loss"].get("boundary_ignore_width", 3))
 
-    metadata = load_metadata(_resolve_path(data_root, cfg["data"]["metadata_csv"]))
-    splits = load_splits_yaml(_resolve_path(data_root, cfg["data"]["splits_yaml"]))
+    metadata = load_metadata(resolve_path(data_root, cfg["data"]["metadata_csv"]))
+    splits = load_splits_yaml(resolve_path(data_root, cfg["data"]["splits_yaml"]))
 
     extra_channels = parse_extra_spec(cfg["channels"].get("extra", []))
     stats_path = cfg["data"]["normalization_stats_path"]
     # Stats may not exist yet for the synthetic smoke; Dataset handles that path.
+    # Only swallow FileNotFoundError — corrupt JSON / schema mismatches must surface.
     try:
         stats = load_stats(stats_path)
-    except (FileNotFoundError, Exception):  # noqa: BLE001 - intentional catch
+    except FileNotFoundError:
         stats = None
         logger.warning("Normalization stats not found at %s; using unit stats", stats_path)
 
@@ -205,6 +222,15 @@ def _setup_data(cfg: dict) -> dict:
     train_ids = get_tile_ids("train", metadata, splits)
     val_ids = get_tile_ids("val_realistic", metadata, splits)
     logger.info("Tile counts: train=%d, val_realistic=%d", len(train_ids), len(val_ids))
+
+    # Positive-subset filter (Phase 0 §3.2 LR test, Phase 2 §5.1 data scale).
+    # Deterministic: seed is fixed at 42 regardless of cfg.seed so subset
+    # composition is stable across multi-seed reruns.
+    subset_pct = cfg.get("splits", {}).get("train_positive_subset_pct")
+    if subset_pct is not None and int(subset_pct) < 100:
+        train_ids = _filter_train_positive_subset(train_ids, metadata, int(subset_pct))
+        logger.info("Filtered train tiles to %d%% positive subset → %d tiles",
+                    int(subset_pct), len(train_ids))
 
     def _make_ds(tile_ids, transform):
         return RTSDataset(
@@ -242,11 +268,15 @@ def _setup_data(cfg: dict) -> dict:
         epoch=1,
         drop_last=drop_last,
     )
+    # Seeded generator covers any shuffling in the main process; per-worker
+    # numpy/random seeds are handled by _worker_init_fn.
+    loader_generator = torch.Generator().manual_seed(int(cfg["seed"]))
     loader_kwargs = dict(
         num_workers=n_workers,
         pin_memory=pin,
         persistent_workers=persist,
         worker_init_fn=_worker_init_fn,
+        generator=loader_generator,
     )
     if n_workers > 0:
         loader_kwargs["prefetch_factor"] = pref
@@ -316,8 +346,18 @@ def _train_one_epoch(
     grad_clip_norm: float,
     ema: ema_mod.EMAModel | None,
     exposure_counter: dict[str, int],
+    per_step_lr_setter: Callable[..., None] | None = None,
+    global_step_offset: int = 0,
+    total_steps: int = 1,
+    lr_history: list[tuple[int, float, float]] | None = None,
 ) -> dict[str, float]:
-    """Run one training epoch. Returns per-epoch averages."""
+    """Run one training epoch. Returns per-epoch averages.
+
+    `per_step_lr_setter`, if provided, is called as
+    `setter(optimizer, step=global_step, total_steps=total_steps)` before each
+    step — used by the lr_range_test scheduler. `lr_history`, if provided,
+    accumulates `(global_step, lr, loss)` triples for post-run plotting.
+    """
     model.train()
     running_loss = 0.0
     running_n = 0
@@ -328,6 +368,9 @@ def _train_one_epoch(
         scaler_prev_scale = precision.scaler.get_scale()
 
     for step, batch in enumerate(loader):
+        global_step = global_step_offset + step
+        if per_step_lr_setter is not None:
+            per_step_lr_setter(optimizer, step=global_step, total_steps=total_steps)
         images = batch["image"].to(device, non_blocking=True)
         labels = batch["label"].to(device, non_blocking=True)
         tile_ids = batch["tile_id"]
@@ -372,8 +415,12 @@ def _train_one_epoch(
             ema.update(model)
 
         bs = images.size(0)
-        running_loss += float(loss.detach().cpu()) * bs
+        loss_val = float(loss.detach().cpu())
+        running_loss += loss_val * bs
         running_n += bs
+
+        if lr_history is not None:
+            lr_history.append((global_step, float(optimizer.param_groups[0]["lr"]), loss_val))
 
     avg_loss = running_loss / max(1, running_n)
     out = {"train_loss": avg_loss, "train_nan_steps": float(nan_count)}
@@ -550,7 +597,14 @@ def main() -> int:
     setup_logging(level="INFO", log_file=str(out_dir / "train.log"))
     logger.info("Starting train.py with cfg=%s out_dir=%s", args.config, out_dir)
 
-    seed_everything(int(cfg["seed"]), deterministic=bool(cfg.get("deterministic", False)))
+    deterministic = bool(cfg.get("deterministic", False))
+    if not deterministic and run_name.startswith("final"):
+        logger.warning(
+            "run_name=%r looks like a final-lock run but cfg.deterministic=false; "
+            "set deterministic: true in the final_seed* config for reproducible CUDNN.",
+            run_name,
+        )
+    seed_everything(int(cfg["seed"]), deterministic=deterministic)
 
     device = torch.device(
         args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -579,11 +633,13 @@ def main() -> int:
     )
     optimizer = torch.optim.AdamW(param_groups, lr=frozen_lr)
     set_lrs = scheduler_mod.make_lr_setter(cfg)
+    is_range_test = scheduler_mod.is_lr_range_test(cfg)
     grad_clip = float(cfg["optimizer"]["gradient_clip_norm"])
 
     # Phase 1: backbone frozen.
     freeze_mod.freeze_backbone(model)
     ema: ema_mod.EMAModel | None = None  # constructed at unfreeze
+    lr_history: list[tuple[int, float, float]] | None = [] if is_range_test else None
 
     # Checkpointing + early stopping.
     ckpt_mgr = ckpt_mod.CheckpointManager(out_dir / "checkpoints", keep_last_n=3)
@@ -604,11 +660,18 @@ def main() -> int:
     mlflow_utils.log_config_artifact(cfg, out_dir)
     mlflow_utils.log_requirements_frozen(out_dir)
 
-    # Resume (if requested).
+    # Resume (if requested). Restores EMA shadow weights when applicable so
+    # post-resume validation does not silently fall back to live weights.
     start_epoch = 1
     if args.resume is not None:
-        start_epoch = _resume_from(args.resume, model, optimizer, precision, es, ema, cfg)
-        logger.info("Resumed from %s at epoch %d", args.resume, start_epoch)
+        start_epoch, ema = _resume_from(
+            args.resume, model, optimizer, precision, es, cfg,
+            freeze_epochs=freeze_epochs,
+        )
+        if ema is not None and start_epoch > freeze_epochs + 1:
+            freeze_mod.unfreeze_backbone(model)
+        logger.info("Resumed from %s at epoch %d (ema=%s)",
+                    args.resume, start_epoch, ema is not None)
 
     # Pre-warm positive tiles once (epoch 1 only).
     if start_epoch == 1:
@@ -618,6 +681,10 @@ def main() -> int:
     nan_events: list[dict] = []
     t_start = time.time()
 
+    # For lr_range_test, ramp LR per-step across the entire run.
+    steps_per_epoch = len(data["train_loader"])
+    total_steps = steps_per_epoch * max_epochs
+
     try:
         for epoch in range(start_epoch, max_epochs + 1):
             # Unfreeze transition.
@@ -626,8 +693,9 @@ def main() -> int:
                 ema = ema_mod.EMAModel(model, decay=float(cfg["ema"]["decay"]))
                 logger.info("Unfroze backbone; EMA initialised (decay=%g)", ema.decay)
 
-            # Scheduler step (per-epoch LR update).
-            set_lrs(optimizer, epoch)
+            # Per-epoch LR update (skipped for range-test mode where LR moves per-step).
+            if not is_range_test:
+                set_lrs(optimizer, epoch)
             current_lrs = {g["name"]: g["lr"] for g in optimizer.param_groups}
             current_ratio = ratio_for_epoch(
                 parse_curriculum_schedule(cfg["sampling"]["curriculum_schedule"]),
@@ -639,9 +707,14 @@ def main() -> int:
 
             # Train.
             epoch_t0 = time.time()
+            global_step_offset = (epoch - 1) * steps_per_epoch
             train_metrics = _train_one_epoch(
                 model, data["train_loader"], loss_fn, optimizer, precision, device,
                 grad_clip_norm=grad_clip, ema=ema, exposure_counter=exposure_counter,
+                per_step_lr_setter=set_lrs if is_range_test else None,
+                global_step_offset=global_step_offset,
+                total_steps=total_steps,
+                lr_history=lr_history,
             )
             epoch_t = time.time() - epoch_t0
 
@@ -727,6 +800,17 @@ def main() -> int:
             if es.should_stop(epoch):
                 break
     finally:
+        # LR-range-test: dump (step, lr, loss) curve as a CSV artifact for analysis.
+        if lr_history is not None and lr_history:
+            lr_csv = out_dir / "lr_range_test.csv"
+            with open(lr_csv, "w", encoding="utf-8") as f:
+                f.write("global_step,lr,loss\n")
+                for step_i, lr_i, loss_i in lr_history:
+                    f.write(f"{step_i},{lr_i:.8e},{loss_i:.6f}\n")
+            mlflow.log_artifact(str(lr_csv))
+            logger.info("LR-range-test curve written to %s (%d steps)",
+                        lr_csv, len(lr_history))
+
         # Exposure summary + run_summary.md.
         if exposure_counter:
             vals = np.array(list(exposure_counter.values()))
@@ -757,10 +841,17 @@ def _resume_from(
     optimizer: torch.optim.Optimizer,
     precision: PrecisionSetup,
     es: es_mod.EarlyStopping,
-    ema: ema_mod.EMAModel | None,
     cfg: dict,
-) -> int:
-    """Restore from a resume_latest-*.pth snapshot. Returns next epoch to run."""
+    *,
+    freeze_epochs: int,
+) -> tuple[int, ema_mod.EMAModel | None]:
+    """Restore from a resume_latest-*.pth snapshot.
+
+    Returns (next_epoch_to_run, ema_or_None). If the saved epoch is past the
+    backbone-freeze boundary, an EMAModel is reconstructed from the saved
+    `ema_state_dict` so post-resume validation continues using EMA weights
+    rather than silently falling back to live weights (training.md §10.2 step 4).
+    """
     sd = torch.load(resume_path, map_location="cpu", weights_only=False)
     if sd.get("checkpoint_type") != "resume":
         raise ValueError(f"Not a resume checkpoint: {resume_path}")
@@ -776,7 +867,17 @@ def _resume_from(
         np.random.set_state(rng["numpy"])
     if "torch" in rng:
         torch.set_rng_state(torch.tensor(rng["torch"], dtype=torch.uint8))
-    return int(sd["epoch"]) + 1
+
+    saved_epoch = int(sd["epoch"])
+    next_epoch = saved_epoch + 1
+
+    ema: ema_mod.EMAModel | None = None
+    if saved_epoch > freeze_epochs and sd.get("ema_state_dict") is not None:
+        # Reconstruct EMA so validation/best-checkpoint comparisons stay on
+        # EMA weights instead of silently using live weights.
+        ema = ema_mod.EMAModel(model, decay=float(cfg["ema"]["decay"]))
+        ema.shadow = {k: v.detach().clone() for k, v in sd["ema_state_dict"].items()}
+    return next_epoch, ema
 
 
 if __name__ == "__main__":

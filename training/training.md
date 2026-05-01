@@ -104,6 +104,8 @@ Two distinct checkpoint files:
 
 Inference never needs to know about EMA — `weights.pth` is already the EMA copy. `resume_latest.pth` rotates last-N.
 
+Note: training writes the inference checkpoint as `best_deployment.pth` locally; `scripts/package_model.py` renames it to `weights.pth` when assembling the deployment package.
+
 **Deployment-package metadata** lives in sibling files inside the package directory (per `inference.md §2.2`), not inside the `.pth`:
 
 | File | Contents |
@@ -161,6 +163,8 @@ Threshold selection (§12.2) and temperature scaling (§12.1) **must** run with 
 
 Implementation: a shared `configs/deployment.yaml` holds `{threshold, temperature, tta, precision, torch_compile, scales, fusion}`. Both `scripts/evaluate_test.py` (post-calibration verification) and the Phase 2 inference pipeline load it. Calibration writes the learned `threshold` and `temperature` back into this file; everything else is set before calibration.
 
+**Multi-scale scope.** `scripts/evaluate_test.py` is the **1×-only** Test-Realistic contract: it evaluates at `scales: [1.0]` and that number is the canonical Test-Realistic result. Multi-scale evaluation is **optional and deferred**, run later in the Phase 2 inference pipeline (see `inference.md §6.4`); it does not run inside `evaluate_test.py`.
+
 ---
 
 ## 5. Loss Functions
@@ -211,12 +215,7 @@ Weight loss inversely proportional to class frequency. Options for computing wei
 
 Label boundaries may be uncertain due to resolution mismatch or inherent ambiguity in RTS edges.
 
-Both approaches will be implemented and selected via YAML config for ablation:
-```yaml
-boundary_handling: none   # options: none | ignore | soft_labels
-boundary_ignore_width: 3    # pixels (used when boundary_handling: ignore)
-soft_label_value: 0.05      # P(background near boundary) when boundary_handling: soft_labels
-```
+Both approaches will be implemented and selected via YAML config for ablation. Keys: `loss.boundary_handling` (`none | ignore | soft_labels`), `loss.boundary_ignore_width`, `loss.soft_label_value` — see `configs/baseline.yaml:loss`.
 
 **Approach 1: Ignore Regions** (`boundary_handling: ignore`)
 - Exclude pixels within `boundary_ignore_width` pixels of label boundaries from loss computation (set to ignore index 255)
@@ -411,15 +410,7 @@ With early-stop typically firing well before `max_epochs`, the cosine schedule i
 | Phase 1 | 1–freeze_epochs | Frozen | Training | frozen_lr |
 | Phase 2 | freeze_epochs+ | Training | Training | base_lr (backbone: base_lr × backbone_lr_multiplier) |
 
-All LR values configurable in YAML:
-```yaml
-lr:
-  frozen_lr: 1e-3           # decoder-only phase (suggested default)
-  base_lr: 1e-4             # full fine-tuning base LR
-  backbone_lr_multiplier: 0.1  # backbone LR = base_lr × multiplier
-freeze_backbone_epochs: 10  # number of epochs for Phase 1
-```
-After unfreezing, backbone uses `backbone_lr_multiplier × base_lr` to prevent catastrophic forgetting.
+All LR values are configurable in YAML — see `configs/baseline.yaml:lr_schedule` (`frozen_lr`, `base_lr`, `backbone_lr_multiplier`, `freeze_backbone_epochs`). After unfreezing, backbone uses `backbone_lr_multiplier × base_lr` to prevent catastrophic forgetting.
 
 **EMA (Exponential Moving Average)**:
 
@@ -658,7 +649,7 @@ For each prevalence ratio (1:200, 1:500, 1:1000):
 ### 13.1 Multiple Seeds
 
 Single-run results are noisy. For final model and key comparisons:
-- Run with seeds [42, 43, 44]
+- Run with seeds [42, 43, 44] (seed count is conditional on the σ-band protocol — see `experiments.md §3.4`)
 - Report mean ± standard deviation
 - Example format: IoU_RTS: 0.723 ± 0.012
 

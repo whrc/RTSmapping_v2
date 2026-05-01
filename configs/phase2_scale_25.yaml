@@ -2,13 +2,12 @@
 # (training/experiments.md §5).
 #
 # Diff from configs/baseline.yaml:
-#   - splits.train_positive_subset_pct: 25      (TBD impl per experiments.md §5.2)
+#   - splits.train_positive_subset_pct: 25
 #   - mlflow.run_name: "phase2_scale_25"
 #
 # All other parameters held at the Phase 0 baseline. Negatives are NOT subsetted;
 # the curriculum sampler still draws from the full negative pool. See the slope
 # decision matrix in experiments.md §5.3 for what plateau means downstream.
-# for the σ → protocol decision matrix.
 
 seed: 42
 deterministic: false
@@ -122,7 +121,7 @@ lr_schedule:
   base_lr: 1.0e-4
   backbone_lr_multiplier: 0.1
   freeze_backbone_epochs: 10
-  scheduler: "cosine"
+  scheduler: "warmup_cosine"
   warmup_epochs: 5
   warmup_start_lr: 1.0e-6
   min_lr: 1.0e-6

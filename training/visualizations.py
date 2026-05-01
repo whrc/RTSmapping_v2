@@ -36,15 +36,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _denormalize_rgb(rgb_chw: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
-    """Invert mean/std normalization and clip to [0, 255] uint8.
+def _denormalize_rgb(
+    rgb_chw: np.ndarray,
+    mean: np.ndarray,
+    std: np.ndarray,
+    *,
+    max_value: int = 255,
+) -> np.ndarray:
+    """Invert mean/std normalization and clip to [0, max_value] uint8.
+
+    Assumes the source dataset is uint8 (PlanetScope basemap RGB). For higher
+    bit-depth or non-RGB previews, pass `max_value` explicitly.
 
     Args:
         rgb_chw: (3, H, W) float32 — normalised tensor as stored in the batch.
         mean, std: length-3 arrays of the training stats.
+        max_value: upper clip value matching the source dataset's bit-depth.
     """
     denorm = rgb_chw * std[:, None, None] + mean[:, None, None]
-    return np.clip(denorm.transpose(1, 2, 0), 0, 255).astype(np.uint8)
+    return np.clip(denorm.transpose(1, 2, 0), 0, max_value).astype(np.uint8)
 
 
 def prediction_preview_grid(
@@ -82,12 +92,15 @@ def prediction_preview_grid(
 
         ax = axes[i][1]
         ax.imshow(rgb)
-        # GT overlay: red = positive, grey = ignore.
+        # GT overlay: red = positive, grey = ignore. Set RGB channels per
+        # class so ignore renders neutral grey rather than transparent red.
         gt_positive = (label == 1).astype(np.float32)
         gt_ignore = (label == ignore_index).astype(np.float32)
         overlay = np.zeros((*label.shape, 4), dtype=np.float32)
-        overlay[..., 0] = 1.0  # red
-        overlay[..., 3] = 0.5 * gt_positive + 0.2 * gt_ignore
+        overlay[..., 0] = gt_positive + 0.5 * gt_ignore     # R
+        overlay[..., 1] = 0.5 * gt_ignore                    # G
+        overlay[..., 2] = 0.5 * gt_ignore                    # B
+        overlay[..., 3] = 0.5 * gt_positive + 0.4 * gt_ignore
         ax.imshow(overlay)
         ax.set_title("GT (red=pos, grey=ignore)", fontsize=8)
         ax.axis("off")
@@ -248,8 +261,6 @@ def pick_preview_tiles_pass1(
     Returns:
         {"positive": [...], "negative": [...]}
     """
-    import pandas as pd
-
     md = metadata.loc[val_tile_ids].copy()
     rng = np.random.default_rng(seed)
 

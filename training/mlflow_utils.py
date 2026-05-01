@@ -1,12 +1,11 @@
 """MLflow run setup, param logging, and artifact logging.
 
-Tracking backend is GCS-backed file store (configs/baseline.yaml: mlflow.tracking_uri
-= gs://abruptthawmapping/mlflow/). No separate tracking-server process. View
-locally with `mlflow ui --backend-store-uri gs://...`.
+Tracking backend is the GCS file store at `configs/baseline.yaml:mlflow.tracking_uri`
+— no separate tracking server. View locally with
+`mlflow ui --backend-store-uri <uri>` against that same URI.
 
 Multi-seed runs execute sequentially (plan risk #14) — concurrent writes to
-the GCS store are not atomic. Use `configs/final_seed.yaml` to launch
-seed 42/43/44 one at a time.
+the GCS store are not atomic.
 """
 
 from __future__ import annotations

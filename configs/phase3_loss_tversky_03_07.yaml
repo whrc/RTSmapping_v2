@@ -8,7 +8,6 @@
 #   - mlflow.run_name: "phase3_loss_tversky_03_07"
 #
 # Compared against the Phase 0 baseline (focal) under the §1.4 gate.
-# for the σ → protocol decision matrix.
 
 seed: 42
 deterministic: false
@@ -121,7 +120,7 @@ lr_schedule:
   base_lr: 1.0e-4
   backbone_lr_multiplier: 0.1
   freeze_backbone_epochs: 10
-  scheduler: "cosine"
+  scheduler: "warmup_cosine"
   warmup_epochs: 5
   warmup_start_lr: 1.0e-6
   min_lr: 1.0e-6

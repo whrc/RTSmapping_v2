@@ -1,6 +1,6 @@
 # Master Working Document
 
-Living doc maintained by YYang and Claude Code. Track development progress, record decisions, log status.
+Living doc maintained by YYang and Claude Code. Track development progress, record critical decisions, log current status and the next two steps. This is the diary and roadmap of this project. Stale decision/information that has been replaced should be deleted.
 
 ---
 
@@ -15,7 +15,7 @@ Semantic segmentation of **Retrogressive Thaw Slumps (RTS)** in Arctic satellite
 - Normalization: per-dataset stats, saved as `normalization_stats.json` alongside model
 - Seed 42, deterministic CUDNN
 
-**Stack**: PyTorch 2.x + `segmentation_models_pytorch` (UNet++/EfficientNet-B5 baseline), albumentations, rasterio, geopandas. MLflow on GCS (`gs://abruptthawmapping/mlflow/`). Compute: L4 VM (dev) → A100/H100 VM (prod training) via Docker.
+**Stack**: PyTorch 2.x + `segmentation_models_pytorch` (UNet++/EfficientNet-B5 baseline), albumentations, rasterio, geopandas. MLflow tracking URI is configured in `configs/baseline.yaml:mlflow.tracking_uri` (single source). Compute: L4 VM (dev) → A100/H100 VM (prod training) via Docker.
 
 **Imbalance strategy** (real prevalence ~0.1–0.5% positive pixels): balanced batch sampling (50/50 tile-level) + focal loss + curriculum schedule (1:1 → 1:20 pos:neg over 300 epochs). Optimize for high precision at acceptable recall.
 
@@ -23,14 +23,16 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
-## Status — 2026-04-23
+## Status — 2026-05-01
 
-- **Spec phase**: complete except `post-inference/post-inference.md`; `training/training.md` and `inference/inference.md` expanded with the §4 train-inference consistency contract, overlap math, multi-scale / TTA gates, NoData handling, deployment-package layout (Phase 1 Step 0.5).
+- **Spec phase**: complete except `post-inference/post-inference.md`; SSoT pass done — yaml-block duplication removed from spec MDs, MLflow URI canonicalised to `configs/baseline.yaml:mlflow.tracking_uri`, multi-scale eval clarified as 1×-canonical with optional Phase-2 follow-up.
 - **Phase 0** (data pipeline): complete, merged as PR #8.
-- **Phase 1** (training loop): code-complete on synthetic fixtures; real-data smoke pending.
-  - Models, losses, training utilities, scripts/train.py, MLflow wiring, visualizations, packaging & evaluation scripts, deployment-config template — all landed. 113 tests green (105 fast + 8 end-to-end training smoke).
-  - Pending: real-data smoke on L4 VM (`scripts/train.py --config configs/smoke.yaml`) → then Dockerfile materialization → then production run on A100/H100. Phase 1 Step 8.5 (inference feasibility gates) and Step 8 (one-shot test eval) run after the production baseline completes.
-- **Dataset v2.0**: see status below — Phase 0 runs on synthetic fixtures for tests; real-data validation is the next gate.
+- **Phase 1** (training loop): code-complete on synthetic fixtures + 3-reviewer code audit applied (10 Critical + ~20 Important fixes landed). 122 tests green (113 prior + 9 new for `lr_range_test`, `train_positive_subset_pct`, dispatch error paths).
+  - Models, losses, training utilities, scripts/train.py, MLflow wiring, visualizations, packaging & evaluation scripts, deployment-config template — all landed.
+  - **Audit fixes that affect runs**: EMA state restored on resume (was silently falling back to live weights); `lr_range_test` per-step scheduler implemented (Phase 0 §3.2 unblocked); `train_positive_subset_pct` implemented (Phase 0 §3.2 + Phase 2 unblocked); `evaluate_test.py` is now the official 1×-only contract; `inference_feasibility.py` 8.5b runs real-TTA forwards (was mathematically broken pseudo-TTA); `--update-config` flipped to opt-in until §6.3 expanded-tile path lands; `output_bias_prior=0.005` (was 0.5 no-op); deterministic flag stays configurable but warns on `final_*` runs.
+  - **Config matrix slimmed**: deleted 12 placeholder configs (phase3_boundary_*, phase4_extra_*, final_seed*); these will be created per-phase as each predecessor locks. Remaining: baseline + deployment + 5 phase0 + 4 phase2 + 5 phase3_loss + se_investigation = 17 configs.
+  - Pending: real-data smoke on L4 VM (`scripts/train.py --config configs/smoke.yaml`) → then Dockerfile build → then production run on A100/H100. Phase 1 Step 8.5 (inference feasibility gates) and Step 8 (one-shot test eval) run after the production baseline completes.
+- **Dataset v2.0**: real-data validation is the next gate.
 - **Next step**: Phase 1 Step 7b — real-data smoke on L4 VM once v2.0 bucket is finalized enough to have sample tiles for at least 2 regions.
 
 ---
@@ -66,3 +68,13 @@ For the coding agent: on first load, read this doc and the relevant spec md(s) f
 
 - 2026-04-22 — Living doc seeded. Phase 0 data pipeline build started on L4 VM.
 - 2026-04-23 — Phase 0 PR #8 merged to `main`; `phase1-training-loop` rebased. Phase 1 Step 0.5 methodology lock-in committed (train-inference consistency contract in training.md §4.1–§4.6; overlap math + NoData + deployment-package layout in inference.md). Phase 1 code shipped in 7 logical commits: Step 0.5 (methodology), Steps 1–2 (models + losses), Step 3 (training utilities), Step 5 (MLflow + visualizations), Steps 4 + 7a (train.py + synthetic end-to-end smoke), Steps 6a + 8 + 8.5 (deployment package + test eval + feasibility gates), and docs updates. 113 tests green (105 fast ~12 s + 8 end-to-end train-smoke ~130 s). Deferred: Step 6b Dockerfile.train (after real-data smoke), Step 7b real-data smoke on L4, the actual A100/H100 300-epoch production run, and the Step 8/8.5 gates against that run's deployment package.
+- 2026-05-01 — Pre-real-data audit + fix pass. Three parallel code reviewers (ML core, scripts/tests, specs/configs) surfaced 10 Critical + ~20 Important issues; user-approved decisions:
+  - Config matrix kept self-contained; placeholder configs deleted (12 files: phase3_boundary_*, phase4_extra_*, final_seed*) and will be recreated per-phase as winners lock.
+  - Phase 0 §3.2 LR range test implemented end-to-end: `_make_lr_range_test_setter` in `training/scheduler.py` (logarithmic per-step ramp), `_filter_train_positive_subset` in `scripts/train.py` (deterministic seed=42 positive subsample, negatives untouched). Phase 2 §5.1 also unblocked (same `train_positive_subset_pct` mechanism).
+  - `output_bias_prior` set to `0.005` in `configs/baseline.yaml` (was 0.5, a no-op for class-imbalance init).
+  - `deterministic` flag stays configurable: `false` for exploration, `true` for `final_seed*` runs; train.py logs a warning if `run_name` starts with `final` and deterministic is false.
+  - Multi-scale evaluation declared optional and post-1×: `scripts/evaluate_test.py` refuses multi-scale inputs; multi-scale eval moves to Phase 2 inference. Spec language in training.md §4.6 + inference.md §6.4 updated.
+  - SSoT sweep across data.md / training.md / experiments.md / inference.md: removed yaml fenced blocks duplicating values in `configs/*.yaml`, replaced with one-line config-key references. MLflow URI canonicalised — single source is `configs/baseline.yaml:mlflow.tracking_uri`. Stale `gs://abruptthawmapping/mlflow/` references eliminated from CLAUDE.md, computing/docker_training.md, training/mlflow_utils.py, and current_working_status.md.
+  - Critical script fixes: `check_inference_normalization.py` reads correct `rgb`/`extra` schema; `evaluate_test.py` is 1×-only; `inference_feasibility.py` 8.5b runs real-TTA forwards (was mathematically broken output-flip averaging) and `--update-config` is opt-in until expanded-tile half-scale path lands; `_resume_from` restores EMA shadow weights so post-resume validation stays on EMA (was silently falling back to live weights — direct §10.2 violation); narrow `FileNotFoundError` exception so corrupt normalization JSON surfaces.
+  - Other Important fixes: Phase-2 first-epoch decoder LR off-by-one corrected (warmup now starts AT `warmup_start_lr`, ends AT `base_lr`); visualization ignore overlay rendered grey instead of transparent red; `_denormalize_rgb` accepts explicit `max_value`; DataLoader gets a seeded `generator`; dead `import pandas` removed from visualizations; `_resolve_path` extracted into `utils/config.py` for reuse; `apt-key` snippet in docker_training.md replaced with a pointer to the modern-keyring `Dockerfile.train`.
+  - Tests added (9 new, 122 total green): lr_range_test endpoints + log midpoint + bounds validation + uniform per-group LR + unknown-scheduler error path; `_filter_train_positive_subset` keeps-negatives + determinism + 100%-no-op invariants. `np.random` seeded in `test_visualizations.py` randomized cases.

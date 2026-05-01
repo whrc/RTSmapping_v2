@@ -37,80 +37,15 @@ python scripts/train.py --config configs/baseline.yaml  # short test run
 
 ## Part 2: Project Files for Docker
 
-### Dockerfile.train
+### Files (single source of truth lives in the repo, not this doc)
 
-```dockerfile
-FROM nvcr.io/nvidia/pytorch:24.05-py3
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-
-# System dependencies for geospatial + GCS mounting
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgdal-dev gdal-bin fuse \
-    && rm -rf /var/lib/apt/lists/*
-
-# gcsfuse for GCS bucket mounting
-RUN echo "deb https://packages.cloud.google.com/apt gcsfuse-jammy main" \
-    | tee /etc/apt/sources.list.d/gcsfuse.list \
-    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
-    && apt-get update && apt-get install -y gcsfuse \
-    && rm -rf /var/lib/apt/lists/*
-
-# Python dependencies
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy source code
-COPY data/ /app/data/
-COPY models/ /app/models/
-COPY losses/ /app/losses/
-COPY training/ /app/training/
-COPY utils/ /app/utils/
-COPY configs/ /app/configs/
-COPY scripts/ /app/scripts/
-
-# Mount points for data and outputs
-RUN mkdir -p /data /outputs
-
-ENTRYPOINT ["python", "-u"]
-CMD ["scripts/train.py", "--config", "configs/baseline.yaml"]
-```
-
-### requirements.txt
-
-```
-segmentation-models-pytorch
-albumentations
-rasterio
-geopandas
-mlflow[gcs]
-tqdm
-pyyaml
-pandas
-scikit-learn
-scipy
-```
-
-After a successful training run, freeze exact versions for reproducibility:
-```bash
-pip freeze > requirements_frozen.txt
-```
-This frozen file is saved as an MLflow artifact per run.
-
-### .dockerignore
-
-```
-.git/
-__pycache__/
-*.pyc
-*.egg-info/
-.pytest_cache/
-notebooks/
-*.ipynb
-docs/
-```
+- Dockerfile: [computing/Dockerfile.train](Dockerfile.train) — base image
+  `nvcr.io/nvidia/pytorch:24.05-py3`, plus geospatial system deps and gcsfuse
+  (modern keyring install — see the file).
+- Python deps: [requirements.txt](../requirements.txt) (human-edited spec) and
+  `requirements_frozen.txt` (pinned freeze produced from `pip freeze` after a
+  clean Docker build; logged as an MLflow artifact per run).
+- Build context exclusions: [.dockerignore](../.dockerignore).
 
 ---
 
@@ -152,12 +87,15 @@ docker run --rm --gpus all gcr.io/abruptthawmapping/rts-train:v2 \
     python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}, GPUs: {torch.cuda.device_count()}')"
 ```
 
+MLflow tracking URI lives in `configs/baseline.yaml:mlflow.tracking_uri`
+(read by `training/mlflow_utils.py`). Don't pass it as an env var — that's
+ignored by our code and creates a second source of truth.
+
 ### Run training (single GPU)
 ```bash
 docker run --rm --gpus '"device=0"' \
     --privileged \
     -v /mnt/outputs:/outputs \
-    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
     -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_key.json \
     gcr.io/abruptthawmapping/rts-train:v2 \
     scripts/train.py --config configs/baseline.yaml
@@ -169,7 +107,6 @@ docker run --rm --gpus all \
     --shm-size=32g \
     --privileged \
     -v /mnt/outputs:/outputs \
-    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
     gcr.io/abruptthawmapping/rts-train:v2 \
     -m torch.distributed.run \
     --nproc_per_node=8 \
@@ -184,7 +121,6 @@ docker run -d --gpus all \
     --shm-size=32g \
     --name rts-training \
     -v /mnt/outputs:/outputs \
-    -e MLFLOW_TRACKING_URI="gs://abruptthawmapping/mlflow/" \
     gcr.io/abruptthawmapping/rts-train:v2 \
     scripts/train.py --config configs/baseline.yaml
 
@@ -210,8 +146,10 @@ docker stop rts-training
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `MLFLOW_TRACKING_URI` | `gs://abruptthawmapping/mlflow/` | MLflow GCS backend |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON | GCS authentication |
+
+(MLflow tracking URI lives in `configs/baseline.yaml:mlflow.tracking_uri`,
+not in env vars.)
 
 ### GCS Authentication
 
@@ -262,4 +200,4 @@ docker stop rts-training
 - [ ] Image appears in GCR (`gcloud container images list-tags`)
 - [ ] GPU accessible in container
 - [ ] Training runs and saves checkpoints
-- [ ] MLflow logs appear in `gs://abruptthawmapping/mlflow/`
+- [ ] MLflow logs appear at `configs/baseline.yaml:mlflow.tracking_uri`

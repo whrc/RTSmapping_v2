@@ -21,18 +21,19 @@ from training.visualizations import (
 
 
 def test_prediction_preview_grid_writes_png(tmp_path):
+    rng = np.random.default_rng(42)
     tiles = [
         {
             "tile_id": "tile_0",
-            "image": np.random.randn(3, 16, 16).astype(np.float32),
+            "image": rng.standard_normal((3, 16, 16)).astype(np.float32),
             "label": np.zeros((16, 16), dtype=np.int64),
-            "prob": np.random.rand(16, 16).astype(np.float32),
+            "prob": rng.random((16, 16), dtype=np.float32),
         },
         {
             "tile_id": "tile_1",
-            "image": np.random.randn(3, 16, 16).astype(np.float32),
-            "label": (np.random.rand(16, 16) > 0.7).astype(np.int64),
-            "prob": np.random.rand(16, 16).astype(np.float32),
+            "image": rng.standard_normal((3, 16, 16)).astype(np.float32),
+            "label": (rng.random((16, 16)) > 0.7).astype(np.int64),
+            "prob": rng.random((16, 16), dtype=np.float32),
         },
     ]
     out = tmp_path / "preview.png"
@@ -45,9 +46,10 @@ def test_prediction_preview_grid_writes_png(tmp_path):
 
 def test_pr_curves_at_ratios_handles_zero_positives(tmp_path):
     # One ratio has only negatives; plot should still render without exception.
+    rng = np.random.default_rng(42)
     data = {
-        200: (np.random.randn(100).astype(np.float32), np.random.randint(0, 2, 100)),
-        500: (np.random.randn(100).astype(np.float32), np.zeros(100, dtype=np.int64)),
+        200: (rng.standard_normal(100).astype(np.float32), rng.integers(0, 2, 100)),
+        500: (rng.standard_normal(100).astype(np.float32), np.zeros(100, dtype=np.int64)),
     }
     out = tmp_path / "pr.png"
     path = pr_curves_at_ratios(data, out)

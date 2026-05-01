@@ -1,4 +1,4 @@
-# Phase 0 — multi-seed baseline run, seed 42 (training/experiments.md §3.3).
+# Phase 0 — multi-seed baseline run, seed 43 (training/experiments.md §3.3).
 #
 # Diff from configs/baseline.yaml:
 #   - mlflow.run_name: "phase0_seed43"
@@ -118,7 +118,7 @@ lr_schedule:
   base_lr: 1.0e-4
   backbone_lr_multiplier: 0.1
   freeze_backbone_epochs: 10
-  scheduler: "cosine"
+  scheduler: "warmup_cosine"
   warmup_epochs: 5
   warmup_start_lr: 1.0e-6
   min_lr: 1.0e-6

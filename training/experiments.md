@@ -64,7 +64,7 @@ The full config YAML is logged via `training/mlflow_utils.py:_flatten_params` (e
 - For each ratio (200, 500, 1000): `val_{ratio}_pr_auc`, `val_{ratio}_iou_rts`, `val_{ratio}_obj_precision`, `val_{ratio}_obj_recall`
 - `val_realistic_pr_auc_geomean` — geomean across the three ratios; the early-stopping metric
 
-**Run-level metrics logged once at end of training** (`scripts/train.py:733-738`):
+**Run-level metrics logged once at end of training** (`scripts/train.py:main` → `training/mlflow_utils.py:log_run_summary`):
 - `exposure_max`, `exposure_median`, `exposure_p99`, `exposure_unique_tiles` — per-tile sample-count statistics across the whole run
 
 **Run-level artifacts** (logged via `mlflow.log_artifact`):
@@ -72,7 +72,7 @@ The full config YAML is logged via `training/mlflow_utils.py:_flatten_params` (e
 - `requirements_frozen.txt` — `pip freeze` at training start
 - `run_summary.md` — human-readable summary (final metrics, NaN events, training duration)
 
-**Per-validation figures** (rendered by `training/visualizations.py`, logged each validation epoch, rotated by `scripts/train.py:529-532` to keep the last 10 per pattern):
+**Per-validation figures** (rendered by `training/visualizations.py`, logged each validation epoch, rotated by `scripts/train.py:_rotate_artifacts` to keep the last 10 per pattern):
 - `preview_epoch_*.png` — fixed 3-positive + 3-negative tile preview grid (RGB | GT overlay | predicted-prob heatmap)
 - `pr_curves_epoch_*.png` — PR curves on Val-Realistic at ratios 1:200 / 1:500 / 1:1000
 - `prob_hist_epoch_*.png` — log-scale histogram of predicted probabilities (mode-collapse detector)
@@ -108,6 +108,8 @@ Run twice on a 30% data subset for ~1 epoch each, on the production GPU at the B
 | Unfrozen-phase test | Backbone unfrozen (Phase 2 of `training.md §10.2`); ramp LR 1e-7 → 1e-1 over the epoch | Picks `base_lr` |
 
 The picked LR is the order of magnitude where the loss curve has the steepest stable descent before divergence. Defaults in `configs/baseline.yaml:lr_schedule` (`frozen_lr = 1e-3`, `base_lr = 1e-4`) are starting points; the range test may revise.
+
+Implemented and active: `training/scheduler.py:_make_lr_range_test_setter` drives the LR ramp; `scripts/train.py:_filter_train_positive_subset` provides the 30 % data subset.
 
 ### 3.3 Multi-seed baseline
 
@@ -181,7 +183,7 @@ Plot `val_realistic_pr_auc_geomean` and `val_{ratio}_iou_rts` versus log(n_posit
 
 ### 5.2 Subset mechanism
 
-A new config key `splits.train_positive_subset_pct` (or equivalent) selects a deterministic seeded subsample of positive tile_ids from `splits.yaml.train` at dataset-construction time. Negatives are not subsetted. Implementation lands when Phase 2 starts; the field is **TBD** in `configs/baseline.yaml` until then.
+The config key `splits.train_positive_subset_pct` selects a deterministic seeded subsample of positive tile_ids from `splits.yaml.train` at dataset-construction time. Negatives are not subsetted. Implemented in `scripts/train.py:_filter_train_positive_subset` and active.
 
 ### 5.3 Slope decision matrix
 
@@ -398,7 +400,7 @@ configs/final_seed{42,43,44}.yaml     ← Final §9 multi-seed lock
 configs/deployment.yaml               ← post-calibration deployment config (per inference.md §2.2)
 ```
 
-Each config inherits all unspecified keys from `baseline.yaml` via the YAML loader's merge step. Only the changed keys appear in the experiment file.
+Phase configs are self-contained; downstream phase configs (boundary, extra, final) are created after each predecessor phase locks, copying the winner's hyperparameters into the new file.
 
 ### 11.2 Per-phase results docs
 

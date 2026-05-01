@@ -80,8 +80,8 @@ This is critical for training data quality:
 
 | Scenario | Action |
 |----------|--------|
-| Complete RTS fully within tile | Label as RTS ||
- Partial RTS with **both** headwall and floor visible | Label as RTS |
+| Complete RTS fully within tile | Label as RTS |
+| Partial RTS with **both** headwall and floor visible | Label as RTS |
 | Partial RTS with **only** floor visible (no headwall in tile) | Ignore Index：255 |
 | Partial RTS with **only** headwall visible (no floor in tile) | Ignore Index：255 |
 
@@ -123,16 +123,7 @@ The ignore values could be applied to several conditions, for example:
 {tile_id}.tif
 ```
 ### 3.3 File Structure
-Data lives in the GCS bucket, mounted via gcsfuse at training time. All paths are configured in the YAML config — no hardcoded paths in code:
-```yaml
-data:
-  root: "gs://abruptthawmapping/training/v2.0"  # configure per environment
-  rgb_dir: "PLANET-RGB"
-  extra_dir: "EXTRA"
-  labels_dir: "labels"
-  metadata_file: "metadata.csv"
-  splits_file: "splits.yaml"
-```
+Data lives in the GCS bucket, mounted via gcsfuse at training time. All paths are configured in the YAML config — no hardcoded paths in code (see `configs/baseline.yaml:data`).
 
 GCS directory layout:
 ```
@@ -174,20 +165,6 @@ metadata.csv:
 Note: TrainClass values are `Positive` or `Negative` only. Hard negatives, if exist (e.g. from Lingcao Huang's model false positives), are stored as `Negative` — no separate class needed.
 UIDs are RTS UIDs contained within the tile (used for tracking individual RTS); empty for Negative tiles.
 RegionName is Arctic subregion defined by ecology/permafrost extent (boundaries provided by Heidi Rodenhizer, see files in '/domain').
-split.yaml (e.g.):
-
-```yaml
-train:
-  - elias range tundra
-  - 
-  - 
-val:
-  - beringia lowland tundra
-  - 
-test:
-  - arctic foothills tundra
-  - 
-```
 
 **PLANET-RGB: derived from PlanetScope Basemap**
 ```
@@ -385,9 +362,9 @@ Each row is one **group** — a semantic unit treated together by the Phase 4 ab
 |----------|--------------|---------|--------|-------------|
 | `NDVI` | 0 | 1 | Sentinel-2 | Normalized Difference Vegetation Index — vegetation density signal |
 | `NBR` | 1 | 1 | Sentinel-2 | Normalized Burn Ratio — sensitive to bare/burned ground vs. healthy vegetation |
-| `SE_PCA` | 2, 3, 4 | 3 | Google Satellite Embedding | First 3 PCA axes of the SE feature vector — generic pretrained representation |
-| `SE_PROTO` | 5 | 1 | Google Satellite Embedding | Cosine similarity to a hand-curated RTS prototype embedding |
-| `TC` | 6, 7 | 2 | Sentinel-2 (Tasselled Cap transform) | TBD: which 2 of {brightness, greenness, wetness} are used |
+| `SE_PCA` | 2, 3, 4 | 3 | Google Satellite Embedding | First 3 Global PCA axes of the SE feature vector — generic pretrained representation |
+| `SE_PROTO` | 5 | 1 | Google Satellite Embedding | Cosine similarity (contrast) to a hand-curated RTS prototype embedding |
+| `TC` | 6, 7 | 2 | Sentinel-2 (Tasselled Cap transform) | TCB,TCW |
 
 Total EXTRA band count: **8**.
 

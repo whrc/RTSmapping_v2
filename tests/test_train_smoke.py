@@ -121,7 +121,7 @@ def _build_smoke_cfg(data_root: str, mlruns_dir: Path) -> dict:
             "frozen_lr": 1e-3, "base_lr": 1e-3,
             "backbone_lr_multiplier": 0.1,
             "freeze_backbone_epochs": 0,        # unfreeze at epoch 1
-            "scheduler": "cosine",
+            "scheduler": "warmup_cosine",
             "warmup_epochs": 0,
             "warmup_start_lr": 1e-6,
             "min_lr": 1e-6,

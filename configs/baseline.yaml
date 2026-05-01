@@ -205,7 +205,7 @@ lr_schedule:
   base_lr: 1.0e-4             # Phase 2: full fine-tune
   backbone_lr_multiplier: 0.1
   freeze_backbone_epochs: 10
-  scheduler: "cosine"
+  scheduler: "warmup_cosine"   # warmup_cosine | lr_range_test (training/scheduler.py)
   warmup_epochs: 5            # decoder warmup after unfreeze
   warmup_start_lr: 1.0e-6
   min_lr: 1.0e-6
@@ -228,9 +228,10 @@ model:
   # Output: logits (no sigmoid) — see training.md §4.2.
   # Final-conv bias initialized to -log((1-π)/π) to align early sigmoid output
   # with class prior. Reduces first-step loss dominance by negatives (focal
-  # paper trick). 0.5 matches the 1:1 curriculum start; revisit if curriculum
-  # schedule changes.
-  output_bias_prior: 0.5
+  # paper trick). Real positive-pixel prevalence is ~0.001–0.005 per
+  # current_working_status.md; using the upper end gives a small but non-zero
+  # negative bias instead of the no-op at π=0.5.
+  output_bias_prior: 0.005
 
 # ---------------------------------------------------------------------------
 # Metrics (training.md §6; inference-shared values)

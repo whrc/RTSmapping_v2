@@ -48,7 +48,7 @@ from data.dataset import RTSDataset, parse_extra_spec  # noqa: E402
 from data.splits import get_tile_ids, load_metadata, load_splits_yaml  # noqa: E402
 from data.transforms import build_eval_transforms  # noqa: E402
 from models import build_model  # noqa: E402
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, resolve_path  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,7 @@ class _TileResult:
     logits_1x: np.ndarray       # (H, W) float32
     logits_0p5x: np.ndarray | None   # (H, W) float32 or None
     labels: np.ndarray          # (H, W) uint8
+    image: torch.Tensor | None = None  # (C, H, W) CPU tensor; cached for real TTA forwards
 
 
 # ---------------------------------------------------------------------------
@@ -102,43 +103,6 @@ def _predict_scale_0_5(
 
 
 # ---------------------------------------------------------------------------
-# TTA helper (shared with evaluate_test, kept local for simplicity)
-# ---------------------------------------------------------------------------
-
-
-def _tta_forward(
-    model: torch.nn.Module,
-    x: torch.Tensor,
-    tta: str,
-    autocast_ctx,
-) -> torch.Tensor:
-    if tta == "none":
-        with autocast_ctx:
-            return model(x).float()
-    passes: list[tuple[bool, bool]] = [(False, False)]   # (flip_h, flip_v)
-    if tta == "minimal":
-        passes.append((True, False))
-    elif tta == "standard":
-        passes += [(True, False), (False, True), (True, True)]
-
-    outs = []
-    for fh, fv in passes:
-        xi = x
-        if fv:
-            xi = torch.flip(xi, dims=(-2,))
-        if fh:
-            xi = torch.flip(xi, dims=(-1,))
-        with autocast_ctx:
-            out = model(xi).float()
-        if fv:
-            out = torch.flip(out, dims=(-2,))
-        if fh:
-            out = torch.flip(out, dims=(-1,))
-        outs.append(out)
-    return torch.stack(outs, dim=0).mean(dim=0)
-
-
-# ---------------------------------------------------------------------------
 # Data ingestion: run val set once, cache per-tile data
 # ---------------------------------------------------------------------------
 
@@ -164,8 +128,12 @@ def _run_val_inference(
     deployment_package: Path,
     training_cfg: dict,
     device: torch.device,
-) -> tuple[list[_TileResult], float, dict]:
-    """Run val once at scale 1.0 and scale 0.5. Returns (tiles, threshold, dep_cfg)."""
+):
+    """Run val once at scale 1.0 and scale 0.5.
+
+    Returns (tiles, threshold, dep_cfg, model, autocast_ctx, temperature) so
+    8.5b can re-run real TTA forwards on the cached input images.
+    """
     dep_cfg = yaml.safe_load((deployment_package / "deployment_config.yaml").read_text())
     if dep_cfg.get("threshold") is None or dep_cfg.get("temperature") is None:
         raise ValueError("Deployment config has null threshold/temperature; run calibration first.")
@@ -178,8 +146,8 @@ def _run_val_inference(
     state_dict = torch.load(deployment_package / "weights.pth", map_location=device, weights_only=False)
     model.load_state_dict(state_dict)
 
-    metadata = load_metadata(f"{training_cfg['data']['data_root'].rstrip('/')}/{training_cfg['data']['metadata_csv']}")
-    splits = load_splits_yaml(f"{training_cfg['data']['data_root'].rstrip('/')}/{training_cfg['data']['splits_yaml']}")
+    metadata = load_metadata(resolve_path(training_cfg["data"]["data_root"], training_cfg["data"]["metadata_csv"]))
+    splits = load_splits_yaml(resolve_path(training_cfg["data"]["data_root"], training_cfg["data"]["splits_yaml"]))
     val_ids = get_tile_ids("val_realistic", metadata, splits)
     logger.info("Running feasibility on %d val_realistic tiles", len(val_ids))
 
@@ -234,6 +202,10 @@ def _run_val_inference(
             row = md_indexed.loc[tid]
             is_pos = bool((labels[b] == 1).any())
             is_large = _tile_is_large(row) if is_pos else False
+            # Cache the input image (CPU, fp32) so 8.5b can run real TTA forwards
+            # via re-running the model on flipped inputs rather than flipping
+            # output logits — the latter is mathematically wrong for a model
+            # without translational equivariance.
             out.append(_TileResult(
                 tile_id=tid,
                 is_positive=is_pos,
@@ -241,8 +213,9 @@ def _run_val_inference(
                 logits_1x=logits_1x[b, 0].cpu().numpy(),
                 logits_0p5x=logits_0p5[b, 0].cpu().numpy(),
                 labels=labels[b].astype(np.uint8),
+                image=images[b].detach().cpu(),
             ))
-    return out, threshold, dep_cfg
+    return out, threshold, dep_cfg, model, autocast_ctx, temperature
 
 
 # ---------------------------------------------------------------------------
@@ -352,58 +325,71 @@ def _run_8p5a_multi_scale(tiles: list[_TileResult], threshold: float, ignore: in
     }
 
 
+@torch.no_grad()
 def _run_8p5b_tta(
     model: torch.nn.Module,
     tiles: list[_TileResult],
     threshold: float,
     ignore: int,
+    *,
+    device: torch.device,
+    autocast_ctx,
+    temperature: float,
 ) -> dict:
-    """Compare none / minimal / standard TTA on the cached baseline logits.
+    """Compare none / minimal / standard TTA via real flipped-input forwards.
 
-    Since TTA requires re-running the model with flipped inputs, and we only
-    cached one forward pass, we approximate TTA here by synthesising pseudo-
-    TTA from the logits we have (flip-invariance of RTS means hflip/vflip/rot
-    of the probability map is a reasonable proxy). For Phase 1 this is an
-    inexpensive feasibility screen; a full TTA run on val happens during
-    deployment if this gate recommends it.
+    Re-runs the model with each TTA flip configuration on the cached input
+    image, inverse-flips the resulting logits, and averages in logit space —
+    matching `evaluate_test._apply_tta`. Earlier versions averaged the
+    output-logit map directly with its spatial flip; that is mathematically
+    wrong for any non-translation-equivariant model and produced gate
+    decisions that were essentially noise.
 
-    Report is still useful: it tells us whether TTA averaging *changes* the
-    PR-AUC more than the gate thresholds (worst case: the model is so
-    symmetric that TTA adds nothing, gain ≈ 0, decision is "none").
+    Cost: one extra forward pass per tile per non-identity TTA. Val set is
+    small (a few hundred tiles) so this is acceptable.
     """
-    # Build the three logit pools.
-    results = {}
+    results: dict = {}
+
+    # No-TTA reference uses the cached baseline logits.
     logits_pool, labels_pool = _stack_valid(tiles, "logits_1x", ignore)
-    # No-TTA reference.
     ap_none = _pr_auc(logits_pool, labels_pool)
     prec_none = _precision_at_threshold(logits_pool, labels_pool, threshold)
     results["none"] = {"pr_auc": ap_none, "precision_at_threshold": prec_none}
 
-    # Pseudo-TTA via flip averaging in probability space.
-    def _flip_avg(passes: list[tuple[bool, bool]]) -> np.ndarray:
-        probs_stack = []
-        for t in tiles:
-            l = t.logits_1x
-            mask = t.labels != ignore
-            pp = []
-            for fh, fv in passes:
-                tmp = l
-                if fv:
-                    tmp = np.flip(tmp, axis=0)
-                if fh:
-                    tmp = np.flip(tmp, axis=1)
-                pp.append(1.0 / (1.0 + np.exp(-tmp)))
-            mean_p = np.mean(pp, axis=0)
-            eps = 1e-7
-            lg = np.log(np.clip(mean_p, eps, 1 - eps) / (1 - np.clip(mean_p, eps, 1 - eps)))
-            probs_stack.append(lg[mask])
-        return np.concatenate(probs_stack)
-
     minimal_passes = [(False, False), (True, False)]
     standard_passes = [(False, False), (True, False), (False, True), (True, True)]
 
+    def _real_tta_pool(passes: list[tuple[bool, bool]]) -> np.ndarray:
+        """Re-run model per (fh, fv) flip; inverse-flip; average in logit space."""
+        all_logits = []
+        for t in tiles:
+            if t.image is None:
+                raise RuntimeError(
+                    "_TileResult.image is None — feasibility script must cache "
+                    "input images during _run_val_inference for real TTA."
+                )
+            x = t.image.unsqueeze(0).to(device, non_blocking=True)
+            stack = []
+            for fh, fv in passes:
+                xi = x
+                if fv:
+                    xi = torch.flip(xi, dims=(-2,))
+                if fh:
+                    xi = torch.flip(xi, dims=(-1,))
+                with autocast_ctx:
+                    out = model(xi).float()
+                if fv:
+                    out = torch.flip(out, dims=(-2,))
+                if fh:
+                    out = torch.flip(out, dims=(-1,))
+                stack.append(out)
+            mean_logits = torch.stack(stack, dim=0).mean(dim=0) / temperature
+            mask = t.labels != ignore
+            all_logits.append(mean_logits[0, 0].cpu().numpy()[mask].astype(np.float32))
+        return np.concatenate(all_logits)
+
     for name, passes in [("minimal", minimal_passes), ("standard", standard_passes)]:
-        logits_tta = _flip_avg(passes)
+        logits_tta = _real_tta_pool(passes)
         ap = _pr_auc(logits_tta, labels_pool)
         prec = _precision_at_threshold(logits_tta, labels_pool, threshold)
         results[name] = {"pr_auc": ap, "precision_at_threshold": prec}
@@ -479,29 +465,44 @@ def main() -> int:
     p.add_argument("--deployment-package", type=Path, required=True)
     p.add_argument("--training-config", type=Path, required=True)
     p.add_argument("--device", default=None)
-    p.add_argument("--no-update-config", action="store_true",
-                   help="Print the recommendation but don't modify deployment_config.yaml")
+    p.add_argument("--update-config", action="store_true",
+                   help="Write gate recommendations into deployment_config.yaml. "
+                        "Off by default — §8.5a half-scale operates on a "
+                        "downsampled crop of the same 512×512 tile rather "
+                        "than the §6.3-required expanded surrounding area, "
+                        "so the multi-scale gate is advisory until Phase 2 "
+                        "implements the expanded-tile path.")
     args = p.parse_args()
 
     setup_logging(level="INFO")
     training_cfg = load_config(args.training_config)
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
-    tiles, threshold, dep_cfg = _run_val_inference(args.deployment_package, training_cfg, device)
+    tiles, threshold, dep_cfg, model, autocast_ctx, temperature = _run_val_inference(
+        args.deployment_package, training_cfg, device,
+    )
     ignore = int(training_cfg["data"]["label_ignore_index"])
 
     ms = _run_8p5a_multi_scale(tiles, threshold, ignore)
-    tta = _run_8p5b_tta(None, tiles, threshold, ignore)
+    tta = _run_8p5b_tta(
+        model, tiles, threshold, ignore,
+        device=device, autocast_ctx=autocast_ctx, temperature=temperature,
+    )
 
     report = _write_feasibility_report(args.deployment_package, ms, tta)
     logger.info("Wrote %s", report)
+    logger.info(
+        "8.5a multi-scale gate is ADVISORY until §6.3 expanded-tile inference "
+        "lands; do not rely on `recommended_scales` for deployment without "
+        "the proper expanded-tile path.",
+    )
 
     # Combined summary JSON.
     (args.deployment_package / "feasibility.json").write_text(json.dumps({
         "multi_scale": ms, "tta": tta,
     }, indent=2, default=float))
 
-    if not args.no_update_config:
+    if args.update_config:
         _update_deployment_config(
             args.deployment_package,
             scales=ms["recommended_scales"],
@@ -509,6 +510,8 @@ def main() -> int:
         )
         logger.info("Updated deployment_config.yaml: scales=%s tta=%s",
                     ms["recommended_scales"], tta["recommended_tta"])
+    else:
+        logger.info("--update-config not set; deployment_config.yaml left untouched.")
     return 0
 
 
