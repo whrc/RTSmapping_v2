@@ -316,3 +316,80 @@ def test_prediction_shows_response_on_positive_region(synthetic_dataset, trained
     assert probs.max() > 0.1, (
         f"Model collapsed: max prob on a positive tile is {probs.max():.4f}"
     )
+
+
+def test_train_smoke_resume_then_continue(synthetic_dataset, tmp_path, monkeypatch):
+    """Resume from a 2-epoch run for 1 more epoch; assert EMA shadow is restored.
+
+    Guards Important I5 from the 2026-05-02 code review and the underlying
+    audit fix that restores EMA state on resume (was silently falling back to
+    live weights — a direct §10.2 violation).
+    """
+    # First run: 2 epochs.
+    cfg = _build_smoke_cfg(synthetic_dataset["root"], tmp_path / "mlruns")
+    cfg["training"]["max_epochs"] = 2
+    cfg_path = tmp_path / "smoke_initial.yaml"
+    cfg_path.write_text(yaml.safe_dump(cfg))
+
+    out_dir = tmp_path / "run_initial"
+    monkeypatch.setattr(sys, "argv", [
+        "train.py",
+        "--config", str(cfg_path),
+        "--device", "cpu",
+        "--out-dir", str(out_dir),
+    ])
+    import train  # scripts/train.py is on sys.path
+    rc = train.main()
+    assert rc == 0
+
+    # Find the latest resume snapshot.
+    resume_files = sorted((out_dir / "checkpoints").glob("resume_latest-*.pth"))
+    assert resume_files, "no resume snapshot from initial run"
+    resume_path = resume_files[-1]
+
+    saved = torch.load(resume_path, map_location="cpu", weights_only=False)
+    saved_ema_sd = saved.get("ema_state_dict")
+    if saved_ema_sd is None:
+        pytest.skip("EMA was not constructed in the initial run; resume-of-EMA path not exercised")
+
+    # Second run: resume + 1 more epoch.
+    cfg2 = dict(cfg)
+    cfg2["training"]["max_epochs"] = 3   # +1 epoch beyond the resume point
+    cfg2_path = tmp_path / "smoke_resume.yaml"
+    cfg2_path.write_text(yaml.safe_dump(cfg2))
+
+    out_dir2 = tmp_path / "run_resume"
+    monkeypatch.setattr(sys, "argv", [
+        "train.py",
+        "--config", str(cfg2_path),
+        "--device", "cpu",
+        "--out-dir", str(out_dir2),
+        "--resume", str(resume_path),
+    ])
+    rc2 = train.main()
+    assert rc2 == 0
+
+    # Verify the resumed run wrote a fresh EMA snapshot — i.e. resume restored
+    # the shadow rather than silently falling back to live and dropping EMA.
+    new_resume_files = sorted((out_dir2 / "checkpoints").glob("resume_latest-*.pth"))
+    assert new_resume_files
+    new_saved = torch.load(new_resume_files[-1], map_location="cpu", weights_only=False)
+    new_ema_sd = new_saved["ema_state_dict"]
+    assert new_ema_sd is not None, "EMA dropped after resume — regression of audit fix"
+
+    # Floating-point parameter keys should match between the two checkpoints.
+    saved_keys = {k for k, v in saved_ema_sd.items() if v.dtype.is_floating_point}
+    new_keys = {k for k, v in new_ema_sd.items() if v.dtype.is_floating_point}
+    assert saved_keys == new_keys, "EMA state_dict keys changed across resume"
+
+    # The EMA shadow at end-of-epoch-3 should differ from the one at end-of-epoch-2
+    # (decay continued working) — strongest signal that EMA is alive, not stuck.
+    diff_found = False
+    for k in saved_keys:
+        if not torch.equal(saved_ema_sd[k], new_ema_sd[k]):
+            diff_found = True
+            break
+    assert diff_found, (
+        "Post-resume EMA shadow is bit-identical to the saved one across an "
+        "extra epoch of training — resume likely did not restart the EMA decay."
+    )
