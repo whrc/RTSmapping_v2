@@ -107,6 +107,16 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_dataset_with_variable_extra` | Bands [0, 2] + arbitrary names → `(5, 64, 64)` | real — flexible-EXTRA end-to-end |
 | `test_dataset_label_values_in_set` | Every label's unique values ⊂ {0, 1, 255} | real |
 | `test_boundary_dilation_adds_ignore` | Width=2 dilation creates 255 band and preserves interior 1s | real |
+| `test_init_raises_on_rgb_channel_name_mismatch` | RTSDataset refuses stats with permuted RGB channel names (training.md §4.5) | real — Critical C1 (2026-05-02) |
+| `test_init_raises_on_extra_channel_name_mismatch` | RTSDataset refuses stats with mis-ordered EXTRA channel names | real — Critical C1 (2026-05-02) |
+
+### [test_transforms.py](test_transforms.py)
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_color_aug_does_not_touch_extra` | EXTRA channels are bit-identical after color-only augmentation (training.md §9.2) | real — Critical C3 (2026-05-02) |
+| `test_geometric_aug_applies_to_extra_and_mask` | HorizontalFlip applies to RGB, EXTRA, and mask jointly | real |
+| `test_extra_none_path_still_works` | RGB-only call path (no `extra` kwarg) preserved through the split | real — backward-compat for baseline RGB-only |
 
 ### [test_models.py](test_models.py)
 
