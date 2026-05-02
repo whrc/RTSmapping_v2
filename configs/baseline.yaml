@@ -77,8 +77,12 @@ splits:
 # Normalization (per-dataset stats; see data/data.md §5)
 # ---------------------------------------------------------------------------
 normalization:
-  # One-off percentage clipping of outliers before mean/std computation.
-  # Set after inspecting histograms with compute_normalization_stats.py --histograms-only.
+  # RESERVED — currently unimplemented. compute_normalization_stats.py runs
+  # Welford on raw values (no clipping). Keys retained so that adding
+  # percentile-clipping in v2.1 does not require a config-schema change.
+  # If real-data stats reveal saturation/zero-fill skew, implement clipping
+  # in scripts/compute_normalization_stats.py and update data/data.md §4.1.
+  # Per-group EXTRA normalization design intent lives in data/data.md §9.
   rgb_clip_percentiles: [0.1, 99.9]
   extra_clip_percentiles: [0.1, 99.9]
 
