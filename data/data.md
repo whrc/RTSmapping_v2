@@ -358,15 +358,17 @@ RGB band order is fixed. EXTRA is the **canonical 8-band stack for v2.0** — on
 
 Each row is one **group** — a semantic unit treated together by the Phase 4 ablation (see `training/experiments.md §7`). Single-band groups occupy one index; multi-band groups span a contiguous range. Group IDs are the names referenced from experiment configs and from Phase 4 results docs.
 
-| Group ID | Band indices | N bands | Source | Description |
-|----------|--------------|---------|--------|-------------|
-| `NDVI` | 0 | 1 | Sentinel-2 | Normalized Difference Vegetation Index — vegetation density signal |
-| `NBR` | 1 | 1 | Sentinel-2 | Normalized Burn Ratio — sensitive to bare/burned ground vs. healthy vegetation |
-| `SE_PCA` | 2, 3, 4 | 3 | Google Satellite Embedding | First 3 Global PCA axes of the SE feature vector — generic pretrained representation |
-| `SE_PROTO` | 5 | 1 | Google Satellite Embedding | Cosine similarity (contrast) to a hand-curated RTS prototype embedding |
-| `TC` | 6, 7 | 2 | Sentinel-2 (Tasselled Cap transform) | TCB,TCW |
+| Group ID | Band indices | N bands | Source | Description | Normalization treatment (intended; see note below) |
+|----------|--------------|---------|--------|-------------|------|
+| `NDVI` | 0 | 1 | Sentinel-2 | Normalized Difference Vegetation Index — vegetation density signal | Per-dataset z-score with `[0.1, 99.9]` percentile clip. Bounded but no load-bearing zero for a randomly-initialised first conv. Standard treatment. |
+| `NBR` | 1 | 1 | Sentinel-2 | Normalized Burn Ratio — sensitive to bare/burned ground vs. healthy vegetation | Per-dataset z-score with `[0.1, 99.9]` percentile clip. Same family as NDVI; same logic. |
+| `SE_PCA` | 2, 3, 4 | 3 | Google Satellite Embedding | First 3 Global PCA axes of the SE feature vector — generic pretrained representation | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Global-PCA orthogonality isn't load-bearing for this task; the network re-learns its own use of PC1/2/3 from the Arctic subset distribution. |
+| `SE_PROTO` | 5 | 1 | Google Satellite Embedding | Cosine similarity (contrast) to a hand-curated RTS prototype embedding | **No z-score.** Already bounded (cosine similarity ∈ [-1, 1]). Either pass raw, or apply fixed `(x − 0) / 0.5` to give a unit-scale signal without erasing the meaningful zero. Per-channel mode required (see note). |
+| `TC` | 6, 7 | 2 | Sentinel-2 (Tasselled Cap transform) | TCB, TCW | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Tasselled-cap components are radiometric quantities with no semantic zero; standard treatment. Two bands → two independent (μ, σ). |
 
 Total EXTRA band count: **8**.
+
+> **Implementation status (2026-05-02):** the per-band z-score column reflects what `data/normalization.py:WelfordStats` already computes (each EXTRA channel gets its own μ, σ — see [data/normalization.py:74-75](../data/normalization.py#L74-L75)). The `[0.1, 99.9]` percentile clipping and the `SE_PROTO` per-channel-mode bypass are **not yet implemented**; `scripts/compute_normalization_stats.py` runs Welford on raw values, and `RTSDataset.__getitem__` applies z-score uniformly to every channel. The treatments above are the **design intent** for when Phase 4 EXTRA experiments fire — see `training/experiments.md §7`. Implementing them requires (a) clipping in `compute_normalization_stats.py` and (b) a per-channel `normalization_mode` schema entry in `normalization_stats.json` plus a dispatch in the loader. Both are deferred to v2.1.
 
 Channels considered but **not** included in v2.0: NIR (Sentinel-2), Relative Elevation / Shaded Relief / slope / aspect (ArcticDEM), NDMI, SAR backscatter. These remain available for v2.1 if Phase 4 results or post-inference analysis flags a gap that the included groups cannot fill.
 
