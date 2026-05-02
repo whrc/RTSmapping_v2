@@ -165,6 +165,13 @@ def main() -> int:
             f"Expected RGB channel order ['R', 'G', 'B'] in training stats; got {rgb_names}"
         )
 
+    # When EXTRA stats are present, log their channel order so any drift-script
+    # consumer is aware. (Strict mismatch with a config consumer's expected order
+    # is enforced inside RTSDataset.__init__; this script just reports.)
+    if "extra" in training_stats:
+        extra_names = list(training_stats["extra"].get("channel_names", []))
+        logger.info("Training stats include EXTRA channels: %s", extra_names)
+
     data_root = args.data_root or model_cfg.get("data", {}).get("data_root", ".")
     df = pd.read_csv(args.tile_list, dtype={"Tile_id": str})
     tile_ids = df["Tile_id"].tolist()

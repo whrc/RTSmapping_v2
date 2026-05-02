@@ -94,6 +94,25 @@ class RTSDataset(Dataset):
 
         if norm_stats_path is not None:
             stats = load_stats(norm_stats_path)
+            # training.md §4.5: assert channel-name agreement before any vector
+            # arithmetic. Catches the "R-stats applied to G-channel" failure
+            # mode where compute_normalization_stats was re-run after the
+            # config's EXTRA order changed but the consumer expects the old order.
+            expected_rgb = ["R", "G", "B"]
+            actual_rgb = list(stats.get("rgb", {}).get("channel_names", []))
+            if actual_rgb != expected_rgb:
+                raise ValueError(
+                    f"normalization stats RGB channel_names {actual_rgb!r} "
+                    f"does not match expected {expected_rgb!r}"
+                )
+            if extra_channels:
+                expected_extra = [c.name for c in extra_channels]
+                actual_extra = list(stats.get("extra", {}).get("channel_names", []))
+                if actual_extra != expected_extra:
+                    raise ValueError(
+                        f"normalization stats EXTRA channel_names {actual_extra!r} "
+                        f"does not match config order {expected_extra!r}"
+                    )
             self.mean, self.std = stats_to_arrays(stats, with_extra=bool(extra_channels))
         else:
             # Permitted for smoke tests; real runs must supply stats.
