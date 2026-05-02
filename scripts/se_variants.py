@@ -12,8 +12,8 @@ Evaluates on 7 test tiles (OID 93, 113, 136, 144, 169, 187, 262) with figures,
 sign-consistency tables, and correlation against S2 channels.
 
 Usage:
-  python scripts/se_variants.py --config configs/se_investigation.yaml --approach approach1
-  python scripts/se_variants.py --config configs/se_investigation.yaml --approach all
+  python scripts/se_variants.py --config configs/<se_investigation_config>.yaml --approach approach1
+  python scripts/se_variants.py --config configs/<se_investigation_config>.yaml --approach all
 """
 
 import argparse
@@ -1123,7 +1123,7 @@ def parse_args() -> argparse.Namespace:
         description="Phase 2: SE-cosine variant evaluation.",
     )
     parser.add_argument(
-        "--config", required=True, help="Path to se_investigation.yaml",
+        "--config", required=True, help="Path to an SE-investigation YAML config",
     )
     parser.add_argument(
         "--approach", required=True,

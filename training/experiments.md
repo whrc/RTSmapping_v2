@@ -90,6 +90,35 @@ The full config YAML is logged via `training/mlflow_utils.py:_flatten_params` (e
 
 Phase 0 is run on the production GPU (A100 or H100). It has three sub-steps in order: BS pick → LR range test → 3-seed baseline. The order matters because LR scales with the gradient noise scale ∝ LR / BS.
 
+### Phase 0a — RGB normalization arm-out
+ 
+*Objective: lock the RGB input pipeline before measuring the noise floor.*
+ 
+### Rationale
+ 
+The Phase 0 baseline applies per-dataset z-score to RGB. Two inherited assumptions deserve a check rather than a free pass: PlanetScope Visual is already CV-harmonized for downstream analytics (so per-dataset z-score over a harmonized product mostly captures the *content distribution* of training tiles, not sensor variation), and the smp EfficientNet-B5 pretrained weights were trained on `/255 → ImageNet mean/std` inputs (so per-dataset z-score silently shifts inputs away from what pretrained filters were optimised for, most consequentially during the frozen-backbone phase where filters cannot adapt).
+ 
+### Arms
+ 
+EXTRA channels are out of scope; per-channel z-score on physical-meaning bands stays at the `data/data.md §4.2` default.
+ 
+| Arm | RGB preprocessing | Notes |
+|---|---|---|
+| A | Per-dataset z-score | Current spec default. |
+| B | `x / 255` then ImageNet mean/std | Honors pretrained backbone statistics. Use the preprocessing values shipped with the smp encoder weights, not a textbook copy. |
+| C | `x / 255` only | Tests whether mean/std subtraction matters at all on a harmonized product. |
+ 
+### Procedure and decision
+ 
+Seed 42 only, all three arms, all other hyperparameters at the `configs/baseline.yaml` defaults. σ₀ does not exist yet, so the §1.4 gate cannot apply its `2σ₀` term — fall back to the gate floor (Δ `val_realistic_pr_auc_geomean` ≥ 0.01).
+ 
+| Outcome | Action |
+|---|---|
+| No arm beats A by Δ ≥ 0.01 | Lock A. |
+| Exactly one of B / C beats A | Lock that arm. |
+| Both B and C beat A | Lock the larger Δ. Tie-break: C beats B (no stats file, no recomputation when training data changes). |
+ 
+The locked arm becomes the input pipeline for Phase 0 and every phase after. `data/normalization.py` and the on-disk `normalization_stats.json` are updated (or the stats file is removed, for arm C) before Phase 0 begins.
 ### 3.1 Batch-size pick
 
 Pick the largest BS that fits memory comfortably (~85% of VRAM) at the locked precision (BF16). Hypothesis under balanced sampling at `positive_fraction = 0.5`: larger BS = more positive instances per gradient step, which is favorable in this small-data regime. This is a defensible default, **not** a universal truth.
@@ -386,21 +415,34 @@ The trigger for revisiting any of these is **evidence**, not a calendar slot or 
 
 ### 11.1 Config naming
 
-Each experiment is one YAML file in `configs/`. Naming convention:
+Each experiment is one YAML file in `configs/`. The repository commits only the
+two configs needed to start any experiment chain:
 
 ```
-configs/baseline.yaml                 ← Phase 0 baseline (committed default)
-configs/phase0_lr_test_frozen.yaml    ← Phase 0 §3.2 frozen-phase LR range
-configs/phase0_lr_test_unfrozen.yaml  ← Phase 0 §3.2 unfrozen-phase LR range
-configs/phase2_scale_25.yaml          ← Phase 2 §5.1 — 25% positives
-...
-configs/phase3_loss_compound_1_2.yaml ← Phase 3 §6.1 — compound λ_focal:λ_dice = 1:2
-configs/phase4_extra_<group_name>.yaml
-configs/final_seed{42,43,44}.yaml     ← Final §9 multi-seed lock
-configs/deployment.yaml               ← post-calibration deployment config (per inference.md §2.2)
+configs/baseline.yaml    ← Phase 0 baseline (and Phase 0a Arm A)
+configs/deployment.yaml  ← post-calibration deployment config (per inference.md §2.2)
 ```
 
-Phase configs are self-contained; downstream phase configs (boundary, extra, final) are created after each predecessor phase locks, copying the winner's hyperparameters into the new file.
+All phase-specific configs are created **on demand**, one per experiment, as the
+predecessor phase locks. Naming convention when created:
+
+```
+configs/phase0a_arm_b.yaml             ← Phase 0a §Arms — x/255 + ImageNet stats
+configs/phase0a_arm_c.yaml             ← Phase 0a §Arms — x/255 only
+configs/phase0_lr_test_frozen.yaml     ← Phase 0 §3.2 frozen-phase LR range
+configs/phase0_lr_test_unfrozen.yaml   ← Phase 0 §3.2 unfrozen-phase LR range
+configs/phase0_seed{42,43,44}.yaml     ← Phase 0 §3.3 multi-seed baseline
+configs/phase2_scale_{25,50,75,100}.yaml  ← Phase 2 §5.1 — N% positives
+configs/phase3_loss_<family>.yaml      ← Phase 3 §6.1 — per loss-family candidate
+configs/phase4_extra_<group_name>.yaml ← Phase 4 §7.1 — per EXTRA group
+configs/final_seed{42,43,44}.yaml      ← Final §9 multi-seed lock
+```
+
+Each new config copies the prior phase's winner hyperparameters into a fresh
+file, then changes only the keys this experiment is testing. This avoids
+the drift class that pre-made placeholder configs introduced (audit
+2026-05-01: 12 configs deleted; review 2026-05-02: `output_bias_prior` had
+reverted in 14 of the remaining configs).
 
 ### 11.2 Per-phase results docs
 
