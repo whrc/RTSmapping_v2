@@ -1,0 +1,139 @@
+---
+title: "Training Data Distribution"
+format: gfm
+author: "Heidi Rodenhizer"
+---
+
+::: {.content-hidden}
+# Set Up
+
+```{r}
+#| include: false
+library(googleCloudStorageR)
+library(sf)
+library(tidyverse)
+library(ggnewscale)
+library(viridis)
+# library(ggincerta)
+```
+
+```{r}
+#| include: false
+theme_set(theme_bw())
+```
+
+# Define Functions
+
+# Import Data
+## Domain
+
+```{r}
+#| output: false
+circumpolar = st_read("./domain/circumpolar_domain.geojson")
+```
+
+## Subregions
+Ecoregions from Dinerstein et al. 2017 will be used as our subregions.
+
+```{r}
+#| output: false
+subregions = st_read("./domain/circumpolar_subregions.geojson")
+```
+
+## Training Data
+
+```{r}
+train_meta = gcs_get_object(
+  "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/metadata.csv"
+)
+```
+
+## Countries Map
+
+```{r}
+world = rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+world = world |>
+  st_transform(3413) |>
+  st_crop(
+    subregions |>
+      st_bbox() |>
+      st_as_sfc() |>
+      st_buffer(dist = 200000) |>
+      st_bbox()
+  )
+```
+
+:::
+
+# Check Training Polygon Counts by Subregion
+
+```{r}
+region_train_count = train_meta |>
+  summarise(
+    RTSCount = n(),
+    .by = RegionName
+  ) |>
+  mutate(
+    RTSPercent = RTSCount / sum(RTSCount)
+  )
+region_train_count
+```
+
+```{r}
+#| echo: false
+ggplot(
+  region_train_count,
+  aes(x = RegionName, y = RTSCount)
+) +
+  geom_col() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+```{r}
+#| echo: false
+ggplot(
+  region_train_count,
+  aes(x = RegionName, y = RTSPercent)
+) +
+  geom_col() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+```{r}
+small_clusters_percent = region_train_count |>
+  filter(RTSPercent < 0.1) |>
+  summarise(TotalPercentSmallClusters = sum(RTSPercent))
+small_clusters_percent
+```
+
+# Map Training Data
+## Convert metadata to sf
+
+```{r}
+train_points = train_meta %>%
+  st_as_sf(coords = c("centroid_lon", "centroid_lat"), crs = 4326) %>%
+  st_transform(crs = 3413) %>%
+  bind_cols(st_coordinates(.))
+
+train_bboxes = train_points |>
+  st_buffer(dist = 4.77 * 256, endCapStyle = "SQUARE")
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = world) +
+  geom_hex(data = train_points, aes(x = X, y = Y)) +
+  scale_fill_viridis(name = "Count") +
+  # geom_sf(data = train_points, aes(color = TrainClass)) +
+  # scale_color_viridis(discrete = TRUE) +
+  coord_sf(expand = FALSE) +
+  theme(
+    axis.title = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0, 1),
+    legend.justification.inside = c(0, 1),
+    legend.background = element_blank()
+  )
+```
