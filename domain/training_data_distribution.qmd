@@ -170,7 +170,7 @@ train_hex = train_points |>
   mutate(
     Buffer = (sqrt((100000 * 2) / (3 * sqrt(3))) * sqrt(3) * 1000) /
       2 *
-      (1 - sqrt(Count / max(Count))), # hexagon short side length * percentile of total count
+      (0.9 - sqrt(Count / max(Count))*0.9), # hexagon short side length * percentile of total count
     geometry_scaled = st_buffer(geometry, dist = Buffer * -1)
   )
 ```
@@ -194,11 +194,21 @@ custom_pal3 <- c(
 
 ### Legend
 ```{r}
+total_counts = train_points |>
+  st_drop_geometry() |>
+  summarise(n = n(), .by = c(TrainClass)) |>
+  mutate(
+    n = paste("Total:", n),
+    x = c(-0.8, 2),
+    y = c(2, -0.5),
+    angle = c(90, 0)
+  )
+
 legend <- bi_legend(
   pal = custom_pal3,
   dim = 3,
-  xlab = "RTS Positive Count",
-  ylab = "RTS Negative Count",
+  xlab = "RTS Positive (Count)",
+  ylab = "RTS Negative (Count)",
   size = 6,
   breaks = bi_class_breaks(
     train_hex,
@@ -208,28 +218,46 @@ legend <- bi_legend(
     dim = 3,
     split = TRUE
   )
-)
+) +
+  geom_text(
+    data = total_counts,
+    aes(x = x, y = y, angle = angle, label = n)
+  ) +
+  coord_fixed(
+    xlim = c(0.5, 3.5),
+    ylim = c(0.5, 3.5),
+    clip = "off"
+  ) +
+  theme(plot.margin = margin(5, 5, 13, 13))
+legend
 ```
 
 ### Map
 ```{r}
 train_hexplot = ggplot() +
-  geom_sf(data = world) +
+  geom_sf(
+    data = world #,
+    # color = "gray80",
+    # fill = "gray95"
+  ) +
   geom_sf(
     data = train_hex,
     aes(geometry = geometry),
     fill = "transparent",
-    color = "gray75"
+    color = "gray95",
+    linewidth = 0.5
   ) +
   geom_sf(
     data = train_hex,
     aes(geometry = geometry_scaled, fill = bi_class),
     color = "transparent",
-    alpha = 0.8
+    alpha = 0.9
   ) +
   bi_scale_fill(pal = custom_pal3, dim = 3) +
+  ggtitle("RTS Model v2 Training Data") +
   coord_sf(expand = FALSE) +
   theme(
+    # plot.title = element_text(hjust = 0.5),
     axis.title = element_blank(),
     legend.position = "none",
     axis.text = element_blank(),
@@ -238,14 +266,15 @@ train_hexplot = ggplot() +
 
 
 train_hexplot = train_hexplot +
-  inset_element(legend, left = 0.7, bottom = 0, right = 0.995, top = 0.21)
+  inset_element(legend, left = 0.73, bottom = 0.002, right = 0.998, top = 0.2)
+train_hexplot
 ```
 
 ```{r}
 ggsave(
-  "./plots/training_data_vis.png",
+  "./plots/training_data_map.png",
   train_hexplot,
-  height = 8.2,
+  height = 8.4,
   width = 6.5
 )
 ```
