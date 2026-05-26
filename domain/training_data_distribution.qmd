@@ -16,7 +16,6 @@ library(ggnewscale)
 library(biscale)
 library(viridis)
 library(patchwork)
-# library(ggincerta)
 ```
 
 ```{r}
@@ -31,7 +30,8 @@ theme_set(theme_bw())
 
 ```{r}
 #| output: false
-circumpolar = st_read("./domain/circumpolar_domain.geojson")
+circumpolar = st_read("./domain/circumpolar_domain.geojson") |>
+  st_transform(6931)
 ```
 
 ## Subregions
@@ -39,7 +39,8 @@ Ecoregions from Dinerstein et al. 2017 will be used as our subregions.
 
 ```{r}
 #| output: false
-subregions = st_read("./domain/circumpolar_subregions.geojson")
+subregions = st_read("./domain/circumpolar_subregions.geojson") |>
+  st_transform(6931)
 ```
 
 ## Training Data
@@ -50,19 +51,103 @@ train_meta = gcs_get_object(
 )
 ```
 
+## Split Data
+
+```{r}
+splits = gcs_get_object(
+  "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/splits_summary.json"
+)
+
+# why is this returning null elements?
+splits_df = map2(
+  splits[["splits"]],
+  names(splits[["splits"]]),
+  ~ .x |>
+    pluck(.y) # |>
+  # pluck("ecoregions")# |>
+  # unlist() |>
+  # as_tibble() #|>
+  # rename(ecoregion = 1) |>
+  # mutate(group = .y)
+)
+```
+
 ## Countries Map
 
 ```{r}
 world = rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
-world = world |>
-  st_transform(3413) |>
-  st_crop(
-    subregions |>
-      st_bbox() |>
-      st_as_sfc() |>
-      st_buffer(dist = 300000) |>
-      st_bbox()
-  )
+world = world # |>
+# st_transform(st_crs(circumpolar)) |>
+# st_crop(
+#   subregions |>
+#     st_bbox() |>
+#     st_as_sfc() |>
+#     st_buffer(dist = 300000) |>
+#     st_bbox()
+# )
+```
+
+```{r}
+crop_poly <- tibble(
+  geometry = st_sfc(st_point(c(0, 90)), crs = 'EPSG:4326')
+) %>%
+  st_sf() %>%
+  st_transform(crs = st_crs(circumpolar)) %>%
+  st_buffer(dist = 5250000) %>%
+  smoothr::densify(n = 3) %>%
+  st_transform(crs = 'EPSG:4326')
+
+# arctic_circle <- tibble(lon = c(-180, 180), lat = c(66, 66)) %>%
+#   st_as_sf(coords = c("lon", "lat"), crs = "EPSG:4326") %>%
+#   summarise(geometry = st_combine(geometry)) %>%
+#   st_cast("LINESTRING") %>%
+#   smoothr::densify(max_distance = 1)
+
+world_north <- world %>%
+  st_make_valid() |>
+  st_intersection(crop_poly) %>%
+  st_transform(crs = st_crs(circumpolar)) %>%
+  select(name_long, continent, region_un, subregion)
+
+world_north$geom[4] <- st_buffer(world_north$geom[4], 0.25)
+
+world_north <- world_north %>%
+  st_union(by_feature = TRUE)
+
+# world_north_buffer <- world_north %>%
+#   st_buffer(50000)
+
+long_lines_from_coords <- function(lon, lat_min, lat_max) {
+  line <- expand_grid(lon = lon, lat = c(lat_min, lat_max)) %>%
+    st_as_sf(coords = c("lon", "lat"), crs = "EPSG:4326") %>%
+    summarise(geometry = st_combine(geometry)) %>%
+    st_cast("LINESTRING") %>%
+    smoothr::densify(max_distance = 1) %>%
+    mutate(label = lon)
+
+  return(line)
+}
+
+long_lines <- seq(-180, 180, by = 60) %>%
+  map(
+    ~ long_lines_from_coords(.x, lat_min = st_bbox(crop_poly)[2], lat_max = 90)
+  ) %>%
+  bind_rows()
+
+lat_lines_from_coords <- function(lat, lon_min, lon_max) {
+  line <- expand_grid(lon = c(lon_min, lon_max), lat = lat) %>%
+    st_as_sf(coords = c("lon", "lat"), crs = "EPSG:4326") %>%
+    summarise(geometry = st_combine(geometry)) %>%
+    st_cast("LINESTRING") %>%
+    smoothr::densify(max_distance = 1) %>%
+    mutate(label = lat)
+
+  return(line)
+}
+
+lat_lines <- seq(50, 90, by = 10) %>%
+  map(~ lat_lines_from_coords(.x, lon_min = -180, lon_max = 180)) %>%
+  bind_rows()
 ```
 
 :::
@@ -117,7 +202,7 @@ small_clusters_percent
 ```{r}
 train_points = train_meta %>%
   st_as_sf(coords = c("centroid_lon", "centroid_lat"), crs = 4326) %>%
-  st_transform(crs = 3413) %>%
+  st_transform(crs = 6931) %>%
   bind_cols(st_coordinates(.)) |>
   mutate(
     RTS = as.integer(case_when(
@@ -170,7 +255,7 @@ train_hex = train_points |>
   mutate(
     Buffer = (sqrt((100000 * 2) / (3 * sqrt(3))) * sqrt(3) * 1000) /
       2 *
-      (0.9 - sqrt(Count / max(Count))*0.9), # hexagon short side length * percentile of total count
+      (0.9 - sqrt(Count / max(Count)) * 0.9), # hexagon short side length * percentile of total count
     geometry_scaled = st_buffer(geometry, dist = Buffer * -1)
   )
 ```
@@ -199,8 +284,8 @@ total_counts = train_points |>
   summarise(n = n(), .by = c(TrainClass)) |>
   mutate(
     n = paste("Total:", n),
-    x = c(-0.8, 2),
-    y = c(2, -0.5),
+    x = c(-0.9, 2),
+    y = c(2, -0.65),
     angle = c(90, 0)
   )
 
@@ -209,7 +294,7 @@ legend <- bi_legend(
   dim = 3,
   xlab = "RTS Positive (Count)",
   ylab = "RTS Negative (Count)",
-  size = 6,
+  size = 5,
   breaks = bi_class_breaks(
     train_hex,
     x = RTSCount,
@@ -221,24 +306,39 @@ legend <- bi_legend(
 ) +
   geom_text(
     data = total_counts,
-    aes(x = x, y = y, angle = angle, label = n)
+    aes(x = x, y = y, angle = angle, label = n),
+    size = 2
   ) +
   coord_fixed(
     xlim = c(0.5, 3.5),
     ylim = c(0.5, 3.5),
     clip = "off"
   ) +
-  theme(plot.margin = margin(5, 5, 13, 13))
-legend
+  theme(
+    plot.margin = margin(6, 5, 8, 10),
+    plot.background = element_rect(
+      fill = fill_alpha("white", 0.8)
+    )
+  )
+# legend
 ```
 
 ### Map
 ```{r}
-train_hexplot = ggplot() +
+train_hexplot = ggplot(world_north) +
   geom_sf(
-    data = world #,
-    # color = "gray80",
-    # fill = "gray95"
+    data = long_lines,
+    color = 'gray90',
+    linewidth = 0.25
+  ) +
+  geom_sf(
+    data = lat_lines,
+    color = 'gray90',
+    linewidth = 0.25
+  ) +
+  geom_sf(
+    color = 'gray50',
+    fill = 'gray90'
   ) +
   geom_sf(
     data = train_hex,
@@ -254,27 +354,63 @@ train_hexplot = ggplot() +
     alpha = 0.9
   ) +
   bi_scale_fill(pal = custom_pal3, dim = 3) +
-  ggtitle("RTS Model v2 Training Data") +
-  coord_sf(expand = FALSE) +
+  geom_sf(
+    data = crop_poly,
+    color = 'black',
+    fill = 'transparent',
+    linewidth = 0.25
+  ) +
+  # annotation_custom(
+  #   ggplotGrob(legend),
+  #   xmin = -Inf,
+  #   xmax = 0.26,
+  #   ymin = 0.55,
+  #   ymax = Inf
+  #   ) +
+  scale_x_continuous(expand = expansion(mult = c(0.01, 0.01))) +
+  scale_y_continuous(expand = expansion(mult = c(0.01, 0.01))) +
+  coord_sf() +
+  theme_void() +
   theme(
-    # plot.title = element_text(hjust = 0.5),
-    axis.title = element_blank(),
     legend.position = "none",
-    axis.text = element_blank(),
-    axis.ticks = element_blank()
+    # plot.margin = margin(10, 10, 10, 10) # trying to fix the outer circle getting cut off at top, bottom, left, and right
   )
 
+inset_location = c(left = 0.62, bottom = 0.105, right = 0.79, top = 0.275)
+
+train_hexplot_title = train_hexplot +
+  ggtitle("RTS Model v2 Training Data") +
+  inset_element(
+    legend,
+    left = inset_location["left"],
+    bottom = inset_location["bottom"],
+    right = inset_location["right"],
+    top = inset_location["top"]
+  )
 
 train_hexplot = train_hexplot +
-  inset_element(legend, left = 0.73, bottom = 0.002, right = 0.998, top = 0.2)
+  inset_element(
+    legend,
+    left = inset_location["left"],
+    bottom = inset_location["bottom"],
+    right = inset_location["right"],
+    top = inset_location["top"]
+  )
 train_hexplot
 ```
 
 ```{r}
 ggsave(
-  "./plots/training_data_map.png",
+  "./plots/training_data_map_circular_w_title.png",
+  train_hexplot_title,
+  height = 6.75,
+  width = 6.5
+)
+
+ggsave(
+  "./plots/training_data_map_circular.png",
   train_hexplot,
-  height = 8.4,
+  height = 6.5,
   width = 6.5
 )
 ```
