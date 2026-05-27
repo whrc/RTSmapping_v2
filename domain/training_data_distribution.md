@@ -1,160 +1,10 @@
----
-title: "Training Data Distribution"
-format: gfm
-author: "Heidi Rodenhizer"
----
+# Training Data Distribution
 
-::: {.content-hidden}
-# Set Up
-
-```{r}
-#| include: false
-library(googleCloudStorageR)
-library(sf)
-library(tidyverse)
-library(ggnewscale)
-library(biscale)
-library(viridis)
-library(patchwork)
-```
-
-```{r}
-#| include: false
-theme_set(theme_bw())
-```
-
-# Define Functions
-
-# Import Data
-## Domain
-
-```{r}
-#| output: false
-circumpolar = st_read("./domain/circumpolar_domain.geojson") |>
-  st_transform(6931)
-```
-
-## Subregions
-Ecoregions from Dinerstein et al. 2017 will be used as our subregions.
-
-```{r}
-#| output: false
-subregions = st_read("./domain/circumpolar_subregions.geojson") |>
-  st_transform(6931)
-```
-
-## Training Data
-
-```{r}
-train_meta = gcs_get_object(
-  "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/metadata.csv"
-)
-```
-
-## Split Data
-
-```{r}
-splits = gcs_get_object(
-  "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/splits_summary.json"
-)
-
-# why is this returning null elements?
-splits_df = map2(
-  splits[["splits"]],
-  names(splits[["splits"]]),
-  ~ .x |>
-    pluck(.y) # |>
-  # pluck("ecoregions")# |>
-  # unlist() |>
-  # as_tibble() #|>
-  # rename(ecoregion = 1) |>
-  # mutate(group = .y)
-)
-```
-
-## Countries Map
-
-```{r}
-world = rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
-world = world # |>
-# st_transform(st_crs(circumpolar)) |>
-# st_crop(
-#   subregions |>
-#     st_bbox() |>
-#     st_as_sfc() |>
-#     st_buffer(dist = 300000) |>
-#     st_bbox()
-# )
-```
-
-```{r}
-crop_poly <- tibble(
-  geometry = st_sfc(st_point(c(0, 90)), crs = 'EPSG:4326')
-) %>%
-  st_sf() %>%
-  st_transform(crs = st_crs(circumpolar)) %>%
-  st_buffer(dist = 5250000) %>%
-  smoothr::densify(n = 3) %>%
-  st_transform(crs = 'EPSG:4326')
-
-# arctic_circle <- tibble(lon = c(-180, 180), lat = c(66, 66)) %>%
-#   st_as_sf(coords = c("lon", "lat"), crs = "EPSG:4326") %>%
-#   summarise(geometry = st_combine(geometry)) %>%
-#   st_cast("LINESTRING") %>%
-#   smoothr::densify(max_distance = 1)
-
-world_north <- world %>%
-  st_make_valid() |>
-  st_intersection(crop_poly) %>%
-  st_transform(crs = st_crs(circumpolar)) %>%
-  select(name_long, continent, region_un, subregion)
-
-world_north$geom[4] <- st_buffer(world_north$geom[4], 0.25)
-
-world_north <- world_north %>%
-  st_union(by_feature = TRUE)
-
-# world_north_buffer <- world_north %>%
-#   st_buffer(50000)
-
-long_lines_from_coords <- function(lon, lat_min, lat_max) {
-  line <- expand_grid(lon = lon, lat = c(lat_min, lat_max)) %>%
-    st_as_sf(coords = c("lon", "lat"), crs = "EPSG:4326") %>%
-    summarise(geometry = st_combine(geometry)) %>%
-    st_cast("LINESTRING") %>%
-    smoothr::densify(max_distance = 1) %>%
-    mutate(label = lon)
-
-  return(line)
-}
-
-long_lines <- seq(-180, 180, by = 60) %>%
-  map(
-    ~ long_lines_from_coords(.x, lat_min = st_bbox(crop_poly)[2], lat_max = 90)
-  ) %>%
-  bind_rows()
-
-lat_lines_from_coords <- function(lat, lon_min, lon_max) {
-  line <- expand_grid(lon = c(lon_min, lon_max), lat = lat) %>%
-    st_as_sf(coords = c("lon", "lat"), crs = "EPSG:4326") %>%
-    summarise(geometry = st_combine(geometry)) %>%
-    st_cast("LINESTRING") %>%
-    smoothr::densify(max_distance = 1) %>%
-    mutate(label = lat)
-
-  return(line)
-}
-
-lat_lines <- seq(50, 90, by = 10) %>%
-  map(~ lat_lines_from_coords(.x, lon_min = -180, lon_max = 180)) %>%
-  bind_rows()
-```
-
-:::
+Heidi Rodenhizer
 
 # Check Training Polygon Counts by Subregion
 
-```{r}
+``` r
 region_train_count = train_meta |>
   summarise(
     RTSCount = n(),
@@ -167,39 +17,46 @@ region_train_count = train_meta |>
 region_train_count
 ```
 
-```{r}
-#| echo: false
-ggplot(
-  region_train_count,
-  aes(x = RegionName, y = RTSCount)
-) +
-  geom_col() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```         
+# A tibble: 50 × 3
+   RegionName                        RTSCount RTSPercent
+   <chr>                                <int>      <dbl>
+ 1 Taimyr-Central Siberian tundra         367     0.0803
+ 2 East Siberian taiga                    361     0.0790
+ 3 Northwest Territories taiga            312     0.0682
+ 4 Muskwa-Slave Lake taiga                265     0.0580
+ 5 Ogilvie-MacKenzie alpine tundra        246     0.0538
+ 6 Yamal-Gydan tundra                     176     0.0385
+ 7 Trans-Baikal Bald Mountain tundra      169     0.0370
+ 8 Beringia upland tundra                 155     0.0339
+ 9 Russian Bering tundra                  155     0.0339
+10 Russian Arctic desert                  120     0.0262
+# ℹ 40 more rows
 ```
 
-```{r}
-#| echo: false
-ggplot(
-  region_train_count,
-  aes(x = RegionName, y = RTSPercent)
-) +
-  geom_col() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
-```
+![](training_data_distribution_files/figure-commonmark/unnamed-chunk-10-1.png)
 
-```{r}
+![](training_data_distribution_files/figure-commonmark/unnamed-chunk-11-1.png)
+
+``` r
 small_clusters_percent = region_train_count |>
   filter(RTSPercent < 0.1) |>
   summarise(TotalPercentSmallClusters = sum(RTSPercent))
 small_clusters_percent
 ```
 
+```         
+# A tibble: 1 × 1
+  TotalPercentSmallClusters
+                      <dbl>
+1                         1
+```
+
 # Map Training Data
+
 ## Convert metadata to sf
 
-```{r}
+``` r
 train_points = train_meta %>%
   st_as_sf(coords = c("centroid_lon", "centroid_lat"), crs = 4326) %>%
   st_transform(crs = 6931) %>%
@@ -225,13 +82,13 @@ neg_points = train_points |>
 #   st_buffer(dist = 4.77 * 256, endCapStyle = "SQUARE")
 ```
 
-```{r}
+``` r
 # st_write(train_points, "./domain/train_points.geojson")
 ```
 
 ## Create hex grid
 
-```{r}
+``` r
 train_hex = train_points |>
   st_make_grid(
     cellsize = sqrt((100000 * 2) / (3 * sqrt(3))) * sqrt(3) * 1000, # get short side length of hexagon from area == 10000 km^2, and convert to m
@@ -261,9 +118,10 @@ train_hex = train_points |>
 ```
 
 ## Map
+
 ### Custom palette
 
-```{r}
+``` r
 custom_pal3 <- c(
   "1-1" = "#CABED0", # low x, low y
   "2-1" = "#BC7C8F",
@@ -278,7 +136,8 @@ custom_pal3 <- c(
 ```
 
 ### Legend
-```{r}
+
+``` r
 total_counts = train_points |>
   st_drop_geometry() |>
   summarise(n = n(), .by = c(TrainClass)) |>
@@ -320,13 +179,20 @@ legend <- bi_legend(
       fill = fill_alpha("white", 0)
     )
   )
+```
+
+```         
+Coordinate system already present.
+ℹ Adding new coordinate system, which will replace the existing one.
+```
+
+``` r
 # legend
 ```
 
 ### Map
-```{r}
-#| fig-width: 6.5
-#| fig-height: 6.5
+
+``` r
 train_hexplot = ggplot(world_north) +
   geom_sf(
     data = long_lines,
@@ -406,19 +272,4 @@ train_hexplot = train_hexplot +
 train_hexplot
 ```
 
-```{r}
-#| include: false
-# ggsave(
-#   "./plots/training_data_map_w_title.png",
-#   train_hexplot_title,
-#   height = 6.75,
-#   width = 6.5
-# )
-
-ggsave(
-  "./plots/training_data_map.png",
-  train_hexplot,
-  height = 6.5,
-  width = 6.5
-)
-```
+![](training_data_distribution_files/figure-commonmark/unnamed-chunk-18-1.png)
