@@ -307,7 +307,7 @@ legend <- bi_legend(
   geom_text(
     data = total_counts,
     aes(x = x, y = y, angle = angle, label = n),
-    size = 2
+    size = 1.85
   ) +
   coord_fixed(
     xlim = c(0.5, 3.5),
@@ -315,9 +315,9 @@ legend <- bi_legend(
     clip = "off"
   ) +
   theme(
-    plot.margin = margin(6, 5, 8, 10),
+    plot.margin = margin(6, 5, 6, 10),
     plot.background = element_rect(
-      fill = fill_alpha("white", 0.8)
+      fill = fill_alpha("white", 0)
     )
   )
 # legend
@@ -376,7 +376,12 @@ train_hexplot = ggplot(world_north) +
     # plot.margin = margin(10, 10, 10, 10) # trying to fix the outer circle getting cut off at top, bottom, left, and right
   )
 
-inset_location = c(left = 0.62, bottom = 0.105, right = 0.79, top = 0.275)
+inset_location = c(
+  left = 0.62 + 0.21,
+  bottom = 0.105 - 0.105,
+  right = 0.79 + 0.21,
+  top = 0.275 - 0.11
+)
 
 train_hexplot_title = train_hexplot +
   ggtitle("RTS Model v2 Training Data") +
@@ -400,15 +405,15 @@ train_hexplot
 ```
 
 ```{r}
-ggsave(
-  "./plots/training_data_map_circular_w_title.png",
-  train_hexplot_title,
-  height = 6.75,
-  width = 6.5
-)
+# ggsave(
+#   "./plots/training_data_map_w_title.png",
+#   train_hexplot_title,
+#   height = 6.75,
+#   width = 6.5
+# )
 
 ggsave(
-  "./plots/training_data_map_circular.png",
+  "./plots/training_data_map.png",
   train_hexplot,
   height = 6.5,
   width = 6.5
