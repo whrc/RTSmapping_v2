@@ -28,12 +28,12 @@ def _make_metadata(n_pos: int, n_neg: int) -> tuple[list[str], pd.DataFrame]:
     for i in range(n_pos):
         tid = f"p{i:04d}"
         ids.append(tid)
-        rows.append({"Tile_id": tid, "TrainClass": "Positive", "RegionName": "r", "UIDs": "x",
+        rows.append({"Tile_ID": tid, "TrainClass": "positive", "RegionName": "r", "UIDs": "x",
                      "centroid_lat": 0, "centroid_lon": 0})
     for i in range(n_neg):
         tid = f"n{i:04d}"
         ids.append(tid)
-        rows.append({"Tile_id": tid, "TrainClass": "Negative", "RegionName": "r", "UIDs": "",
+        rows.append({"Tile_ID": tid, "TrainClass": "negative", "RegionName": "r", "UIDs": "",
                      "centroid_lat": 0, "centroid_lon": 0})
     return ids, pd.DataFrame(rows)
 
@@ -44,7 +44,7 @@ def test_sampler_ratio_1_1():
         tile_ids=ids, metadata=df, batch_size=8,
         schedule={"1-10": 1}, seed=42, epoch=1,
     )
-    pos_ids = {df.set_index("Tile_id").index.get_loc(t) for t in df.loc[df.TrainClass == "Positive", "Tile_id"]}
+    pos_ids = {df.set_index("Tile_ID").index.get_loc(t) for t in df.loc[df.TrainClass == "positive", "Tile_ID"]}
     for batch in sampler:
         pos_count = sum(1 for i in batch if i in pos_ids)
         # batch_size=8, ratio 1:1 → 4 pos, 4 neg
@@ -57,7 +57,7 @@ def test_sampler_ratio_1_5_shifts_distribution():
         tile_ids=ids, metadata=df, batch_size=12,
         schedule={"1-10": 5}, seed=42, epoch=1,
     )
-    pos_ids = {i for i, tid in enumerate(ids) if df.iloc[i]["TrainClass"] == "Positive"}
+    pos_ids = {i for i, tid in enumerate(ids) if df.iloc[i]["TrainClass"] == "positive"}
     batches = list(sampler)
     for batch in batches:
         pos_count = sum(1 for i in batch if i in pos_ids)
@@ -96,9 +96,9 @@ def test_filter_train_positive_subset_keeps_negatives_intact():
 
     ids, df = _make_metadata(n_pos=20, n_neg=80)
     out = _filter_train_positive_subset(ids, df, subset_pct=25)
-    class_by_id = df.set_index("Tile_id")["TrainClass"].to_dict()
-    pos_kept = [t for t in out if class_by_id[t] == "Positive"]
-    neg_kept = [t for t in out if class_by_id[t] == "Negative"]
+    class_by_id = df.set_index("Tile_ID")["TrainClass"].to_dict()
+    pos_kept = [t for t in out if class_by_id[t] == "positive"]
+    neg_kept = [t for t in out if class_by_id[t] == "negative"]
     # 25% of 20 positives = 5; all 80 negatives untouched.
     assert len(pos_kept) == 5
     assert len(neg_kept) == 80

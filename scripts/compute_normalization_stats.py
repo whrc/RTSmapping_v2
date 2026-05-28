@@ -11,12 +11,19 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import rasterio
 from tqdm import tqdm
+
+# Ensure GDAL /vsigs/ authenticates via Application Default Credentials.
+if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+    _adc = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if _adc.exists():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(_adc)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

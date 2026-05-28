@@ -153,11 +153,11 @@ def main() -> int:
     errors_total: list[str] = []
     for row in tqdm(sample, desc="content check"):
         errs = check_tile(
-            tid=row["Tile_id"],
+            tid=row["Tile_ID"],
             root=root, rgb_dir=args.rgb_dir, labels_dir=args.labels_dir,
             extra_dir=extra_dir,
             expected_crs=args.crs, expected_size=args.tile_size,
-            is_positive=(row["TrainClass"] == "Positive"),
+            is_positive=(row["TrainClass"] == "positive"),
         )
         errors_total.extend(errs)
 

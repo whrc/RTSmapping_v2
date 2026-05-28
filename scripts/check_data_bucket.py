@@ -27,6 +27,14 @@ import yaml
 from google.cloud import storage
 from tqdm import tqdm
 
+# Ensure GDAL /vsigs/ can authenticate via Application Default Credentials.
+# On a GCE VM the compute SA is the default, but if the user has run
+# `gcloud auth application-default login`, the ADC file supersedes it for GDAL.
+if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+    _adc = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if _adc.exists():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(_adc)
+
 logger = logging.getLogger("check_data_bucket")
 
 EXPECTED_CRS = "EPSG:3857"
@@ -34,10 +42,10 @@ EXPECTED_TILE_SIZE = 512
 EXPECTED_RGB_BANDS = 3
 EXPECTED_EXTRA_BANDS = 4
 EXPECTED_METADATA_COLUMNS = [
-    "Tile_id", "centroid_lat", "centroid_lon",
+    "Tile_ID", "centroid_lat", "centroid_lon",
     "TrainClass", "RegionName", "UIDs",
 ]
-VALID_TRAIN_CLASSES = {"Positive", "Negative"}
+VALID_TRAIN_CLASSES = {"positive", "negative"}
 VALID_LABEL_VALUES = {0, 1, 255}
 NEGATIVE_SAMPLE_SIZE = 200
 SEED = 42
@@ -229,8 +237,8 @@ def check_tile_correspondence(client: storage.Client, bucket_name: str,
         "labels": label_ids,
     }
 
-    if metadata_df is not None and "Tile_id" in metadata_df.columns:
-        meta_ids = set(metadata_df["Tile_id"].astype(str))
+    if metadata_df is not None and "Tile_ID" in metadata_df.columns:
+        meta_ids = set(metadata_df["Tile_ID"].astype(str))
         sources["metadata.csv"] = meta_ids
     else:
         messages.append("  metadata.csv not available — skipping metadata tile comparison")
@@ -239,40 +247,82 @@ def check_tile_correspondence(client: storage.Client, bucket_name: str,
         extra_ids = list_tif_tile_ids(client, bucket_name, prefix, "EXTRA")
         sources["EXTRA"] = extra_ids
 
-    # Use RGB as the reference set
-    reference = rgb_ids
+    # Only positive tiles are expected to have label files; negative tiles are
+    # all-background by definition and don't need a label raster on disk.
+    positive_ids: set[str] = set()
+    if metadata_df is not None and "Tile_ID" in metadata_df.columns and "TrainClass" in metadata_df.columns:
+        positive_ids = set(metadata_df.loc[metadata_df["TrainClass"] == "positive", "Tile_ID"].astype(str))
+    label_reference = positive_ids if positive_ids else rgb_ids  # fall back to all RGB if no metadata
+
     messages.append(f"  PLANET-RGB tile count: {len(rgb_ids)}")
     messages.append(f"  labels tile count: {len(label_ids)}")
+    messages.append(f"  positive tile count (metadata): {len(positive_ids)}")
     if has_extra:
         messages.append(f"  EXTRA tile count: {len(sources.get('EXTRA', set()))}")
     if "metadata.csv" in sources:
         messages.append(f"  metadata.csv tile count: {len(sources['metadata.csv'])}")
 
-    # Pairwise comparison against PLANET-RGB
-    for name, ids in sources.items():
-        if name == "PLANET-RGB":
-            continue
-        only_in_rgb = reference - ids
-        only_in_other = ids - reference
+    # Labels must exist for every positive tile; extra label files are an error.
+    missing_labels = label_reference - label_ids
+    extra_labels = label_ids - label_reference
+    if missing_labels:
+        passed = False
+        sample = sorted(missing_labels)[:5]
+        messages.append(
+            f"  Positive tiles missing label file ({len(missing_labels)}): "
+            f"{sample}{'...' if len(missing_labels) > 5 else ''}"
+        )
+    if extra_labels:
+        passed = False
+        sample = sorted(extra_labels)[:5]
+        messages.append(
+            f"  Label files with no matching positive tile ({len(extra_labels)}): "
+            f"{sample}{'...' if len(extra_labels) > 5 else ''}"
+        )
+
+    # metadata.csv must cover every PLANET-RGB tile
+    if "metadata.csv" in sources:
+        meta_ids = sources["metadata.csv"]
+        only_in_rgb = rgb_ids - meta_ids
+        only_in_meta = meta_ids - rgb_ids
         if only_in_rgb:
             passed = False
             sample = sorted(only_in_rgb)[:5]
             messages.append(
-                f"  In PLANET-RGB but not in {name} ({len(only_in_rgb)}): "
+                f"  In PLANET-RGB but not in metadata.csv ({len(only_in_rgb)}): "
                 f"{sample}{'...' if len(only_in_rgb) > 5 else ''}"
             )
-        if only_in_other:
+        if only_in_meta:
             passed = False
-            sample = sorted(only_in_other)[:5]
+            sample = sorted(only_in_meta)[:5]
             messages.append(
-                f"  In {name} but not in PLANET-RGB ({len(only_in_other)}): "
-                f"{sample}{'...' if len(only_in_other) > 5 else ''}"
+                f"  In metadata.csv but not in PLANET-RGB ({len(only_in_meta)}): "
+                f"{sample}{'...' if len(only_in_meta) > 5 else ''}"
+            )
+
+    if has_extra:
+        extra_ids = sources.get("EXTRA", set())
+        only_in_rgb = rgb_ids - extra_ids
+        only_in_extra = extra_ids - rgb_ids
+        if only_in_rgb:
+            passed = False
+            sample = sorted(only_in_rgb)[:5]
+            messages.append(
+                f"  In PLANET-RGB but not in EXTRA ({len(only_in_rgb)}): "
+                f"{sample}{'...' if len(only_in_rgb) > 5 else ''}"
+            )
+        if only_in_extra:
+            passed = False
+            sample = sorted(only_in_extra)[:5]
+            messages.append(
+                f"  In EXTRA but not in PLANET-RGB ({len(only_in_extra)}): "
+                f"{sample}{'...' if len(only_in_extra) > 5 else ''}"
             )
 
     if passed:
         messages.append(
-            f"  All {len(rgb_ids)} tile IDs consistent across "
-            f"{len(sources)} sources"
+            f"  Tile correspondence OK: {len(rgb_ids)} RGB, "
+            f"{len(label_ids)}/{len(positive_ids)} positive labels present"
         )
 
     return CheckResult("Tile Correspondence", passed, messages)
@@ -318,14 +368,14 @@ def check_metadata_schema(metadata_df: pd.DataFrame | None) -> CheckResult:
     else:
         messages.append("  All expected columns present in correct order")
 
-    # Tile_id uniqueness
-    if "Tile_id" in metadata_df.columns:
-        n_dupes = metadata_df["Tile_id"].duplicated().sum()
+    # Tile_ID uniqueness
+    if "Tile_ID" in metadata_df.columns:
+        n_dupes = metadata_df["Tile_ID"].duplicated().sum()
         if n_dupes > 0:
             passed = False
-            messages.append(f"  Tile_id has {n_dupes} duplicate values")
+            messages.append(f"  Tile_ID has {n_dupes} duplicate values")
         else:
-            messages.append(f"  Tile_id unique ({len(metadata_df)} entries)")
+            messages.append(f"  Tile_ID unique ({len(metadata_df)} entries)")
 
     # TrainClass values
     if "TrainClass" in metadata_df.columns:
@@ -334,35 +384,37 @@ def check_metadata_schema(metadata_df: pd.DataFrame | None) -> CheckResult:
             passed = False
             messages.append(f"  Invalid TrainClass values: {invalid_classes}")
         else:
-            messages.append("  TrainClass values valid (Positive/Negative)")
+            messages.append("  TrainClass values valid (positive/negative)")
 
-    # UIDs: empty iff TrainClass=Negative
+    # UIDs: ideally empty for negatives, non-empty for positives.
+    # The tile creation scripts use '9999' as a placeholder UID when object-level
+    # IDs are not yet assigned — treat this as a warning, not a hard failure.
     if "UIDs" in metadata_df.columns and "TrainClass" in metadata_df.columns:
-        neg_mask = metadata_df["TrainClass"] == "Negative"
-        pos_mask = metadata_df["TrainClass"] == "Positive"
+        neg_mask = metadata_df["TrainClass"] == "negative"
+        pos_mask = metadata_df["TrainClass"] == "positive"
 
-        # Negative tiles should have empty UIDs
+        # Negative tiles having non-empty UIDs is a data-quality note, not a blocker.
         neg_with_uids = metadata_df[neg_mask & metadata_df["UIDs"].notna()
                                      & (metadata_df["UIDs"].astype(str).str.strip() != "")]
         if len(neg_with_uids) > 0:
-            passed = False
-            sample = neg_with_uids["Tile_id"].head(5).tolist()
+            sample = neg_with_uids["Tile_ID"].head(5).tolist()
             messages.append(
-                f"  {len(neg_with_uids)} Negative tiles have non-empty UIDs: {sample}"
+                f"  NOTE: {len(neg_with_uids)} negative tiles have non-empty UIDs "
+                f"(placeholder '9999'?): {sample}"
             )
 
-        # Positive tiles should have non-empty UIDs
+        # Positive tiles should have non-empty UIDs.
         pos_without_uids = metadata_df[pos_mask & (metadata_df["UIDs"].isna()
                                        | (metadata_df["UIDs"].astype(str).str.strip() == ""))]
         if len(pos_without_uids) > 0:
             passed = False
-            sample = pos_without_uids["Tile_id"].head(5).tolist()
+            sample = pos_without_uids["Tile_ID"].head(5).tolist()
             messages.append(
-                f"  {len(pos_without_uids)} Positive tiles have empty UIDs: {sample}"
+                f"  {len(pos_without_uids)} positive tiles have empty UIDs: {sample}"
             )
 
-        if len(neg_with_uids) == 0 and len(pos_without_uids) == 0:
-            messages.append("  UIDs constraint satisfied (empty iff Negative)")
+        if len(pos_without_uids) == 0:
+            messages.append("  UIDs non-empty for all positive tiles")
 
     # RegionName non-empty
     if "RegionName" in metadata_df.columns:
@@ -372,7 +424,7 @@ def check_metadata_schema(metadata_df: pd.DataFrame | None) -> CheckResult:
         ]
         if len(empty_regions) > 0:
             passed = False
-            sample = empty_regions["Tile_id"].head(5).tolist()
+            sample = empty_regions["Tile_ID"].head(5).tolist()
             messages.append(
                 f"  {len(empty_regions)} tiles have empty RegionName: {sample}"
             )
@@ -418,6 +470,11 @@ def check_splits(splits: dict | None,
 
     metadata_regions = set(metadata_df["RegionName"].unique())
 
+    # val_balanced and val_realistic intentionally share the same regions —
+    # they differ only in sampling ratio at eval time, not in geography.
+    # Skip the disjointness check for val_balanced.
+    ALLOWED_OVERLAP_PAIRS = {("val_realistic", "val_balanced"), ("val_balanced", "val_realistic")}
+
     # Collect all regions from splits and check for duplicates
     all_split_regions: list[str] = []
     region_to_split: dict[str, str] = {}
@@ -430,12 +487,16 @@ def check_splits(splits: dict | None,
         for region in regions:
             all_split_regions.append(region)
             if region in region_to_split:
-                passed = False
-                messages.append(
-                    f"  Region '{region}' in multiple splits: "
-                    f"'{region_to_split[region]}' and '{split_name}'"
-                )
-            region_to_split[region] = split_name
+                existing = region_to_split[region]
+                if (existing, split_name) not in ALLOWED_OVERLAP_PAIRS:
+                    passed = False
+                    messages.append(
+                        f"  Region '{region}' in multiple splits: "
+                        f"'{existing}' and '{split_name}'"
+                    )
+                # val_balanced uses val_realistic geography — don't overwrite the primary label
+            else:
+                region_to_split[region] = split_name
 
     split_region_set = set(all_split_regions)
 
@@ -470,7 +531,8 @@ def check_splits(splits: dict | None,
 # ---------------------------------------------------------------------------
 
 def _validate_tile(bucket_name: str, prefix: str, tile_id: str,
-                   has_extra: bool) -> tuple[list[str], dict]:
+                   has_extra: bool,
+                   train_class: str = "positive") -> tuple[list[str], dict]:
     """Validate raster files for a single tile.
 
     Args:
@@ -478,12 +540,14 @@ def _validate_tile(bucket_name: str, prefix: str, tile_id: str,
         prefix: Root prefix.
         tile_id: Tile identifier.
         has_extra: Whether to check EXTRA channel.
+        train_class: 'positive' or 'negative'. Negative tiles have no label file.
 
     Returns:
         Tuple of (error_messages, detail_dict).
     """
     errors: list[str] = []
-    detail: dict = {"tile_id": tile_id, "n_rts_pixels": 0, "n_total_pixels": 0}
+    detail: dict = {"tile_id": tile_id, "train_class": train_class,
+                    "n_rts_pixels": 0, "n_total_pixels": 0}
 
     rgb_path = f"/vsigs/{bucket_name}/{prefix}/PLANET-RGB/{tile_id}.tif"
     lbl_path = f"/vsigs/{bucket_name}/{prefix}/labels/{tile_id}.tif"
@@ -511,39 +575,40 @@ def _validate_tile(bucket_name: str, prefix: str, tile_id: str,
     except Exception as e:
         errors.append(f"RGB open/read error: {e}")
 
-    # --- Label ---
-    try:
-        with rasterio.open(lbl_path) as ds:
-            lbl_crs = ds.crs
-            lbl_bounds = ds.bounds
-            lbl_transform = ds.transform
-            data = ds.read(1)  # single band
-            if data.shape != (EXPECTED_TILE_SIZE, EXPECTED_TILE_SIZE):
-                errors.append(
-                    f"Label shape {data.shape}, expected "
-                    f"({EXPECTED_TILE_SIZE}, {EXPECTED_TILE_SIZE})"
-                )
-            if data.dtype != np.uint8:
-                errors.append(f"Label dtype {data.dtype}, expected uint8")
-            unique_vals = set(np.unique(data))
-            if not unique_vals.issubset(VALID_LABEL_VALUES):
-                invalid = unique_vals - VALID_LABEL_VALUES
-                errors.append(f"Label has invalid values: {invalid}")
-            detail["n_rts_pixels"] = int(np.sum(data == 1))
-            detail["n_total_pixels"] = int(data.size)
-
-            # CRS/bounds/transform match RGB
-            if rgb_crs is not None:
-                if str(lbl_crs) != str(rgb_crs):
+    # --- Label (positive tiles only) ---
+    if train_class == "positive":
+        try:
+            with rasterio.open(lbl_path) as ds:
+                lbl_crs = ds.crs
+                lbl_bounds = ds.bounds
+                lbl_transform = ds.transform
+                data = ds.read(1)  # single band
+                if data.shape != (EXPECTED_TILE_SIZE, EXPECTED_TILE_SIZE):
                     errors.append(
-                        f"Label CRS {lbl_crs} != RGB CRS {rgb_crs}"
+                        f"Label shape {data.shape}, expected "
+                        f"({EXPECTED_TILE_SIZE}, {EXPECTED_TILE_SIZE})"
                     )
-                if lbl_bounds != rgb_bounds:
-                    errors.append("Label bounds != RGB bounds")
-                if lbl_transform != rgb_transform:
-                    errors.append("Label transform != RGB transform")
-    except Exception as e:
-        errors.append(f"Label open/read error: {e}")
+                if data.dtype != np.uint8:
+                    errors.append(f"Label dtype {data.dtype}, expected uint8")
+                unique_vals = set(np.unique(data))
+                if not unique_vals.issubset(VALID_LABEL_VALUES):
+                    invalid = unique_vals - VALID_LABEL_VALUES
+                    errors.append(f"Label has invalid values: {invalid}")
+                detail["n_rts_pixels"] = int(np.sum(data == 1))
+                detail["n_total_pixels"] = int(data.size)
+
+                # CRS/bounds/transform match RGB
+                if rgb_crs is not None:
+                    if str(lbl_crs) != str(rgb_crs):
+                        errors.append(
+                            f"Label CRS {lbl_crs} != RGB CRS {rgb_crs}"
+                        )
+                    if lbl_bounds != rgb_bounds:
+                        errors.append("Label bounds != RGB bounds")
+                    if lbl_transform != rgb_transform:
+                        errors.append("Label transform != RGB transform")
+        except Exception as e:
+            errors.append(f"Label open/read error: {e}")
 
     # --- EXTRA ---
     if has_extra:
@@ -613,11 +678,11 @@ def check_rasters(bucket_name: str, prefix: str,
     if metadata_df is not None and "TrainClass" in metadata_df.columns:
         # Build sample from metadata
         positive_ids = metadata_df[
-            metadata_df["TrainClass"] == "Positive"
-        ]["Tile_id"].astype(str).tolist()
+            metadata_df["TrainClass"] == "positive"
+        ]["Tile_ID"].astype(str).tolist()
         negative_ids = metadata_df[
-            metadata_df["TrainClass"] == "Negative"
-        ]["Tile_id"].astype(str).tolist()
+            metadata_df["TrainClass"] == "negative"
+        ]["Tile_ID"].astype(str).tolist()
 
         sampled_negatives = rng.sample(
             negative_ids, min(NEGATIVE_SAMPLE_SIZE, len(negative_ids)),
@@ -628,7 +693,7 @@ def check_rasters(bucket_name: str, prefix: str,
             f"{len(sampled_negatives)} negatives = {len(sampled_ids)} tiles"
         )
         class_lookup = dict(zip(
-            metadata_df["Tile_id"].astype(str),
+            metadata_df["Tile_ID"].astype(str),
             metadata_df["TrainClass"],
         ))
     else:
@@ -657,10 +722,12 @@ def check_rasters(bucket_name: str, prefix: str,
 
     for tile_id in tqdm(sampled_ids, desc="Checking rasters", unit="tile"):
         try:
+            tile_class = class_lookup.get(tile_id, "positive")
             errors, detail = _validate_tile(
                 bucket_name, prefix, tile_id, has_extra,
+                train_class=tile_class,
             )
-            detail["train_class"] = class_lookup.get(tile_id, "Unknown")
+            detail["train_class"] = tile_class
             all_details.append(detail)
             if errors:
                 error_count += len(errors)
@@ -715,7 +782,7 @@ def check_label_semantics(raster_details: list[dict]) -> CheckResult:
     """
     # Check if we have TrainClass info at all
     has_class_info = any(
-        d.get("train_class") in ("Positive", "Negative")
+        d.get("train_class") in ("positive", "negative")
         for d in raster_details
     )
     if not raster_details:
@@ -748,26 +815,26 @@ def check_label_semantics(raster_details: list[dict]) -> CheckResult:
         train_class = detail.get("train_class", "Unknown")
         n_rts = detail.get("n_rts_pixels", 0)
 
-        if train_class == "Positive" and n_rts == 0:
+        if train_class == "positive" and n_rts == 0:
             pos_no_rts.append(tile_id)
-        elif train_class == "Negative" and n_rts > 0:
+        elif train_class == "negative" and n_rts > 0:
             neg_with_rts.append(tile_id)
 
     if pos_no_rts:
         passed = False
         messages.append(
-            f"  {len(pos_no_rts)} Positive tiles have 0 RTS pixels: "
+            f"  {len(pos_no_rts)} positive tiles have 0 RTS pixels: "
             f"{pos_no_rts[:10]}{'...' if len(pos_no_rts) > 10 else ''}"
         )
     if neg_with_rts:
         passed = False
         messages.append(
-            f"  {len(neg_with_rts)} Negative tiles have >0 RTS pixels: "
+            f"  {len(neg_with_rts)} negative tiles have >0 RTS pixels: "
             f"{neg_with_rts[:10]}{'...' if len(neg_with_rts) > 10 else ''}"
         )
     if passed:
-        n_pos = sum(1 for d in raster_details if d.get("train_class") == "Positive")
-        n_neg = sum(1 for d in raster_details if d.get("train_class") == "Negative")
+        n_pos = sum(1 for d in raster_details if d.get("train_class") == "positive")
+        n_neg = sum(1 for d in raster_details if d.get("train_class") == "negative")
         messages.append(
             f"  All {n_pos} positive tiles have >=1 RTS pixel, "
             f"all {n_neg} negative tiles have 0"
@@ -800,8 +867,8 @@ def compute_statistics(metadata_df: pd.DataFrame | None,
     if metadata_df is not None and "TrainClass" in metadata_df.columns:
         # --- Tile counts ---
         total = len(metadata_df)
-        n_pos = int((metadata_df["TrainClass"] == "Positive").sum())
-        n_neg = int((metadata_df["TrainClass"] == "Negative").sum())
+        n_pos = int((metadata_df["TrainClass"] == "positive").sum())
+        n_neg = int((metadata_df["TrainClass"] == "negative").sum())
         ratio = f"{n_pos}:{n_neg}" if n_neg > 0 else "N/A"
         ratio_float = f"1:{n_neg / n_pos:.1f}" if n_pos > 0 else "N/A"
 
@@ -814,11 +881,15 @@ def compute_statistics(metadata_df: pd.DataFrame | None,
 
         # --- Per-split breakdown ---
         if splits is not None:
+            # val_balanced shares regions with val_realistic by design.
+            # Give priority to val_realistic so its tile count is visible in stats.
+            _PRIORITY = {"train": 0, "val_realistic": 1, "test_realistic": 2, "val_balanced": 3}
             region_to_split: dict[str, str] = {}
-            for split_name, regions in splits.items():
+            for split_name, regions in sorted(splits.items(), key=lambda kv: _PRIORITY.get(kv[0], 99)):
                 if isinstance(regions, list):
                     for r in regions:
-                        region_to_split[r] = split_name
+                        if r not in region_to_split:  # first-seen wins (lower priority number)
+                            region_to_split[r] = split_name
 
             df = metadata_df.copy()
             df["split"] = df["RegionName"].map(region_to_split)
@@ -826,8 +897,8 @@ def compute_statistics(metadata_df: pd.DataFrame | None,
             lines.append("Per-Split Breakdown")
             for split_name in splits:
                 split_df = df[df["split"] == split_name]
-                s_pos = int((split_df["TrainClass"] == "Positive").sum())
-                s_neg = int((split_df["TrainClass"] == "Negative").sum())
+                s_pos = int((split_df["TrainClass"] == "positive").sum())
+                s_neg = int((split_df["TrainClass"] == "negative").sum())
                 s_total = len(split_df)
                 lines.append(
                     f"  {split_name:10s}: {s_pos:>5d} pos / {s_neg:>5d} neg = "
@@ -851,8 +922,8 @@ def compute_statistics(metadata_df: pd.DataFrame | None,
                 .unstack(fill_value=0)
             )
             for region in sorted(region_stats.index):
-                r_pos = int(region_stats.loc[region].get("Positive", 0))
-                r_neg = int(region_stats.loc[region].get("Negative", 0))
+                r_pos = int(region_stats.loc[region].get("positive", 0))
+                r_neg = int(region_stats.loc[region].get("negative", 0))
                 r_total = r_pos + r_neg
                 split_label = ""
                 if splits is not None:
@@ -866,7 +937,7 @@ def compute_statistics(metadata_df: pd.DataFrame | None,
         # --- Unique RTS UIDs ---
         if "UIDs" in metadata_df.columns:
             all_uids: set[str] = set()
-            pos_mask = metadata_df["TrainClass"] == "Positive"
+            pos_mask = metadata_df["TrainClass"] == "positive"
             for uids_str in metadata_df.loc[pos_mask, "UIDs"].dropna():
                 uids_str = str(uids_str).strip()
                 if uids_str:
@@ -885,7 +956,7 @@ def compute_statistics(metadata_df: pd.DataFrame | None,
     if raster_details:
         pos_details = [
             d for d in raster_details
-            if d.get("train_class") == "Positive" and d.get("n_total_pixels", 0) > 0
+            if d.get("train_class") == "positive" and d.get("n_total_pixels", 0) > 0
         ]
         if pos_details:
             lines.append("Label Pixel Coverage (sampled positives)")

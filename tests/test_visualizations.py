@@ -75,13 +75,13 @@ def test_pick_preview_tiles_pass1_partitions_positives_and_negatives():
     rows = []
     for i in range(20):
         rows.append({
-            "Tile_id": f"tile_{i:03d}",
-            "TrainClass": "Positive" if i < 10 else "Negative",
+            "Tile_ID": f"tile_{i:03d}",
+            "TrainClass": "positive" if i < 10 else "negative",
             "Pos_frac": 0.1 * ((i % 10) + 1),
             "centroid_x": float(i * 100),
             "centroid_y": 0.0,
         })
-    md = pd.DataFrame(rows).set_index("Tile_id")
+    md = pd.DataFrame(rows).set_index("Tile_ID")
     val_ids = list(md.index)
 
     picked = pick_preview_tiles_pass1(md, val_ids, n_positive=3, n_negative=3, seed=42)
@@ -90,6 +90,6 @@ def test_pick_preview_tiles_pass1_partitions_positives_and_negatives():
     assert set(picked["positive"]).isdisjoint(picked["negative"])
     # Positives must come from Positive tiles only.
     for t in picked["positive"]:
-        assert md.loc[t, "TrainClass"] == "Positive"
+        assert md.loc[t, "TrainClass"] == "positive"
     for t in picked["negative"]:
-        assert md.loc[t, "TrainClass"] != "Positive"
+        assert md.loc[t, "TrainClass"] != "positive"

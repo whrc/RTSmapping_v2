@@ -43,7 +43,7 @@ Defined in [conftest.py](conftest.py).
 
 | Fixture | What you get | Notes |
 |---|---|---|
-| `synthetic_dataset` | Temp dir laid out like `gs://.../training/v2.0/`: 4 regions × 3 tiles = 12 tiles (8 Positive, 4 Negative), 64×64 GeoTIFFs in `PLANET-RGB/`, `EXTRA/` (4-band), `labels/`, plus `metadata.csv` and `splits.yaml`. | Returns `{root, metadata_df, splits}`. 64×64 instead of 512×512 for speed. |
+| `synthetic_dataset` | Temp dir laid out like `gs://.../training/v2.0/`: 4 regions × 3 tiles = 12 tiles (8 positive, 4 negative), 64×64 GeoTIFFs in `PLANET-RGB/`, `EXTRA/` (4-band), `labels/`, plus `metadata.csv` and `splits.yaml`. | Returns `{root, metadata_df, splits}`. 64×64 instead of 512×512 for speed. |
 
 Fresh temp dir per test — no cross-test state leakage.
 
@@ -63,8 +63,8 @@ Fresh temp dir per test — no cross-test state leakage.
 
 | Test | Checks | Strictness |
 |---|---|---|
-| `test_load_metadata_and_splits` | CSV + YAML parse, required columns exist, `TrainClass` ∈ {Positive, Negative} | shallow |
-| `test_get_tile_ids_returns_correct_counts` | `train` → 6 tile IDs; `class_filter="Positive"` → 4 | real |
+| `test_load_metadata_and_splits` | CSV + YAML parse, required columns exist, `TrainClass` ∈ {positive, negative} | shallow |
+| `test_get_tile_ids_returns_correct_counts` | `train` → 6 tile IDs; `class_filter="positive"` → 4 | real |
 | `test_no_region_leakage_passes_on_clean` | Disjoint splits don't raise (strips `val_balanced` which intentionally duplicates `val_realistic` regions) | real |
 | `test_no_region_leakage_fails_on_overlap` | Region in two splits → `ValueError` mentioning the region | real |
 | `test_split_summary_counts` | Per-split positive/negative counts match the fixture | real |
@@ -103,7 +103,7 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_parse_extra_spec_rejects_missing_keys` | Missing `name` or `band` → `ValueError` | real |
 | `test_dataset_rejects_soft_labels` | `boundary_handling="soft_labels"` raises `NotImplementedError` (deferred to v2.1, training.md §5.5) | real — guards a config option that isn't wired to code |
 | `test_dataset_rejects_unknown_boundary_handling` | Unknown value (e.g. `"bogus"`) raises `ValueError` | real |
-| `test_dataset_rgb_only` | `(3, 64, 64) float32` image, `(64, 64) int64` label, str `tile_id` | real — end-to-end plumbing |
+| `test_dataset_rgb_only` | `(3, 64, 64) float32` image, `(64, 64) int64` label, str `tile_id`; negative tiles return synthetic all-zero label (no label file needed) | real — end-to-end plumbing |
 | `test_dataset_with_variable_extra` | Bands [0, 2] + arbitrary names → `(5, 64, 64)` | real — flexible-EXTRA end-to-end |
 | `test_dataset_label_values_in_set` | Every label's unique values ⊂ {0, 1, 255} | real |
 | `test_boundary_dilation_adds_ignore` | Width=2 dilation creates 255 band and preserves interior 1s | real |

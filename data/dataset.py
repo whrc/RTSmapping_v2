@@ -80,7 +80,7 @@ class RTSDataset(Dataset):
                 f"boundary_handling must be 'none' or 'ignore'; got {boundary_handling!r}"
             )
         self.tile_ids = tile_ids
-        self.metadata = metadata.set_index("Tile_id")
+        self.metadata = metadata.set_index("Tile_ID")
         self.data_root = data_root.rstrip("/")
         self.rgb_dir = rgb_dir
         self.extra_dir = extra_dir
@@ -141,12 +141,14 @@ class RTSDataset(Dataset):
         return arr.transpose(1, 2, 0)
 
     def _read_label(self, tile_id: str) -> np.ndarray:
-        """(H, W) uint8."""
+        """(H, W) uint8. Negative tiles have no label file; return all-zeros."""
+        if not self.is_positive(tile_id):
+            return np.zeros((self.tile_size, self.tile_size), dtype=np.uint8)
         with rasterio.open(self._path(self.labels_dir, tile_id)) as src:
             return src.read(1, out_dtype="uint8")
 
     def is_positive(self, tile_id: str) -> bool:
-        return bool(self.metadata.loc[tile_id, "TrainClass"] == "Positive")
+        return bool(self.metadata.loc[tile_id, "TrainClass"] == "positive")
 
     def __getitem__(self, idx: int) -> dict:
         tid = self.tile_ids[idx]

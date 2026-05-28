@@ -25,6 +25,7 @@ mlflow[gcs]>=2.10
 
 # GCS
 google-cloud-storage>=2.14
+gcsfs>=2025.0
 
 # Config / utils
 pyyaml>=6.0

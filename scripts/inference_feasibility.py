@@ -183,7 +183,7 @@ def _run_val_inference(
         if dtype is not None else nullcontext()
     )
 
-    md_indexed = metadata.set_index("Tile_id")
+    md_indexed = metadata.set_index("Tile_ID")
     out: list[_TileResult] = []
     for batch in loader:
         images = batch["image"].to(device, non_blocking=True)

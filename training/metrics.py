@@ -303,8 +303,26 @@ class ValidationAccumulator:
                 )
                 idx = self._rng.choice(len(neg), size=needed, replace=True)
             sub = [neg[i] for i in idx]
-            logits = np.concatenate([t.valid_logits for t in pos + sub])
-            labels = np.concatenate([t.valid_labels for t in pos + sub])
+            # Subsample pixels BEFORE concatenating to avoid OOM. Bootstrap
+            # with replacement can produce 25K+ tile copies × 262K px ≈ 25 GB.
+            # We subsample proportionally from each tile so the positive/negative
+            # pixel ratio (and thus PR-AUC) is preserved.
+            _MAX_PIX = 10_000_000
+            tiles_all = pos + sub
+            total_pix = sum(len(t.valid_logits) for t in tiles_all)
+            if total_pix > _MAX_PIX:
+                frac = _MAX_PIX / total_pix
+                all_logits, all_labels = [], []
+                for t in tiles_all:
+                    n = max(1, int(round(len(t.valid_logits) * frac)))
+                    si = self._rng.choice(len(t.valid_logits), size=n, replace=False)
+                    all_logits.append(t.valid_logits[si])
+                    all_labels.append(t.valid_labels[si])
+                logits = np.concatenate(all_logits)
+                labels = np.concatenate(all_labels)
+            else:
+                logits = np.concatenate([t.valid_logits for t in tiles_all])
+                labels = np.concatenate([t.valid_labels for t in tiles_all])
             # average_precision_score with integer {0, 1} labels and
             # real-valued scores (logits are monotonic with sigmoid(logits)
             # so AP is identical whether we pass logits or sigmoid(logits)).

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import random
 import sys
 import time
@@ -29,6 +30,12 @@ from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+# Ensure GDAL /vsigs/ authenticates via Application Default Credentials.
+if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+    _adc = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if _adc.exists():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(_adc)
 
 import mlflow
 import numpy as np
@@ -182,9 +189,9 @@ def _filter_train_positive_subset(
     """
     if not 1 <= subset_pct <= 100:
         raise ValueError(f"train_positive_subset_pct must be 1..100; got {subset_pct}")
-    class_by_id = metadata.set_index("Tile_id")["TrainClass"].to_dict()
-    positives = sorted(tid for tid in train_ids if class_by_id.get(tid) == "Positive")
-    negatives = [tid for tid in train_ids if class_by_id.get(tid) == "Negative"]
+    class_by_id = metadata.set_index("Tile_ID")["TrainClass"].to_dict()
+    positives = sorted(tid for tid in train_ids if class_by_id.get(tid) == "positive")
+    negatives = [tid for tid in train_ids if class_by_id.get(tid) == "negative"]
     n_keep = max(1, round(len(positives) * subset_pct / 100.0))
     rng = random.Random(42)
     kept_positives = sorted(rng.sample(positives, n_keep))
@@ -498,7 +505,7 @@ def _validate(
 def _select_preview_tiles(cfg: dict, metadata: pd.DataFrame, val_ids: list[str]) -> list[str]:
     """Return the fixed 3+3 preview tile IDs (pass-1 heuristic)."""
     picked = viz.pick_preview_tiles_pass1(
-        metadata.set_index("Tile_id"),
+        metadata.set_index("Tile_ID"),
         val_ids,
         n_positive=3,
         n_negative=3,
@@ -550,8 +557,22 @@ def _render_and_log_figures(
                    if len(neg) >= needed else
                    acc._rng.choice(len(neg), size=needed, replace=True))
             sub = [neg[i] for i in idx]
-            logits = np.concatenate([t.valid_logits for t in pos + sub])
-            labels = np.concatenate([t.valid_labels for t in pos + sub])
+            _MAX_PIX = 10_000_000
+            tiles_all = pos + sub
+            total_pix = sum(len(t.valid_logits) for t in tiles_all)
+            if total_pix > _MAX_PIX:
+                frac = _MAX_PIX / total_pix
+                all_logits, all_labels = [], []
+                for t in tiles_all:
+                    n = max(1, int(round(len(t.valid_logits) * frac)))
+                    si = acc._rng.choice(len(t.valid_logits), size=n, replace=False)
+                    all_logits.append(t.valid_logits[si])
+                    all_labels.append(t.valid_labels[si])
+                logits = np.concatenate(all_logits)
+                labels = np.concatenate(all_labels)
+            else:
+                logits = np.concatenate([t.valid_logits for t in tiles_all])
+                labels = np.concatenate([t.valid_labels for t in tiles_all])
             logits_by_ratio[r] = (logits, labels)
     if logits_by_ratio:
         pr_png = fig_dir / f"pr_curves_epoch_{epoch:04d}.png"

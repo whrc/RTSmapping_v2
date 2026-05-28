@@ -264,7 +264,7 @@ def pick_preview_tiles_pass1(
     md = metadata.loc[val_tile_ids].copy()
     rng = np.random.default_rng(seed)
 
-    pos = md[md["TrainClass"] == "Positive"]
+    pos = md[md["TrainClass"] == "positive"]
     # Per-tile positive-pixel fraction is typically stored as "Pos_frac" or
     # computed from the label raster at split creation; fall back to 1.0 if
     # absent, which effectively ranks by whatever column is available.
@@ -279,7 +279,7 @@ def pick_preview_tiles_pass1(
         if len(mid_pos) > 0 else np.array([], dtype=object)
     )
 
-    neg = md[md["TrainClass"] != "Positive"]
+    neg = md[md["TrainClass"] != "positive"]
     # Distance-to-nearest-positive: if centroid columns exist, compute; else random
     # selection from the negative pool.
     if {"centroid_x", "centroid_y"}.issubset(neg.columns) and len(pos) > 0:

@@ -119,8 +119,17 @@ def save_stats(stats: dict, path: str | Path) -> None:
         json.dump(stats, f, indent=2)
 
 
+def _open_text(path: str | Path):
+    """Open a text file, supporting both local paths and gs:// URIs."""
+    p = str(path)
+    if p.startswith("gs://"):
+        import gcsfs
+        return gcsfs.GCSFileSystem(token="google_default").open(p[5:], "r")
+    return Path(p).open("r")
+
+
 def load_stats(path: str | Path) -> dict:
-    with Path(path).open("r") as f:
+    with _open_text(path) as f:
         return json.load(f)
 
 

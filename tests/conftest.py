@@ -87,10 +87,10 @@ def synthetic_dataset(tmp_path: Path) -> dict:
             _write_extra(root / "EXTRA" / f"{tid}.tif", rng, n_bands=4)
             _write_label(root / "labels" / f"{tid}.tif", with_positive=is_pos)
             rows.append({
-                "Tile_id": tid,
+                "Tile_ID": tid,
                 "centroid_lat": 65.0 + ri,
                 "centroid_lon": -150.0 + ti,
-                "TrainClass": "Positive" if is_pos else "Negative",
+                "TrainClass": "positive" if is_pos else "negative",
                 "RegionName": region,
                 "UIDs": f"uid_{tid}" if is_pos else "",
             })

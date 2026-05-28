@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +22,12 @@ import torch
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Ensure GDAL /vsigs/ authenticates via Application Default Credentials.
+if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+    _adc = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if _adc.exists():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(_adc)
 
 from data.dataset import RTSDataset, parse_extra_spec  # noqa: E402
 from data.sampler import BalancedBatchSampler  # noqa: E402

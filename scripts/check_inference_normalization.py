@@ -137,7 +137,7 @@ def main() -> int:
                    help="Path to the deployment-package directory (with "
                         "normalization_stats.json + model_config.yaml)")
     p.add_argument("--tile-list", type=Path, required=True,
-                   help="CSV of sample tiles to evaluate; columns: Tile_id, "
+                   help="CSV of sample tiles to evaluate; columns: Tile_ID, "
                         "optionally data_root override")
     p.add_argument("--data-root", default=None,
                    help="Override data root; otherwise taken from model_config.yaml")
@@ -173,8 +173,8 @@ def main() -> int:
         logger.info("Training stats include EXTRA channels: %s", extra_names)
 
     data_root = args.data_root or model_cfg.get("data", {}).get("data_root", ".")
-    df = pd.read_csv(args.tile_list, dtype={"Tile_id": str})
-    tile_ids = df["Tile_id"].tolist()
+    df = pd.read_csv(args.tile_list, dtype={"Tile_ID": str})
+    tile_ids = df["Tile_ID"].tolist()
     logger.info("Computing sample stats across %d tiles", len(tile_ids))
 
     # RGB-only drift check. EXTRA channels live in separate GeoTIFFs and are

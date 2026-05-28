@@ -23,17 +23,16 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
-## Status — 2026-05-01
+## Status — 2026-05-28
 
-- **Spec phase**: complete except `post-inference/post-inference.md`; SSoT pass done — yaml-block duplication removed from spec MDs, MLflow URI canonicalised to `configs/baseline.yaml:mlflow.tracking_uri`, multi-scale eval clarified as 1×-canonical with optional Phase-2 follow-up.
+- **Spec phase**: complete except `post-inference/post-inference.md`.
 - **Phase 0** (data pipeline): complete, merged as PR #8.
-- **Phase 1** (training loop): code-complete on synthetic fixtures + 3-reviewer code audit applied (10 Critical + ~20 Important fixes landed). 122 tests green (113 prior + 9 new for `lr_range_test`, `train_positive_subset_pct`, dispatch error paths).
-  - Models, losses, training utilities, scripts/train.py, MLflow wiring, visualizations, packaging & evaluation scripts, deployment-config template — all landed.
-  - **Audit fixes that affect runs**: EMA state restored on resume (was silently falling back to live weights); `lr_range_test` per-step scheduler implemented (Phase 0 §3.2 unblocked); `train_positive_subset_pct` implemented (Phase 0 §3.2 + Phase 2 unblocked); `evaluate_test.py` is now the official 1×-only contract; `inference_feasibility.py` 8.5b runs real-TTA forwards (was mathematically broken pseudo-TTA); `--update-config` flipped to opt-in until §6.3 expanded-tile path lands; `output_bias_prior=0.005` (was 0.5 no-op); deterministic flag stays configurable but warns on `final_*` runs.
-  - **Config matrix slimmed (2026-05-02)**: deleted 15 remaining placeholder configs (phase0_*, phase2_*, phase3_loss_*, se_investigation). Repository commits only `configs/baseline.yaml` + `configs/deployment.yaml`; per-phase configs are created on demand when each experiment fires. See `training/experiments.md §11.1`.
-  - Pending: real-data smoke on L4 VM (`scripts/train.py --config configs/smoke.yaml`) → then Dockerfile build → then production run on A100/H100. Phase 1 Step 8.5 (inference feasibility gates) and Step 8 (one-shot test eval) run after the production baseline completes.
-- **Dataset v2.0**: real-data validation is the next gate.
-- **Next step**: Phase 1 Step 7b — real-data smoke on L4 VM once v2.0 bucket is finalized enough to have sample tiles for at least 2 regions.
+- **Phase 1** (training loop): **Step 6b + 7b complete** — Docker image built and smoke training passed.
+  - `rts-train:v2` pushed to `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (9.6 GB, sha256:9e298061).
+  - 3-epoch smoke training passed on L4 VM: loss 0.035→0.016→0.013, PR-AUC geomean 0.002→0.019→0.026, obj F1 0.023→0.015→0.075.
+  - Pending: **Step 7c** — launch 300-epoch production run on A100/H100 VM. Phase 1 Step 8.5 (inference feasibility gates) and Step 8 (one-shot test eval) run after the production baseline completes.
+- **Dataset v2.0**: bucket validated, normalization stats at `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json`.
+- **Next step**: Step 7c — start `ml-training-vm` (A100), pull `rts-train:v2`, run `python scripts/train.py --config configs/baseline.yaml` (300 epochs).
 
 ---
 
@@ -42,7 +41,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
 | **Phase 0** | Data pipeline (`data/`, `utils/`, `scripts/create_splits.py`, `scripts/compute_normalization_stats.py`, `scripts/check_data_content.py`, `scripts/check_data.py`, tests, `configs/baseline.yaml`) | **complete** (PR #8 merged 2026-04-23) |
-| **Phase 1** | Training loop (`models/`, `losses/`, `training/`, `scripts/train.py`, `scripts/evaluate_test.py`, `scripts/package_model.py`, `scripts/check_inference_normalization.py`, `scripts/inference_feasibility.py`, `configs/deployment.yaml`, MLflow, visualizations, Dockerfile build) | **code-complete on synthetic** (2026-04-23); pending real-data smoke on L4 and Dockerfile build |
+| **Phase 1** | Training loop (`models/`, `losses/`, `training/`, `scripts/train.py`, `scripts/evaluate_test.py`, `scripts/package_model.py`, `scripts/check_inference_normalization.py`, `scripts/inference_feasibility.py`, `configs/deployment.yaml`, MLflow, visualizations, Dockerfile build) | **Docker image built + smoke PASSED** (2026-05-28); pending 300-epoch production run |
 | Phase 2 | Inference (`scripts/inference.py`: overlap-aggregated tiling per inference.md §4, optional multi-scale / TTA per §6.4/§7.4, COG output, vectorization) | pending |
 | Phase 3 | Post-inference spec finalization + implementation (`scripts/post_inference.py`) | pending |
 
@@ -79,3 +78,20 @@ For the coding agent: on first load, read this doc and the relevant spec md(s) f
   - Other Important fixes: Phase-2 first-epoch decoder LR off-by-one corrected (warmup now starts AT `warmup_start_lr`, ends AT `base_lr`); visualization ignore overlay rendered grey instead of transparent red; `_denormalize_rgb` accepts explicit `max_value`; DataLoader gets a seeded `generator`; dead `import pandas` removed from visualizations; `_resolve_path` extracted into `utils/config.py` for reuse; `apt-key` snippet in docker_training.md replaced with a pointer to the modern-keyring `Dockerfile.train`.
   - Tests added (9 new, 122 total green): lr_range_test endpoints + log midpoint + bounds validation + uniform per-group LR + unknown-scheduler error path; `_filter_train_positive_subset` keeps-negatives + determinism + 100%-no-op invariants. `np.random` seeded in `test_visualizations.py` randomized cases.
 - 2026-05-02 — Phase 1 code-review pass + pre-smoke prep. Code-reviewer surfaced 3 Critical (C1 channel-name binding never asserted at training load; C2 `output_bias_prior: 0.5` reverted in 14 configs; C3 color/radiometric augmentations applied to EXTRA channels) plus 9 Important. Plan `docs/superpowers/plans/2026-05-02-pre-smoke-fixes.md` lands C1, C3, I1 (document `clip_percentiles` as unimplemented), I5 (resume regression test), and dissolves C2 by deleting the 15 pre-made phase configs. Per-group EXTRA normalization design intent (per-band z-score + [0.1, 99.9] clip for NDVI/NBR/SE_PCA/TC; SE_PROTO bypasses z-score) captured in `data/data.md §9`; clipping + per-channel-mode dispatch deferred to v2.1. Other Important items (I2, I4, I6, I7, I8, I9 + Minor) deferred to post-smoke housekeeping plan.
+- 2026-05-28 — **Phase 1 Step 7b complete: real-data smoke passed on L4 VM.** Full Tier 2 validation sequence run against `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA` (v2.0, 4572 tiles: 1819 pos / 2753 neg across 50 ecoregions / 37 train regions). Summary of work:
+  - **Schema migration landed**: `Tile_id` → `Tile_ID` (capital D) and `TrainClass` values `"positive"`/`"negative"` (lowercase) across all production files (`data/`, `training/`, `scripts/`) and test fixtures. PR branch: `l4-test-real-data-and-dockerize`.
+  - **GCS auth wiring**: All GCS-accessing scripts auto-set `GOOGLE_APPLICATION_CREDENTIALS` from ADC file on startup. `data/splits.py` and `data/normalization.py` gained `gcsfs`-based `_open_text()` helpers for `gs://` URIs.
+  - **Bucket validation** (`check_data_bucket.py`): 5/6 checks passed. One data quality note: tile `vs3pfmb0808n` (positive) has 0 RTS pixels in label — non-blocking (1/1819 = 0.05%). Split design confirmed: `val_realistic` and `val_balanced` intentionally share the same 9 regions (different sampling ratios, same geography).
+  - **Normalization stats**: Welford pass over 3638 train tiles. RGB mean=[48.3, 57.7, 47.2], std=[33.7, 29.2, 37.6] (typical PlanetScope summer Arctic). Uploaded to `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json`.
+  - **DataLoader gate** (`check_data.py`): 20 batches, 32 tiles/batch, 0 errors. Negative tiles correctly return synthetic all-zero labels (no label file in GCS by design).
+  - **Smoke training** (`configs/smoke.yaml`, 3 epochs, CPU, 10% positive subset): clean exit. Loss 0.035→0.016→0.013, PR-AUC geomean 0.002→0.019→0.026, obj F1 0.023→0.015→0.075. 3 resume checkpoints written.
+  - **Bug fixes**:
+    - `training/metrics.py` + `scripts/train.py`: PR-AUC bootstrap OOM — proportional per-tile pixel subsampling (cap 10M px total) applied *before* `np.concatenate` to prevent 25GB+ allocation when bootstrap resamples 25K+ negative tile copies for ratio 1:200 with only 354 val negatives.
+    - `data/dataset.py` `_read_label`: return zeros for negative tiles instead of attempting to open a non-existent GCS label file.
+- 2026-05-28 — **Step 6b complete: Docker image `rts-train:v2` built and pushed to Artifact Registry.**
+  - Image: `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (sha256:9e298061, 9.6 GB).
+  - Base: `nvcr.io/nvidia/pytorch:24.05-py3` (Python 3.10, CUDA 12.4). Dockerfile at `computing/Dockerfile.train`.
+  - Docker built locally on L4 VM (Cloud Build SA lacked Artifact Registry push permission — organizational project `pdg-project-406720` IAM is not user-editable). Auth via ADC (`docker login us-west1-docker.pkg.dev` with `oauth2accesstoken`).
+  - `requirements.txt` used in Docker (version ranges, compatible with Python 3.10); `requirements_frozen.txt` stays as L4/Python 3.12 dev reference. Each training run logs an in-container freeze as an MLflow artifact.
+  - `computing/docker_training.md` updated: correct project (`pdg-project-406720`), Artifact Registry path (replacing old `gcr.io/abruptthawmapping`), modern-keyring gcsfuse install (`[signed-by=...]`).
+  - **Ready for production run on A100.** See `computing/vm_instruction.md` for how to start `ml-training-vm`.

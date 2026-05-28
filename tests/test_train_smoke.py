@@ -287,9 +287,9 @@ def test_prediction_shows_response_on_positive_region(synthetic_dataset, trained
     # Find a positive tile in val_realistic.
     md = synthetic_dataset["metadata_df"]
     val_regions = synthetic_dataset["splits"]["val_realistic"]
-    pos_val = md[(md["RegionName"].isin(val_regions)) & (md["TrainClass"] == "Positive")]
+    pos_val = md[(md["RegionName"].isin(val_regions)) & (md["TrainClass"] == "positive")]
     assert len(pos_val) > 0, "synthetic val must have at least one positive tile"
-    tid = pos_val.iloc[0]["Tile_id"]
+    tid = pos_val.iloc[0]["Tile_ID"]
 
     # Build a minimal single-tile dataset read to exercise the full data pipeline.
     from data.transforms import build_eval_transforms
