@@ -23,7 +23,11 @@ RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
 # mlflow_utils.log_requirements_frozen().
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    # NGC base provides cv2 4.7.0; pip albumentations installs opencv-python-headless
+    # whose typing/__init__.py references cv2.dnn.DictValue (removed in 4.11). Patch it.
+    sed -i 's/LayerId = cv2.dnn.DictValue/LayerId = object  # patched: absent in NGC cv2/' \
+        /usr/local/lib/python3.10/dist-packages/cv2/typing/__init__.py 2>/dev/null || true
 
 # Source code
 COPY data/ /app/data/

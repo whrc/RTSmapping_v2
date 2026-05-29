@@ -1,0 +1,10 @@
+{
+  "dataset_version": "2.0",
+  "computed_date": "hand-crafted: ImageNet params from smp efficientnet-b5 encoder",
+  "n_tiles_used": 0,
+  "rgb": {
+    "channel_names": ["R", "G", "B"],
+    "mean": [123.675, 116.280, 103.530],
+    "std":  [58.395,  57.120,  57.375]
+  }
+}

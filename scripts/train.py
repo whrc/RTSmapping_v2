@@ -605,10 +605,42 @@ def _render_and_log_figures(
 # ---------------------------------------------------------------------------
 
 
+def _print_artifact_summary(cfg: dict, out_dir: Path, run_id: str) -> None:
+    """Print a structured artifact location summary at the end of every run.
+
+    This is the standard artifact-summary rule: every training run always emits
+    this block so results and checkpoints are trivially findable without opening
+    MLflow.
+    """
+    tracking_uri = cfg["mlflow"]["tracking_uri"]
+    exp_name = cfg["mlflow"]["experiment_name"]
+    run_name = cfg["mlflow"].get("run_name", "unknown")
+    ckpt_dir = out_dir / "checkpoints"
+    sep = "=" * 62
+    lines = [
+        "",
+        sep,
+        "  ARTIFACT SUMMARY",
+        sep,
+        f"  Run name      : {run_name}",
+        f"  MLflow run ID : {run_id}",
+        f"  Tracking URI  : {tracking_uri}",
+        f"  Experiment    : {exp_name}",
+        f"  Output dir    : {out_dir.resolve()}",
+        f"  Checkpoints   : {ckpt_dir.resolve()}",
+        f"  Best ckpt     : {(ckpt_dir / 'best_deployment.pth').resolve()}",
+        f"  Norm stats    : {cfg['data']['normalization_stats_path']}",
+        f"  Config used   : {cfg.get('_config_path', 'unknown')}",
+        sep,
+    ]
+    logger.info("\n".join(lines))
+
+
 def main() -> int:
     args = _parse_args()
     cfg = load_config(args.config)
     _apply_overrides(cfg, args.override)
+    cfg["_config_path"] = str(args.config)
 
     # Output directory.
     run_name = cfg["mlflow"].get("run_name", "run")
@@ -850,7 +882,9 @@ def main() -> int:
             nan_events=nan_events,
             tmp_dir=out_dir,
         )
+        run_id = mlflow.active_run().info.run_id if mlflow.active_run() else "unknown"
         mlflow.end_run()
+        _print_artifact_summary(cfg, out_dir, run_id)
         logger.info("Done in %.1fs", duration)
 
     return 0

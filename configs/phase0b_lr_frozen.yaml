@@ -1,0 +1,173 @@
+# Phase 0b — LR range test, backbone FROZEN phase.
+# Ramps LR logarithmically 1e-7 → 1e-1 over one epoch on 30% positive subset.
+# Pick `frozen_lr` as the order of magnitude where loss curve steepest before divergence.
+# Must run on production GPU (A100) at the batch size chosen in §3.1.
+#
+# UPDATE normalization_stats_path after Phase 0a winner is locked.
+#
+# Output: lr_range_curve.csv logged as MLflow artifact. Plot in MLflow UI or
+# with scripts/report_phase0.py (embedded in docs/phase0_report.html).
+#
+# Run: docker run --rm --gpus '"device=0"' --privileged \
+#        -v /mnt/outputs:/outputs \
+#        -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_key.json \
+#        rts-train:v2 \
+#        scripts/train.py --config configs/phase0b_lr_frozen.yaml
+
+seed: 42
+deterministic: false
+
+data:
+  version: "2.0"
+  data_root: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA"
+  rgb_dir: "PLANET-RGB"
+  extra_dir: "EXTRA"
+  labels_dir: "labels"
+  metadata_csv: "metadata.csv"
+  splits_yaml: "splits.yaml"
+  splits_summary_json: "splits_summary.json"
+  tile_size: 512
+  crs: "EPSG:3857"
+  label_ignore_index: 255
+  # TODO: update to Phase 0a winner stats path after arm-out completes
+  normalization_stats_path: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json"
+
+channels:
+  rgb: true
+  extra: []
+
+splits:
+  regions_geojson: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/circumpolar_subregions.geojson"
+  train_fraction: 0.80
+  val_fraction: 0.10
+  test_fraction: 0.10
+  min_test_positives: 100
+  min_val_ecoregions: 2
+  min_train_positive_fraction: 0.70
+  max_drift: 0.10
+  # 30% positive subset for LR range test (experiments.md §3.2)
+  train_positive_subset_pct: 0.30
+
+normalization:
+  rgb_clip_percentiles: [0.1, 99.9]
+  extra_clip_percentiles: [0.1, 99.9]
+
+sampling:
+  balanced: true
+  positive_fraction: 0.5
+  curriculum_schedule:
+    "1-10":     1
+    "11-30":    5
+    "31-50":   10
+    "51-100":  15
+    "101-300": 20
+
+augmentation:
+  geometric:
+    rot90_p: 0.5
+    hflip_p: 0.5
+    vflip_p: 0.5
+    shift_scale_rotate:
+      shift: 0.1
+      scale: 0.2
+      rotate: 45
+      p: 0.5
+    elastic:
+      alpha: 120
+      sigma: 6
+      p: 0.3
+    shear:
+      shear_degrees: 10
+      p: 0.3
+  color:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    brightness_contrast_p: 0.5
+    gaussian_noise:
+      var_limit: [10, 50]
+      p: 0.3
+    clahe:
+      clip_limit: 4.0
+      tile_grid: [8, 8]
+      p: 0.2
+  multi_scale:
+    scale_range: [0.5, 1.0]
+    p: 0.3
+
+loss:
+  function: "focal"
+  focal_gamma: 2.0
+  focal_alpha: 0.25
+  lambda_focal: 1.0
+  lambda_dice: 1.0
+  tversky_alpha: 0.3
+  tversky_beta: 0.7
+  tversky_eps: 1.0
+  dice_eps: 1.0
+  boundary_handling: "none"
+  boundary_ignore_width: 3
+  soft_label_value: 0.05
+
+training:
+  batch_size: 32   # TODO: update to BS picked in Phase 0b §3.1 memory profiling
+  max_epochs: 1    # one epoch for LR range test
+  val_frequency: 999    # no validation during range test
+  early_stopping:
+    patience: 999        # no early stopping
+    min_delta: 0.0
+    start_epoch: 999
+    metric: "val_realistic_pr_auc_geomean"
+    smoothing_window: 3
+  precision: "bf16"
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: true
+  drop_last: true
+  gcsfuse:
+    file_cache_capacity_mb: 20480
+    stat_cache_ttl: "24h"
+    type_cache_ttl: "24h"
+    file_cache_cache_file_for_range_read: true
+    metadata_prefetch_on_mount: "async"
+
+optimizer:
+  name: "adamw"
+  weight_decay: 1.0e-2
+  gradient_clip_norm: 100.0   # relaxed — don't clip during range test
+
+lr_schedule:
+  scheduler: "lr_range_test"
+  lr_range_min: 1.0e-7
+  lr_range_max: 1.0e-1
+  # Backbone FROZEN: freeze_backbone_epochs > max_epochs keeps it frozen the whole run
+  freeze_backbone_epochs: 999
+  # These are unused in lr_range_test mode but kept for config completeness
+  frozen_lr: 1.0e-3
+  base_lr: 1.0e-4
+  backbone_lr_multiplier: 0.1
+  warmup_epochs: 5
+  warmup_start_lr: 1.0e-6
+  min_lr: 1.0e-6
+  backbone_warmup_epochs: 3
+
+ema:
+  enabled: false   # no EMA during range test
+
+model:
+  architecture: "unetplusplus"
+  backbone: "efficientnet-b5"
+  pretrained: true
+  output_bias_prior: 0.005
+
+metrics:
+  min_blob_size_px: 10
+  object_iou_threshold: 0.3
+  reporting_threshold: 0.5
+  preview_tile_config: "configs/preview_tiles.yaml"
+
+mlflow:
+  tracking_uri: "gs://abrupt_thaw/RTS_MODEL_V2/mlflow_tracking"
+  experiment_name: "rts-segmentation-v2"
+  run_name: "phase0b_lr_frozen"

@@ -1,0 +1,10 @@
+{
+  "dataset_version": "2.0",
+  "computed_date": "hand-crafted: scale-only (img / 255, no mean subtraction)",
+  "n_tiles_used": 0,
+  "rgb": {
+    "channel_names": ["R", "G", "B"],
+    "mean": [0.0, 0.0, 0.0],
+    "std":  [255.0, 255.0, 255.0]
+  }
+}

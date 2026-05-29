@@ -23,16 +23,20 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
-## Status — 2026-05-28
+## Status — 2026-05-29
 
 - **Spec phase**: complete except `post-inference/post-inference.md`.
 - **Phase 0** (data pipeline): complete, merged as PR #8.
-- **Phase 1** (training loop): **Step 6b + 7b complete** — Docker image built and smoke training passed.
-  - `rts-train:v2` pushed to `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (9.6 GB, sha256:9e298061).
-  - 3-epoch smoke training passed on L4 VM: loss 0.035→0.016→0.013, PR-AUC geomean 0.002→0.019→0.026, obj F1 0.023→0.015→0.075.
-  - Pending: **Step 7c** — launch 300-epoch production run on A100/H100 VM. Phase 1 Step 8.5 (inference feasibility gates) and Step 8 (one-shot test eval) run after the production baseline completes.
+- **Phase 1** (training loop): complete — Docker image `rts-train:v2` built + smoke passed (PR #9–11).
+  - `rts-train:v2` at `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (9.6 GB, sha256:9e298061).
+- **Exp Phase 0** (baseline calibration): **in progress** (branch `phase_0`, started 2026-05-29).
+  - Experiment configs created: `phase0a_arm_{a,b,c}.yaml`, `phase0b_lr_{frozen,unfrozen}.yaml`, `phase0c_seed{42,43,44}.yaml`.
+  - Artifact summary rule added to `scripts/train.py` (`_print_artifact_summary`).
+  - HTML report generator at `scripts/report_phase0.py` → `docs/phase0_report.html`.
+  - Pending: run 0a arms on A100, pick normalization winner; run 0b LR tests; update 0c TODO fields; run 3-seed baseline.
+- **A100 VM (`ml-training-vm`)**: running, Docker not yet installed (plain Ubuntu 22.04). Install Docker + NVIDIA stack before first training run.
 - **Dataset v2.0**: bucket validated, normalization stats at `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json`.
-- **Next step**: Step 7c — start `ml-training-vm` (A100), pull `rts-train:v2`, run `python scripts/train.py --config configs/baseline.yaml` (300 epochs).
+- **Next step**: install Docker + NVIDIA on A100 VM → pull `rts-train:v2` → run `phase0a_arm_a`, `phase0a_arm_b`, `phase0a_arm_c` → update 0b/0c configs with winner.
 
 ---
 
@@ -41,7 +45,8 @@ Specs are the source of truth. Always read the relevant md before implementing (
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
 | **Phase 0** | Data pipeline (`data/`, `utils/`, `scripts/create_splits.py`, `scripts/compute_normalization_stats.py`, `scripts/check_data_content.py`, `scripts/check_data.py`, tests, `configs/baseline.yaml`) | **complete** (PR #8 merged 2026-04-23) |
-| **Phase 1** | Training loop (`models/`, `losses/`, `training/`, `scripts/train.py`, `scripts/evaluate_test.py`, `scripts/package_model.py`, `scripts/check_inference_normalization.py`, `scripts/inference_feasibility.py`, `configs/deployment.yaml`, MLflow, visualizations, Dockerfile build) | **Docker image built + smoke PASSED** (2026-05-28); pending 300-epoch production run |
+| **Phase 1** | Training loop (`models/`, `losses/`, `training/`, `scripts/train.py`, `scripts/evaluate_test.py`, `scripts/package_model.py`, `scripts/check_inference_normalization.py`, `scripts/inference_feasibility.py`, `configs/deployment.yaml`, MLflow, visualizations, Dockerfile build) | **complete** (Docker image + smoke PASSED 2026-05-28) |
+| **Exp Phase 0** | Baseline calibration: normalization arm-out (0a), LR range test (0b), multi-seed baseline (0c). Configs + report script in `phase_0` branch. | **in progress** (2026-05-29) |
 | Phase 2 | Inference (`scripts/inference.py`: overlap-aggregated tiling per inference.md §4, optional multi-scale / TTA per §6.4/§7.4, COG output, vectorization) | pending |
 | Phase 3 | Post-inference spec finalization + implementation (`scripts/post_inference.py`) | pending |
 
@@ -88,6 +93,7 @@ For the coding agent: on first load, read this doc and the relevant spec md(s) f
   - **Bug fixes**:
     - `training/metrics.py` + `scripts/train.py`: PR-AUC bootstrap OOM — proportional per-tile pixel subsampling (cap 10M px total) applied *before* `np.concatenate` to prevent 25GB+ allocation when bootstrap resamples 25K+ negative tile copies for ratio 1:200 with only 354 val negatives.
     - `data/dataset.py` `_read_label`: return zeros for negative tiles instead of attempting to open a non-existent GCS label file.
+- 2026-05-29 — Exp Phase 0 experiment infrastructure created (branch `phase_0`). Phase 0a normalization arm configs (`configs/phase0a_arm_{a,b,c}.yaml`) + stats files (`data/normalization_stats_arm_{b,c}.json`). Phase 0b LR range test configs (`configs/phase0b_lr_{frozen,unfrozen}.yaml`). Phase 0c multi-seed templates (`configs/phase0c_seed{42,43,44}.yaml` — TODOs for Phase 0a/0b winner values). Artifact summary rule added to `scripts/train.py:_print_artifact_summary` (runs on every training exit). HTML report script at `scripts/report_phase0.py` → `docs/phase0_report.html`. A100 VM needs Docker + NVIDIA install before training.
 - 2026-05-28 — **Step 6b complete: Docker image `rts-train:v2` built and pushed to Artifact Registry.**
   - Image: `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (sha256:9e298061, 9.6 GB).
   - Base: `nvcr.io/nvidia/pytorch:24.05-py3` (Python 3.10, CUDA 12.4). Dockerfile at `computing/Dockerfile.train`.
