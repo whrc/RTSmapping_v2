@@ -726,8 +726,9 @@ def main() -> int:
         logger.info("Resumed from %s at epoch %d (ema=%s)",
                     args.resume, start_epoch, ema is not None)
 
-    # Pre-warm positive tiles once (epoch 1 only).
-    if start_epoch == 1:
+    # Pre-warm positive tiles once (epoch 1 only) — only when gcsfuse is active.
+    # Without gcsfuse the reads hit GCS directly with no caching benefit; skip.
+    if start_epoch == 1 and cfg["training"].get("prewarm", False):
         _prewarm_positive_tiles(data["train_ds"])
 
     exposure_counter: dict[str, int] = {}

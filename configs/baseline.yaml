@@ -185,6 +185,7 @@ training:
   prefetch_factor: 2
   persistent_workers: true
   drop_last: true
+  prewarm: false   # only enable when gcsfuse is mounted; without it reads hit GCS with no cache benefit
 
   # gcsfuse mount config for training data; applied in docker run (see
   # computing/docker_training.md Part 4). Tile churn under balanced sampling +

@@ -120,6 +120,7 @@ training:
   prefetch_factor: 2
   persistent_workers: true
   drop_last: true
+  prewarm: false   # only enable when gcsfuse is mounted; without it reads hit GCS with no cache benefit
   gcsfuse:
     file_cache_capacity_mb: 20480
     stat_cache_ttl: "24h"
