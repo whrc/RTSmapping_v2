@@ -99,14 +99,36 @@ MLflow tracking URI lives in `configs/baseline.yaml:mlflow.tracking_uri`
 ignored by our code and creates a second source of truth.
 
 ### Run training (single GPU)
+
+Standard production run (config fully controls MLflow URI, output dir, and GCS data path):
 ```bash
-docker run --rm --gpus '"device=0"' \
-    --privileged \
+IMAGE=us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
+
+sudo docker run -d --gpus '"device=0"' --privileged \
+    --shm-size=16g \
+    --name <run_name> \
+    -v ~/RTSmappingDL:/app \
     -v /mnt/outputs:/outputs \
-    -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp_key.json \
-    us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2 \
-    scripts/train.py --config configs/baseline.yaml
+    -v ~/.config/gcloud/application_default_credentials.json:/gcp_adc.json:ro \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
+    --entrypoint bash \
+    $IMAGE \
+    -c "sed -i 's/LayerId = cv2.dnn.DictValue/LayerId = object/' \
+        /usr/local/lib/python3.10/dist-packages/cv2/typing/__init__.py 2>/dev/null || true && \
+        python scripts/train.py \
+          --config configs/<config>.yaml \
+          --out-dir /outputs/<run_name> 2>&1 | tee /outputs/<run_name>.log"
+
+# Monitor
+sudo docker logs -f <run_name>
 ```
+
+**Notes:**
+- `--shm-size=16g` required — default 64MB causes bus errors with 8 DataLoader workers.
+- `-v ~/RTSmappingDL:/app` mounts the repo so the latest code/configs are used without rebuilding.
+- cv2 patch (`sed -i ...`) is needed until `rts-train:v2` is rebuilt with the pinned `opencv-python-headless<4.11`.
+- GCS ADC credentials: run `gcloud auth application-default login --no-launch-browser` once on the VM, then mount `~/.config/gcloud/application_default_credentials.json`.
+- MLflow tracking URI is `file:///outputs/mlflow` (in configs); metrics are persisted to `/mnt/outputs/mlflow` on the host.
 
 ### Run training (multi-GPU, when DDP is implemented)
 ```bash
