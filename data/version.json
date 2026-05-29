@@ -1,0 +1,46 @@
+{
+  "version": "2.0",
+  "created_date": "2026-05-27",
+  "validated_date": "2026-05-28",
+  "gcs_root": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA",
+  "imagery_source": "PlanetScope Quarterly Basemap 2024 (July-September), RGB, ~3m/px",
+  "crs": "EPSG:3857",
+  "tile_size_px": 512,
+  "label_values": {"0": "background", "1": "RTS", "255": "ignore"},
+  "tile_counts": {
+    "total": 4572,
+    "positive": 1819,
+    "negative": 2753
+  },
+  "split_counts": {
+    "ecoregions_total": 50,
+    "ecoregions_train": 37
+  },
+  "extra_channels": {
+    "description": "8-band EXTRA stack in EXTRA/{tile_id}.tif — canonical layout fixed by data/data.md §9",
+    "bands": [
+      {"band": 0, "name": "ndvi",     "group": "S2-derived"},
+      {"band": 1, "name": "nbr",      "group": "S2-derived"},
+      {"band": 2, "name": "se_pca_1", "group": "SE-PCA"},
+      {"band": 3, "name": "se_pca_2", "group": "SE-PCA"},
+      {"band": 4, "name": "se_pca_3", "group": "SE-PCA"},
+      {"band": 5, "name": "se_proto", "group": "SE-Proto"},
+      {"band": 6, "name": "tc_1",     "group": "Tasseled-Cap"},
+      {"band": 7, "name": "tc_2",     "group": "Tasseled-Cap"}
+    ]
+  },
+  "normalization_stats_gcs": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json",
+  "data_quality_notes": [
+    "tile vs3pfmb0808n: positive in metadata but 0 RTS pixels in label — non-blocking (1/1819 = 0.05%)"
+  ],
+  "not_in_v2": [
+    "NIR (Sentinel-2)",
+    "Relative Elevation (ArcticDEM)",
+    "Shaded Relief (ArcticDEM)",
+    "slope",
+    "aspect",
+    "NDMI",
+    "SAR backscatter"
+  ],
+  "v2_to_v21_upgrade_path": "Append bands to EXTRA GeoTIFFs; add rows to data/data.md §9; bump version string here and in normalization_stats.json"
+}

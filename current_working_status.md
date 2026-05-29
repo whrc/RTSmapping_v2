@@ -29,14 +29,13 @@ Specs are the source of truth. Always read the relevant md before implementing (
 - **Phase 0** (data pipeline): complete, merged as PR #8.
 - **Phase 1** (training loop): complete — Docker image `rts-train:v2` built + smoke passed (PR #9–11).
   - `rts-train:v2` at `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (9.6 GB, sha256:9e298061).
-- **Exp Phase 0** (baseline calibration): **in progress** (branch `phase_0`, started 2026-05-29).
-  - Experiment configs created: `phase0a_arm_{a,b,c}.yaml`, `phase0b_lr_{frozen,unfrozen}.yaml`, `phase0c_seed{42,43,44}.yaml`.
-  - Artifact summary rule added to `scripts/train.py` (`_print_artifact_summary`).
-  - HTML report generator at `scripts/report_phase0.py` → `docs/phase0_report.html`.
-  - Pending: run 0a arms on A100, pick normalization winner; run 0b LR tests; update 0c TODO fields; run 3-seed baseline.
-- **A100 VM (`ml-training-vm`)**: running, Docker not yet installed (plain Ubuntu 22.04). Install Docker + NVIDIA stack before first training run.
-- **Dataset v2.0**: bucket validated, normalization stats at `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json`.
-- **Next step**: install Docker + NVIDIA on A100 VM → pull `rts-train:v2` → run `phase0a_arm_a`, `phase0a_arm_b`, `phase0a_arm_c` → update 0b/0c configs with winner.
+- **Exp Phase 0** (baseline calibration): **configs ready, awaiting GCS auth + run** (branch `phase_0`).
+  - Experiment configs: `phase0a_arm_{a,b,c}.yaml`, `phase0b_lr_{frozen,unfrozen}.yaml`, `phase0c_seed{42,43,44}.yaml`.
+  - Artifact summary rule added to `scripts/train.py`; HTML report at `scripts/report_phase0.py`.
+  - Pending: set up GCS credentials on A100 → run 0a arms → pick winner → run 0b → run 0c.
+- **A100 VM (`ml-training-vm`)**: Docker 29.5.2 + NVIDIA driver 595 installed; `rts-train:v2` pulled; GPU confirmed (A100-SXM4-40GB, CUDA:True, 40GB). **GCS auth not yet configured** (compute SA lacks bucket access).
+- **Dataset v2.0**: 4572 tiles (1819 pos / 2753 neg), 50 ecoregions, GCS root `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA`. Anchored in `data/version.json` (committed to repo, per `data/data.md §4`).
+- **Next step**: `gcloud auth application-default login --no-launch-browser` on A100 VM → mount ADC into Docker → run Phase 0a arm configs.
 
 ---
 
@@ -93,7 +92,7 @@ For the coding agent: on first load, read this doc and the relevant spec md(s) f
   - **Bug fixes**:
     - `training/metrics.py` + `scripts/train.py`: PR-AUC bootstrap OOM — proportional per-tile pixel subsampling (cap 10M px total) applied *before* `np.concatenate` to prevent 25GB+ allocation when bootstrap resamples 25K+ negative tile copies for ratio 1:200 with only 354 val negatives.
     - `data/dataset.py` `_read_label`: return zeros for negative tiles instead of attempting to open a non-existent GCS label file.
-- 2026-05-29 — Exp Phase 0 experiment infrastructure created (branch `phase_0`). Phase 0a normalization arm configs (`configs/phase0a_arm_{a,b,c}.yaml`) + stats files (`data/normalization_stats_arm_{b,c}.json`). Phase 0b LR range test configs (`configs/phase0b_lr_{frozen,unfrozen}.yaml`). Phase 0c multi-seed templates (`configs/phase0c_seed{42,43,44}.yaml` — TODOs for Phase 0a/0b winner values). Artifact summary rule added to `scripts/train.py:_print_artifact_summary` (runs on every training exit). HTML report script at `scripts/report_phase0.py` → `docs/phase0_report.html`. A100 VM needs Docker + NVIDIA install before training.
+- 2026-05-29 — Exp Phase 0 experiment infrastructure created (branch `phase_0`). Phase 0a normalization arm configs (`configs/phase0a_arm_{a,b,c}.yaml`) + stats files (`data/normalization_stats_arm_{b,c}.json`). Phase 0b LR range test configs (`configs/phase0b_lr_{frozen,unfrozen}.yaml`). Phase 0c multi-seed templates (`configs/phase0c_seed{42,43,44}.yaml`). Artifact summary rule in `scripts/train.py`. HTML report at `scripts/report_phase0.py`. Created `data/version.json` (dataset v2.0 anchor — 4572 tiles, 1819 pos / 2753 neg, 50 ecoregions, per `data/data.md §4`). Docker 29.5.2 + NVIDIA driver 595 + container toolkit installed on A100 VM; `rts-train:v2` pulled and GPU verified; cv2/albumentations DictValue conflict patched in `Dockerfile.train` + `requirements.txt`. Docker smoke tests (phase0a, phase0b) passed on A100 GPU.
 - 2026-05-28 — **Step 6b complete: Docker image `rts-train:v2` built and pushed to Artifact Registry.**
   - Image: `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2` (sha256:9e298061, 9.6 GB).
   - Base: `nvcr.io/nvidia/pytorch:24.05-py3` (Python 3.10, CUDA 12.4). Dockerfile at `computing/Dockerfile.train`.
