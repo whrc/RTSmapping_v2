@@ -22,7 +22,7 @@ opencv-python-headless>=4.7,<4.11  # pin: 4.11 typing/__init__.py references cv2
 matplotlib>=3.8          # training/visualizations figures
 
 # Experiment tracking
-mlflow[gcs]>=2.10
+mlflow[gcs]>=2.10,<3.0  # 3.x ties model registry to tracking URI; GCS not a supported registry backend
 
 # GCS
 google-cloud-storage>=2.14

@@ -161,6 +161,6 @@ metrics:
   preview_tile_config: "configs/preview_tiles.yaml"
 
 mlflow:
-  tracking_uri: "gs://abrupt_thaw/RTS_MODEL_V2/mlflow_tracking"
+  tracking_uri: "file:///outputs/mlflow"  # local file store inside Docker; MLflow 2.x+ does not support gs:// as tracking (only artifact) URI
   experiment_name: "rts-segmentation-v2"
   run_name: "phase0c_seed44"
