@@ -373,7 +373,9 @@ def _section_artifacts(mlflow, experiment_name: str) -> str:
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate Phase 0 HTML report from MLflow")
     p.add_argument("--config", default="configs/baseline.yaml",
-                   help="Config YAML for MLflow tracking_uri and experiment_name")
+                   help="Config YAML for MLflow experiment_name")
+    p.add_argument("--tracking-uri", default=None,
+                   help="Override mlflow.tracking_uri from config (e.g. /mnt/outputs/mlflow)")
     p.add_argument("--output", default="docs/phase0_report.html",
                    help="Output HTML file path")
     return p.parse_args()
@@ -384,7 +386,7 @@ def main() -> int:
     args = _parse_args()
 
     cfg = load_config(args.config)
-    tracking_uri = cfg["mlflow"]["tracking_uri"]
+    tracking_uri = args.tracking_uri or cfg["mlflow"]["tracking_uri"]
     experiment_name = cfg["mlflow"]["experiment_name"]
 
     logger.info("Connecting to MLflow: %s / %s", tracking_uri, experiment_name)
