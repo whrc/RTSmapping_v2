@@ -21,16 +21,16 @@ region_train_count
 # A tibble: 50 × 3
    RegionName                        RTSCount RTSPercent
    <chr>                                <int>      <dbl>
- 1 Taimyr-Central Siberian tundra         367     0.0803
- 2 East Siberian taiga                    361     0.0790
- 3 Northwest Territories taiga            312     0.0682
- 4 Muskwa-Slave Lake taiga                265     0.0580
- 5 Ogilvie-MacKenzie alpine tundra        246     0.0538
- 6 Yamal-Gydan tundra                     176     0.0385
- 7 Trans-Baikal Bald Mountain tundra      169     0.0370
- 8 Beringia upland tundra                 155     0.0339
- 9 Russian Bering tundra                  155     0.0339
-10 Russian Arctic desert                  120     0.0262
+ 1 Trans-Baikal Bald Mountain tundra     1386     0.0893
+ 2 Taimyr-Central Siberian tundra        1294     0.0834
+ 3 Yamal-Gydan tundra                    1270     0.0819
+ 4 East Siberian taiga                   1145     0.0738
+ 5 West Siberian taiga                    784     0.0505
+ 6 Russian Bering tundra                  780     0.0503
+ 7 Northwest Territories taiga            692     0.0446
+ 8 Muskwa-Slave Lake taiga                610     0.0393
+ 9 Urals montane forest and taiga         593     0.0382
+10 Eastern Canadian Shield taiga          452     0.0291
 # ℹ 40 more rows
 ```
 

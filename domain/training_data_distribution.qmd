@@ -4,7 +4,7 @@ format: gfm
 author: "Heidi Rodenhizer"
 ---
 
-::: {.content-hidden}
+::: content-hidden
 # Set Up
 
 ```{r}
@@ -26,6 +26,7 @@ theme_set(theme_bw())
 # Define Functions
 
 # Import Data
+
 ## Domain
 
 ```{r}
@@ -35,6 +36,7 @@ circumpolar = st_read("./domain/circumpolar_domain.geojson") |>
 ```
 
 ## Subregions
+
 Ecoregions from Dinerstein et al. 2017 will be used as our subregions.
 
 ```{r}
@@ -197,6 +199,7 @@ small_clusters_percent
 ```
 
 # Map Training Data
+
 ## Convert metadata to sf
 
 ```{r}
@@ -261,6 +264,7 @@ train_hex = train_points |>
 ```
 
 ## Map
+
 ### Custom palette
 
 ```{r}
@@ -278,6 +282,7 @@ custom_pal3 <- c(
 ```
 
 ### Legend
+
 ```{r}
 total_counts = train_points |>
   st_drop_geometry() |>
@@ -324,6 +329,7 @@ legend <- bi_legend(
 ```
 
 ### Map
+
 ```{r}
 #| fig-width: 6.5
 #| fig-height: 6.5
@@ -339,7 +345,7 @@ train_hexplot = ggplot(world_north) +
     linewidth = 0.25
   ) +
   geom_sf(
-    color = 'gray50',
+    color = 'gray80',
     fill = 'gray90'
   ) +
   geom_sf(
@@ -353,7 +359,7 @@ train_hexplot = ggplot(world_north) +
     data = train_hex,
     aes(geometry = geometry_scaled, fill = bi_class),
     color = "transparent",
-    alpha = 0.9
+    alpha = 1
   ) +
   bi_scale_fill(pal = custom_pal3, dim = 3) +
   geom_sf(
