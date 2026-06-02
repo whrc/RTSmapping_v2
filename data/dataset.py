@@ -67,11 +67,20 @@ class RTSDataset(Dataset):
         transform,  # albumentations Compose
         tile_size: int = 512,
         label_ignore_index: int = 255,
-        boundary_handling: str = "none",   # none | ignore
+        boundary_handling: str = "none",   # none | ignore (soft_labels deferred to v2.1)
         boundary_ignore_width: int = 3,
     ):
+        if boundary_handling == "soft_labels":
+            raise NotImplementedError(
+                "boundary_handling='soft_labels' is deferred to v2.1 "
+                "(training.md §5.5). Use 'none' or 'ignore' for v2.0."
+            )
+        if boundary_handling not in ("none", "ignore"):
+            raise ValueError(
+                f"boundary_handling must be 'none' or 'ignore'; got {boundary_handling!r}"
+            )
         self.tile_ids = tile_ids
-        self.metadata = metadata.set_index("Tile_id")
+        self.metadata = metadata.set_index("Tile_ID")
         self.data_root = data_root.rstrip("/")
         self.rgb_dir = rgb_dir
         self.extra_dir = extra_dir
@@ -85,6 +94,25 @@ class RTSDataset(Dataset):
 
         if norm_stats_path is not None:
             stats = load_stats(norm_stats_path)
+            # training.md §4.5: assert channel-name agreement before any vector
+            # arithmetic. Catches the "R-stats applied to G-channel" failure
+            # mode where compute_normalization_stats was re-run after the
+            # config's EXTRA order changed but the consumer expects the old order.
+            expected_rgb = ["R", "G", "B"]
+            actual_rgb = list(stats.get("rgb", {}).get("channel_names", []))
+            if actual_rgb != expected_rgb:
+                raise ValueError(
+                    f"normalization stats RGB channel_names {actual_rgb!r} "
+                    f"does not match expected {expected_rgb!r}"
+                )
+            if extra_channels:
+                expected_extra = [c.name for c in extra_channels]
+                actual_extra = list(stats.get("extra", {}).get("channel_names", []))
+                if actual_extra != expected_extra:
+                    raise ValueError(
+                        f"normalization stats EXTRA channel_names {actual_extra!r} "
+                        f"does not match config order {expected_extra!r}"
+                    )
             self.mean, self.std = stats_to_arrays(stats, with_extra=bool(extra_channels))
         else:
             # Permitted for smoke tests; real runs must supply stats.
@@ -113,12 +141,14 @@ class RTSDataset(Dataset):
         return arr.transpose(1, 2, 0)
 
     def _read_label(self, tile_id: str) -> np.ndarray:
-        """(H, W) uint8."""
+        """(H, W) uint8. Negative tiles have no label file; return all-zeros."""
+        if not self.is_positive(tile_id):
+            return np.zeros((self.tile_size, self.tile_size), dtype=np.uint8)
         with rasterio.open(self._path(self.labels_dir, tile_id)) as src:
             return src.read(1, out_dtype="uint8")
 
     def is_positive(self, tile_id: str) -> bool:
-        return bool(self.metadata.loc[tile_id, "TrainClass"] == "Positive")
+        return bool(self.metadata.loc[tile_id, "TrainClass"] == "positive")
 
     def __getitem__(self, idx: int) -> dict:
         tid = self.tile_ids[idx]

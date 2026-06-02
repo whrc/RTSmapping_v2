@@ -24,7 +24,7 @@ from google.cloud import storage
 logger = logging.getLogger("check_data_format")
 
 EXPECTED_METADATA_COLUMNS = [
-    "Tile_id", "centroid_lat", "centroid_lon",
+    "Tile_ID", "centroid_lat", "centroid_lon",
     "TrainClass", "RegionName", "UIDs",
 ]
 
@@ -304,14 +304,14 @@ def check_tile_correspondence(tile_ids_by_dir: dict[str, set[str]],
         messages.append(
             "  metadata.csv not available — skipping metadata tile comparison"
         )
-    elif "Tile_id" not in metadata_df.columns:
+    elif "Tile_ID" not in metadata_df.columns:
         passed = False
         messages.append(
-            "  metadata.csv loaded but missing Tile_id column — "
+            "  metadata.csv loaded but missing Tile_ID column — "
             "cannot compare tile IDs"
         )
     else:
-        meta_ids = set(metadata_df["Tile_id"].astype(str))
+        meta_ids = set(metadata_df["Tile_ID"].astype(str))
         sources["metadata.csv"] = meta_ids
 
     rgb_ids = sources.get("PLANET-RGB", set())
@@ -473,8 +473,8 @@ def compute_summary(metadata_df: pd.DataFrame | None,
         return "\n".join(lines)
 
     total = len(metadata_df)
-    n_pos = int((metadata_df["TrainClass"] == "Positive").sum())
-    n_neg = int((metadata_df["TrainClass"] == "Negative").sum())
+    n_pos = int((metadata_df["TrainClass"] == "positive").sum())
+    n_neg = int((metadata_df["TrainClass"] == "negative").sum())
     ratio_str = f"1:{n_neg / n_pos:.1f}" if n_pos > 0 else "N/A"
 
     lines.append("Tile Counts")
@@ -497,8 +497,8 @@ def compute_summary(metadata_df: pd.DataFrame | None,
         lines.append("Per-Split Breakdown")
         for split_name in splits:
             split_df = df[df["split"] == split_name]
-            s_pos = int((split_df["TrainClass"] == "Positive").sum())
-            s_neg = int((split_df["TrainClass"] == "Negative").sum())
+            s_pos = int((split_df["TrainClass"] == "positive").sum())
+            s_neg = int((split_df["TrainClass"] == "negative").sum())
             s_total = len(split_df)
             n_regions = len(splits.get(split_name, []))
             lines.append(

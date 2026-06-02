@@ -39,6 +39,15 @@ def save_config(cfg: dict[str, Any], path: str | Path) -> None:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
 
+def resolve_path(data_root: str, subpath: str) -> str:
+    """Join a `data_root` (file path or `gs://` URI) with a subpath.
+
+    Used by entry-point scripts to compose paths relative to the dataset root
+    without duplicating the rstrip-and-slash idiom.
+    """
+    return f"{data_root.rstrip('/')}/{subpath}"
+
+
 def require(cfg: dict[str, Any], dotted_key: str) -> Any:
     """Fetch a nested key like 'data.paths.rgb' from cfg; raise KeyError if missing.
 

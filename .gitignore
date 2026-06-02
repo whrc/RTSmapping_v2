@@ -133,6 +133,7 @@ cython_debug/
 **/*.quarto_ipynb
 # Domain Data Files (too big)
 /domain/data
+
 googlecloudstorager-auth-key.json
 
 # History files
@@ -184,3 +185,6 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Training run outputs (checkpoints, figures, logs) — stored in GCS/MLflow
+runs/

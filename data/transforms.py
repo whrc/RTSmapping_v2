@@ -23,32 +23,43 @@ import numpy as np
 from scipy import ndimage
 
 
-def build_train_transforms(tile_size: int, aug_cfg: dict[str, Any]) -> A.Compose:
-    """Training-time augmentation. Color ops default to 'image' only; geometric ops
-    apply to all additional_targets."""
+class TrainTransform:
+    """Two-stage augmentation: color-only on RGB, then geometric on RGB+EXTRA+mask.
+
+    Designed to honor training.md §9.2: color/radiometric ops apply only to
+    RGB; EXTRA and mask must not see brightness/contrast/saturation/noise/CLAHE.
+    Geometric ops apply to all three.
+    """
+
+    def __init__(self, color_stage: A.Compose, geometric_stage: A.Compose):
+        self._color = color_stage
+        self._geo = geometric_stage
+
+    def __call__(self, *, image, extra=None, mask):
+        # Stage 1: color ops on RGB only. mask flows through (Compose passes
+        # the mask key through unchanged when no transform touches it).
+        color_out = self._color(image=image, mask=mask)
+        rgb = color_out["image"]
+        mask = color_out["mask"]
+        # Stage 2: geometric ops on RGB+EXTRA+mask together.
+        if extra is not None:
+            geo_out = self._geo(image=rgb, extra=extra, mask=mask)
+            return {"image": geo_out["image"], "extra": geo_out["extra"], "mask": geo_out["mask"]}
+        geo_out = self._geo(image=rgb, mask=mask)
+        return {"image": geo_out["image"], "mask": geo_out["mask"]}
+
+
+def build_train_transforms(tile_size: int, aug_cfg: dict[str, Any]) -> TrainTransform:
+    """Training-time augmentation. Returns a TrainTransform callable.
+
+    Color stage runs on RGB only (training.md §9.2). Geometric + multi-scale
+    stage runs on RGB+EXTRA+mask together via additional_targets.
+    """
     geo = aug_cfg["geometric"]
     col = aug_cfg["color"]
     ms = aug_cfg["multi_scale"]
 
-    transforms: list[A.BasicTransform] = [
-        A.RandomRotate90(p=geo["rot90_p"]),
-        A.HorizontalFlip(p=geo["hflip_p"]),
-        A.VerticalFlip(p=geo["vflip_p"]),
-        A.ShiftScaleRotate(
-            shift_limit=geo["shift_scale_rotate"]["shift"],
-            scale_limit=geo["shift_scale_rotate"]["scale"],
-            rotate_limit=geo["shift_scale_rotate"]["rotate"],
-            p=geo["shift_scale_rotate"]["p"],
-            border_mode=0,
-        ),
-        A.ElasticTransform(
-            alpha=geo["elastic"]["alpha"],
-            sigma=geo["elastic"]["sigma"],
-            p=geo["elastic"]["p"],
-        ),
-        A.Affine(shear=(-geo["shear"]["shear_degrees"], geo["shear"]["shear_degrees"]),
-                 p=geo["shear"]["p"]),
-        # Color (RGB only — applies to 'image' target).
+    color_stage = A.Compose([
         A.RandomBrightnessContrast(
             brightness_limit=col["brightness"],
             contrast_limit=col["contrast"],
@@ -67,16 +78,38 @@ def build_train_transforms(tile_size: int, aug_cfg: dict[str, Any]) -> A.Compose
             tile_grid_size=tuple(col["clahe"]["tile_grid"]),
             p=col["clahe"]["p"],
         ),
-        # Multi-scale last: may downscale then pad-crop back to tile_size.
-        A.RandomScale(scale_limit=(ms["scale_range"][0] - 1.0, ms["scale_range"][1] - 1.0),
-                      p=ms["p"]),
-        A.PadIfNeeded(min_height=tile_size, min_width=tile_size, border_mode=0),
-        A.CenterCrop(height=tile_size, width=tile_size),
-    ]
-    return A.Compose(
-        transforms,
-        additional_targets={"extra": "image"},  # EXTRA carried alongside RGB, geom transforms apply
+    ])
+
+    geometric_stage = A.Compose(
+        [
+            A.RandomRotate90(p=geo["rot90_p"]),
+            A.HorizontalFlip(p=geo["hflip_p"]),
+            A.VerticalFlip(p=geo["vflip_p"]),
+            A.ShiftScaleRotate(
+                shift_limit=geo["shift_scale_rotate"]["shift"],
+                scale_limit=geo["shift_scale_rotate"]["scale"],
+                rotate_limit=geo["shift_scale_rotate"]["rotate"],
+                p=geo["shift_scale_rotate"]["p"],
+                border_mode=0,
+            ),
+            A.ElasticTransform(
+                alpha=geo["elastic"]["alpha"],
+                sigma=geo["elastic"]["sigma"],
+                p=geo["elastic"]["p"],
+            ),
+            A.Affine(shear=(-geo["shear"]["shear_degrees"], geo["shear"]["shear_degrees"]),
+                     p=geo["shear"]["p"]),
+            A.RandomScale(
+                scale_limit=(ms["scale_range"][0] - 1.0, ms["scale_range"][1] - 1.0),
+                p=ms["p"],
+            ),
+            A.PadIfNeeded(min_height=tile_size, min_width=tile_size, border_mode=0),
+            A.CenterCrop(height=tile_size, width=tile_size),
+        ],
+        additional_targets={"extra": "image"},
     )
+
+    return TrainTransform(color_stage, geometric_stage)
 
 
 def build_eval_transforms() -> A.Compose:

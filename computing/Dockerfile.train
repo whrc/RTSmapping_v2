@@ -1,0 +1,41 @@
+FROM nvcr.io/nvidia/pytorch:24.05-py3
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# System dependencies for geospatial + GCS mounting
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgdal-dev gdal-bin fuse curl ca-certificates gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# gcsfuse for GCS bucket mounting (modern keyring — no deprecated apt-key)
+RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt gcsfuse-jammy main" \
+        | tee /etc/apt/sources.list.d/gcsfuse.list \
+    && apt-get update && apt-get install -y gcsfuse \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps. requirements.txt uses version ranges to stay compatible with
+# the container's Python version (NGC 24.05 ships Python 3.10; the L4 VM dev
+# environment runs Python 3.12, so requirements_frozen.txt is not portable).
+# A per-container freeze is logged as an MLflow artifact each run via
+# mlflow_utils.log_requirements_frozen().
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Source code
+COPY data/ /app/data/
+COPY models/ /app/models/
+COPY losses/ /app/losses/
+COPY training/ /app/training/
+COPY utils/ /app/utils/
+COPY configs/ /app/configs/
+COPY scripts/ /app/scripts/
+
+# Mount points for gcsfuse and writable outputs
+RUN mkdir -p /data /outputs
+
+ENTRYPOINT ["python", "-u"]
+CMD ["scripts/train.py", "--config", "configs/baseline.yaml"]

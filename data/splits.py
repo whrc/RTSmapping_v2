@@ -11,7 +11,7 @@ import pandas as pd
 import yaml
 
 REQUIRED_METADATA_COLUMNS = [
-    "Tile_id",
+    "Tile_ID",
     "centroid_lat",
     "centroid_lon",
     "TrainClass",
@@ -24,20 +24,29 @@ VALID_SPLITS = ["train", "val_balanced", "val_realistic", "test_realistic"]
 
 def load_metadata(path: str | Path) -> pd.DataFrame:
     """Load metadata.csv; validate required columns and TrainClass values."""
-    df = pd.read_csv(path, dtype={"Tile_id": str, "UIDs": str})
+    df = pd.read_csv(path, dtype={"Tile_ID": str, "UIDs": str})
     missing = [c for c in REQUIRED_METADATA_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"metadata.csv missing required columns: {missing}")
-    bad_class = set(df["TrainClass"].unique()) - {"Positive", "Negative"}
+    bad_class = set(df["TrainClass"].unique()) - {"positive", "negative"}
     if bad_class:
         raise ValueError(f"TrainClass must be Positive or Negative; saw {bad_class}")
     df["UIDs"] = df["UIDs"].fillna("")
     return df
 
 
+def _open_text(path: str | Path):
+    """Open a file for reading, supporting both local paths and gs:// URIs."""
+    p = str(path)
+    if p.startswith("gs://"):
+        import gcsfs
+        return gcsfs.GCSFileSystem(token="google_default").open(p[5:], "r")
+    return Path(p).open("r")
+
+
 def load_splits_yaml(path: str | Path) -> dict[str, list[str]]:
     """Load splits.yaml. Returns {split_name: [region_name, ...]}."""
-    with Path(path).open("r") as f:
+    with _open_text(path) as f:
         splits = yaml.safe_load(f)
     if not isinstance(splits, dict):
         raise ValueError(f"splits.yaml root must be a mapping: {path}")
@@ -74,20 +83,20 @@ def get_tile_ids(
         split_name: one of VALID_SPLITS.
         metadata: output of load_metadata().
         splits: output of load_splits_yaml().
-        class_filter: optional "Positive" or "Negative" filter.
+        class_filter: optional "positive" or "negative" filter.
 
     Returns:
-        List of Tile_id strings in arbitrary but deterministic order (sorted).
+        List of Tile_ID strings in arbitrary but deterministic order (sorted).
     """
     if split_name not in splits:
         raise KeyError(f"Split '{split_name}' not in splits.yaml; available: {list(splits)}")
     regions = set(splits[split_name])
     mask = metadata["RegionName"].isin(regions)
     if class_filter is not None:
-        if class_filter not in ("Positive", "Negative"):
-            raise ValueError(f"class_filter must be Positive/Negative, got {class_filter!r}")
+        if class_filter not in ("positive", "negative"):
+            raise ValueError(f"class_filter must be positive/negative, got {class_filter!r}")
         mask &= metadata["TrainClass"] == class_filter
-    return sorted(metadata.loc[mask, "Tile_id"].tolist())
+    return sorted(metadata.loc[mask, "Tile_ID"].tolist())
 
 
 def split_summary(
@@ -97,11 +106,11 @@ def split_summary(
     out: dict[str, dict[str, int]] = {}
     for split_name in splits:
         tids = get_tile_ids(split_name, metadata, splits)
-        sub = metadata[metadata["Tile_id"].isin(tids)]
+        sub = metadata[metadata["Tile_ID"].isin(tids)]
         out[split_name] = {
             "total": len(sub),
-            "positive": int((sub["TrainClass"] == "Positive").sum()),
-            "negative": int((sub["TrainClass"] == "Negative").sum()),
+            "positive": int((sub["TrainClass"] == "positive").sum()),
+            "negative": int((sub["TrainClass"] == "negative").sum()),
             "n_regions": len(splits[split_name]),
         }
     return out

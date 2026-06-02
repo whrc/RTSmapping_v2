@@ -77,14 +77,99 @@ Note: late fusion may require architecture redesign
 
 ## 4 Train-Inference Consistency
 
-**Critical**: The same normalization statistics used during training **must** be used during inference. The inference pipeline loads `normalization_stats.json` from the model directory and applies identical normalization.
+The training and inference pipelines share a contract along six axes. Divergence on any of these causes silent degradation that pixel-level tests miss. Each subsection below is normative — inference code must conform.
 
-If 2025 imagery has significantly different radiometric properties than 2024 training data, this will manifest as degraded performance. Monitor inference predictions for systematic shifts.
+### 4.1 Normalization
+
+Per-dataset statistics computed on the train split only, saved as `normalization_stats.json` alongside the checkpoint. Inference loads identical stats and applies identical mean-subtract / std-divide. If 2025 imagery has materially different radiometric properties than 2024 training data, this manifests as degraded performance; see `scripts/check_inference_normalization.py` for the pre-deployment drift report.
+
+Concrete deployment-blocker thresholds for the drift report (`|Δmean| > 0.5σ_training` or `|σ_sample/σ_training − 1| > 0.25`) are defined in `inference.md §5.4`. The training side does not gate on drift; the gate lives in the inference pipeline.
+
+### 4.2 Model output convention
+
+Models output **logits**, not probabilities. Training losses (focal, BCE, Dice, Tversky, compound) operate on logits directly using `F.logsigmoid` internally for numerical stability. Sigmoid is applied only at two points:
+1. Metric computation during validation (IoU, F1, object metrics, PR-AUC).
+2. Inference probability-raster generation (§9.1 of `inference.md`).
+
+Rationale: naive `log(sigmoid(x))` underflows at extreme logits; `logsigmoid(x)` is stable across the full float range. Focal's `(1-p)^γ` term is derived from `logsigmoid(-x)`.
+
+### 4.3 Checkpoint convention
+
+Two distinct checkpoint files:
+
+| File | Purpose | Contents |
+|------|---------|----------|
+| `weights.pth` | Inference artifact, shipped in deployment package | `state_dict` containing **EMA weights** only |
+| `resume_latest.pth` | Training continuation only; never loaded by inference | `live_state_dict`, `ema_state_dict`, `optimizer_state_dict`, `scheduler_state_dict`, `scaler_state_dict`, `epoch`, `rng_states` |
+
+Inference never needs to know about EMA — `weights.pth` is already the EMA copy. `resume_latest.pth` rotates last-N.
+
+Note: training writes the inference checkpoint as `best_deployment.pth` locally; `scripts/package_model.py` renames it to `weights.pth` when assembling the deployment package.
+
+**Deployment-package metadata** lives in sibling files inside the package directory (per `inference.md §2.2`), not inside the `.pth`:
+
+| File | Contents |
+|------|----------|
+| `normalization_stats.json` | Channel-name bindings, mean/std (schema in §4.5; channel-name binding is the integrity guarantee). |
+| `model_config.yaml` | Architecture, backbone, channels, and a snapshot of `data.tile_size` (model input size is derived from it). |
+| `run_metadata.json` | `git_sha`, `mlflow_run_id`, `training_date`, `seed`, `epoch`, `best_metric`, `trained_with: {precision, seed, config_sha}`. |
+| `deployment_config.yaml` | `threshold`, `temperature`, `tta`, `precision`, `torch_compile`, `scales`, `fusion` (calibration writes `threshold` and `temperature` back here per §4.6). |
+| `requirements_frozen.txt` | Exact env for reproducibility. |
+
+Storing metadata in inspectable sibling files (instead of inside the `.pth` blob) means the deployment package can be audited without `torch.load`.
+
+Per-validation MLflow artifacts (figures, metrics, `run_summary.md`) and per-epoch metric names are spec'd in `experiments.md §1.3` — checkpoints are local-disk artifacts; the MLflow side is owned by that section.
+
+### 4.4 NoData handling
+
+Satellite basemaps contain NoData pixels (ocean, cloud, non-permafrost masked regions). Model behavior on NoData is undefined unless training explicitly saw it.
+
+| Side | Treatment |
+|------|-----------|
+| Training — partial NoData tile | NoData pixels receive `label = 255` (ignore index, reuses boundary-ignore machinery). Input NoData pixels substituted with the per-channel training mean before normalization. Loss ignores them; gradient contribution is zero. |
+| Training — full NoData tile | Skipped at the dataset level; never enters a batch. |
+| Inference — partial NoData tile | Predict normally; post-step set `pred_raster[input_nodata_mask] = -1.0` (the NoData value declared in `inference.md §9.1`). |
+| Inference — full NoData tile | Skipped, manifest-log per §8.3 of `inference.md`. |
+
+Phase 0's `data/transforms.py` boundary-ignore logic is reused — a NoData mask becomes an additional source of ignore=255 labels merged with the boundary-dilated mask.
+
+### 4.5 Normalization-stats schema
+
+`normalization_stats.json` carries channel-name bindings alongside parallel mean/std arrays. RGB block is always present; EXTRA block only when EXTRA channels are declared. Source of truth: `data/normalization.py:build_stats_dict`.
+
+```json
+{
+  "dataset_version": "2.0",
+  "computed_date": "2026-04-28T00:00:00Z",
+  "n_tiles_used": 1234,
+  "rgb": {
+    "channel_names": ["R", "G", "B"],
+    "mean": [..., ..., ...],
+    "std":  [..., ..., ...]
+  },
+  "extra": {
+    "channel_names": ["ndvi", "nbr", "se_pca_1", "se_pca_2", "se_pca_3", "se_proto", "tc_1", "tc_2"],
+    "mean": [..., ..., ..., ..., ..., ..., ..., ...],
+    "std":  [..., ..., ..., ..., ..., ..., ..., ...]
+  }
+}
+```
+
+At load time, training and inference both assert `stats["rgb"]["channel_names"] == ["R", "G", "B"]` and (if EXTRA channels are configured) `stats["extra"]["channel_names"] == [c.name for c in cfg.channels.extra]`. Prevents silent R-stats-applied-to-G-channel bugs if the 2025 basemap API shifts band ordering. The channel-name binding is the integrity guarantee — no separate content hash is needed.
+
+### 4.6 Calibration-deployment parity
+
+Threshold selection (§12.2) and temperature scaling (§12.1) **must** run with identical precision, TTA config, and `torch.compile` setting as the planned deployment. If deployment uses BF16 + minimal TTA and calibration was done in FP32 + no TTA, the calibrated threshold is systematically wrong — numerical differences in sigmoid outputs shift which pixels cross the threshold.
+
+Implementation: a shared `configs/deployment.yaml` holds `{threshold, temperature, tta, precision, torch_compile, scales, fusion}`. Both `scripts/evaluate_test.py` (post-calibration verification) and the Phase 2 inference pipeline load it. Calibration writes the learned `threshold` and `temperature` back into this file; everything else is set before calibration.
+
+**Multi-scale scope.** `scripts/evaluate_test.py` is the **1×-only** Test-Realistic contract: it evaluates at `scales: [1.0]` and that number is the canonical Test-Realistic result. Multi-scale evaluation is **optional and deferred**, run later in the Phase 2 inference pipeline (see `inference.md §6.4`); it does not run inside `evaluate_test.py`.
+
 ---
 
 ## 5. Loss Functions
 
-### 5.1 Focal Loss and Tversky Loss
+### 5.1 Focal Loss
 
 Focal loss down-weights easy examples, focusing learning on hard cases. Particularly suited for class imbalance.
 
@@ -130,24 +215,20 @@ Weight loss inversely proportional to class frequency. Options for computing wei
 
 Label boundaries may be uncertain due to resolution mismatch or inherent ambiguity in RTS edges.
 
-Both approaches will be implemented and selected via YAML config for ablation:
-```yaml
-boundary_handling: none   # options: none | ignore | soft_labels
-boundary_ignore_width: 3    # pixels (used when boundary_handling: ignore)
-soft_label_value: 0.05      # P(background near boundary) when boundary_handling: soft_labels
-```
+Both approaches will be implemented and selected via YAML config for ablation. Keys: `loss.boundary_handling` (`none | ignore | soft_labels`), `loss.boundary_ignore_width`, `loss.soft_label_value` — see `configs/baseline.yaml:loss`.
 
 **Approach 1: Ignore Regions** (`boundary_handling: ignore`)
 - Exclude pixels within `boundary_ignore_width` pixels of label boundaries from loss computation (set to ignore index 255)
 - Applied on-the-fly in the DataLoader using scipy binary dilation on label mask
 - Simple, proven in medical imaging segmentation
 
-**Approach 2: Soft Labels** (`boundary_handling: soft_labels`)
+**Approach 2: Soft Labels** (`boundary_handling: soft_labels`) — **deferred to v2.1**
 - Near-boundary pixels get softened labels: background → `soft_label_value`, RTS → `1 - soft_label_value`
 - Options: constant soft values (0.05/0.95) or distance-based softening
 - Requires using BCE with soft targets (not cross-entropy with integer labels)
+- Code currently raises `NotImplementedError` if requested (`data/dataset.py`); reactivate when implementing the soft-target loss path.
 
-**Experiment order**: Run baseline with `none` first; then ablate against soft_labels with a narrow band (1–2 pixels) and then a small soft value (~0.1).
+**Experiment order**: Run baseline with `none` first. The `ignore` ablation (Approach 1) is the next planned variation; `soft_labels` lands after Phase 1.
 ---
 
 ## 6. Metrics
@@ -238,11 +319,11 @@ Real-world RTS prevalence is ~0.1-0.5%. With naive random sampling:
 | 11–30 | 1:5 | Introduce more negatives, start discriminating |
 | 31–50 | 1:10 | Standard training ratio |
 | 51–100 | 1:15 | Approaching realistic conditions |
-| 101–300 | 1:20 | Near-realistic ratio for final refinement |
+| 101–300 | 1:20 | Near-realistic ratio for final refinement (early-stop becomes eligible at epoch 101 once curriculum reaches 1:20 — matches val prevalence) |
 
 **Implementation**: Step-wise ratio changes at epoch boundaries (not interpolated). Ratio changes are applied at the epoch level (batch composition recalculated each epoch).
 
-**Early Stopping Note**: With patience=20 on Val-Realistic, training will likely stop before epoch 300. The curriculum ensures the model has seen realistic ratios before convergence.
+**Early Stopping Note**: With patience = 8 validation events on Val-Realistic (= 40 epochs at `val_frequency = 5`), training will likely stop before epoch 300. The curriculum ensures the model has seen realistic ratios before convergence.
 
 ---
 
@@ -250,7 +331,7 @@ Real-world RTS prevalence is ~0.1-0.5%. With naive random sampling:
 
 ### 8.1 The Challenge
 
-RTS range from ~50m to 2+ km. At 512×512 tiles with 3m resolution (~1.5km coverage):
+RTS range from ~50m to 2+ km. At 512×512 tiles with 4.77 m projected resolution (~2.4 km projected coverage; ground coverage shrinks with latitude per §8.3):
 - Small RTS (50-200m): Well captured within single tile
 - Medium RTS (200m-1km): Well captured within single tile
 - Large RTS (1-2+ km): Span multiple tiles, may never appear complete
@@ -259,16 +340,20 @@ RTS range from ~50m to 2+ km. At 512×512 tiles with 3m resolution (~1.5km cover
 
 Run inference at multiple effective resolutions to catch different RTS scales. See Inference Guide for detailed procedure.
 
-| Scale | Effective Resolution | Field of View | Target RTS Size |
-|-------|---------------------|---------------|-----------------|
-| 1.0 | 3m (native) | 1.5 km | Small to medium |
-| 0.5 | 6m | 3 km | Medium to large |
+| Scale | Effective Resolution (projected) | Field of View (projected) | Target RTS Size |
+|-------|----------------------------------|---------------------------|-----------------|
+| 1.0 | 4.77 m (native) | 2.4 km | Small to medium |
+| 0.5 | 9.55 m | 4.9 km | Medium to large |
 
 ### 8.3 Multi-Resolution Training
 
-**Current recommendation**: Train at native resolution only. Multi-resolution inference is sufficient for most cases.
+**Current recommendation**: Train at native resolution only.
 
-**Trigger for multi-resolution training**: If post-inference analysis shows recall for large RTS (>1km) is significantly worse than small/medium RTS, consider adding downscaled training samples.
+**Multi-scale inference without retraining — fractal hypothesis**: EfficientNet-B5 + UNet++ skip connections give multi-scale receptive fields, and RTS features have some self-similarity across 4.77 m ↔ 9.55 m projected views. Scale-0.5 inference on a scale-1.0-trained model may work out-of-the-box. This is tested post-calibration in the inference feasibility step (Phase 1 Step 8.5; see `inference.md §6.4`) before any retraining is considered. Gate: ship multi-scale if large-RTS (bbox > 500 m) PR-AUC gain ≥ 2% and global FP-rate delta ≤ +10%.
+
+**Trigger for multi-resolution training**: If the feasibility test fails AND post-inference analysis shows recall for large RTS (>1 km) is the bottleneck, add context-expanded training samples in Phase 1.5. Context-expansion means fetching 1024×1024 projected pixels (2× field of view) and downsampling to 512×512 — not the current `RandomScale` which blurs within a fixed 2.4 km projected footprint. These are distributionally different operations.
+
+**Known limitation — EPSG:3857 at high latitudes**: Web Mercator pixels are constant at **4.77 m projected** in EPSG:3857 (Web Mercator zoom 15: 156543.04 / 2¹⁵ = 4.77 m). The **ground** sample shrinks with latitude as 4.77 × cos(φ) m: ≈ 1.63 m at 70°N, ≈ 1.32 m at 74°N — a ~1.7× variation across 60–74°N. The same pan-arctic strip spans this range. `RandomScale(0.5, 1.0)` partially absorbs the variation, but latitude-stratified performance analysis belongs in Phase 3 post-inference. Accepting this compromise in exchange for web-map compatibility. All stride and tile-coverage math in `inference.md` is in **projected** meters; ground-meter object sizes (RTS bbox in `inference.md §4.2/§4.3`) are interpreted via the raster's affine transform, which gives the same number in projected meters.
 
 ---
 
@@ -300,7 +385,7 @@ Run inference at multiple effective resolutions to catch different RTS scales. S
 | Parameter | Value |
 |-----------|-------|
 | Optimizer | AdamW |
-| Learning rate | 1e-4 |
+| Learning rate | per-phase, see Learning Rate Schedule below (`frozen_lr` / `base_lr`) |
 | Weight decay | 1e-2 |
 | Gradient clipping | Max norm 1.0 |
 
@@ -314,6 +399,9 @@ Phase 1 (frozen backbone) uses constant `frozen_lr`. Phase 2 (after unfreezing) 
 | Minimum LR | 1e-6 | Phase 2 only |
 | Warmup epochs | 5 | Phase 2 only (epochs 11-15) |
 | Warmup start LR | 1e-6 | Phase 2 only |
+| `T_max` (cosine period) | `max_epochs − freeze_backbone_epochs − warmup_epochs` (= 285 by default) | Phase 2 only |
+
+With early-stop typically firing well before `max_epochs`, the cosine schedule is approximately linear over the actual training window. This is intentional — a shorter `T_max` would force the LR to floor near the early-stop point and accelerate the last few epochs unnecessarily.
 
 **Backbone Freeze Strategy**:
 
@@ -322,15 +410,7 @@ Phase 1 (frozen backbone) uses constant `frozen_lr`. Phase 2 (after unfreezing) 
 | Phase 1 | 1–freeze_epochs | Frozen | Training | frozen_lr |
 | Phase 2 | freeze_epochs+ | Training | Training | base_lr (backbone: base_lr × backbone_lr_multiplier) |
 
-All LR values configurable in YAML:
-```yaml
-lr:
-  frozen_lr: 1e-3           # decoder-only phase (suggested default)
-  base_lr: 1e-4             # full fine-tuning base LR
-  backbone_lr_multiplier: 0.1  # backbone LR = base_lr × multiplier
-freeze_backbone_epochs: 10  # number of epochs for Phase 1
-```
-After unfreezing, backbone uses `backbone_lr_multiplier × base_lr` to prevent catastrophic forgetting.
+All LR values are configurable in YAML — see `configs/baseline.yaml:lr_schedule` (`frozen_lr`, `base_lr`, `backbone_lr_multiplier`, `freeze_backbone_epochs`). After unfreezing, backbone uses `backbone_lr_multiplier × base_lr` to prevent catastrophic forgetting.
 
 **EMA (Exponential Moving Average)**:
 
@@ -343,19 +423,26 @@ After unfreezing, backbone uses `backbone_lr_multiplier × base_lr` to prevent c
 
 EMA maintains a smoothed copy of model weights. Final model uses EMA weights.
 
+**Implementation discipline for the swap.** The validation pass uses EMA weights; training uses live weights. To avoid subtle bugs:
+
+- Use a context manager that loads the EMA `state_dict` into the model at validation start and restores the live `state_dict` at the end (PyTorch's `torch.optim.swa_utils.AveragedModel` is the simplest source of truth).
+- EMA tensors must be `detach()`-ed and not part of any autograd graph; never hand them to the optimizer.
+- BatchNorm running stats are part of the swapped state dict — that's the intended behavior (the EMA model's running stats are used during validation), but make sure you swap the full `state_dict()` and not just `parameters()`.
+- A unit test should freeze the model, take its `state_dict`, run validation through the swap, and assert the post-validation `state_dict` is byte-identical to the pre-validation one.
+
 **Training Configuration**:
 
 | Parameter | Value |
 |-----------|-------|
-| Mixed precision | FP16 (enabled) |
+| Mixed precision | BF16 (preferred on A100/H100; FP16 fallback on L4). Must equal `configs/deployment.yaml.precision` per §4.6. |
 | Batch size (per GPU) | 32 |
-| Effective batch size | 32 × n_gpus |
+| Effective batch size | 32 (single GPU; DDP not implemented yet — the `× n_gpus` multiplier reactivates if/when DDP lands) |
 | Multi-GPU (DDP) | Not implemented initially; code structured to allow DDP addition later |
 | Max epochs | 300 |
-| Early stopping patience | 20 epochs |
-| Early stopping metric | Val-Realistic PR-AUC at 1:200, moving average over last 3 validations |
-| Early stopping min delta | 0.005 (placeholder; calibrate empirically — see §10.4) |
-| Early stopping start epoch | 50 | After curriculum reaches 1:15 |
+| Early stopping patience | **8 validation events** (= 40 epochs at `val_frequency = 5`). Patience is in validation events, not epochs, so the absolute window is well-defined regardless of `val_frequency`. |
+| Early stopping metric | Val-Realistic geomean PR-AUC across {1:200, 1:500, 1:1000}, 3-validation moving average — matches `baseline.yaml.training.early_stopping.metric` (`val_realistic_pr_auc_geomean`). |
+| Early stopping min delta | 0.005 (placeholder; calibrate empirically — see §10.1 noise-floor measurement) |
+| Early stopping start epoch | **101** (curriculum reaches 1:20 at epoch 101 — matches val prevalence; matches `baseline.yaml`). |
 | Validation frequency | Every 5 epochs (configurable: `val_frequency`) |
 
 **Data Loading**:
@@ -440,7 +527,7 @@ RandomScale simulates the effective resolution variation seen during multi-scale
 - [ ] Balanced batch sampler configured
 - [ ] Spatial blocking verified (no geographic overlap between splits)
 
-Create a standalone script check_data.py that iterates through the DataLoader (not just the files), to ensures that the augmentations, normalization, and tensor collating etc are actually working as expected. This is to prevent running expensive GPUs on bad data.
+Run `scripts/check_data.py` to iterate through the DataLoader (not just the files), and verify that augmentations, normalization, and tensor collation are actually working as expected. This prevents running expensive GPUs on bad data.
 
 **Environment**:
 - [ ] Docker container built and tested
@@ -468,7 +555,7 @@ Create a standalone script check_data.py that iterates through the DataLoader (n
 2. Apply curriculum learning schedule for negative ratio
 3. Update EMA weights after each optimizer step
 4. Validate on Val-Realistic every val_frequency epochs using EMA weights. Swap EMA weights into the model for the validation pass, then restore live weights before the next training step. All validation metrics, early-stopping decisions, and best-checkpoint comparisons use EMA weights. (configurable in YAML; suggested default 5)
-5. Check early stopping criterion on Val-Realistic PR-AUC，Early stopping is gated to begin at epoch 50, when the curriculum reaches near-realistic ratios; before this, validation runs and best-so-far checkpoints are saved but stopping is disabled
+5. Check early stopping criterion on Val-Realistic geomean PR-AUC. Early stopping is gated to begin at epoch 101, when the curriculum reaches 1:20 (matches val prevalence); before this, validation runs and best-so-far checkpoints are saved but stopping is disabled.
 6. Save checkpoint if best metric achieved
 
 ### 10.3 Validation Strategy
@@ -483,12 +570,15 @@ Create a standalone script check_data.py that iterates through the DataLoader (n
 
 ### 10.4 Post-Training Steps
 
-1. Confirm EMA weights for final model: validation already used EMA throughout training, so the final saved model is the EMA copy of the best-validation checkpoint. No metric change is expected at this step.
-2. **Temperature scaling calibration**: Learn temperature parameter T on Val-Realistic to calibrate prediction confidence
-3. **Threshold selection**: Using Val-Realistic, plot PR curves and select threshold where Precision ≥ target
-4. **Test-Time Augmentation evaluation**: Evaluate with and without TTA to quantify benefit
-5. **Final evaluation**: Report all metrics on Test-Realistic at all ratios (1:200, 1:500, 1:1000)
-6. **Multi-seed runs**: Train final configuration with seeds [42, 43, 44], report mean ± std
+Order matters: §4.6 (calibration-deployment parity) requires temperature and threshold calibration to be done with the **same** TTA + scales config that deployment will use. So TTA and scale decisions come **before** temperature and threshold.
+
+1. **Confirm EMA weights for final model**: validation already used EMA throughout training, so the final saved model is the EMA copy of the best-validation checkpoint. No metric change is expected at this step.
+2. **TTA selection** (Phase 1 Step 8.5b in `inference.md §7.4`): cache val-set logits once per (scale, TTA transform) and pick the cheapest TTA config that gains ≥ 1% PR-AUC AND drops precision@threshold ≤ 0.5%. Writes `deployment_config.yaml.tta`.
+3. **Multi-scale gate** (Phase 1 Step 8.5a in `inference.md §6.4`): same cached val logits — decide `scales: [1.0]` vs `[1.0, 0.5]`. Writes `deployment_config.yaml.scales`.
+4. **Temperature scaling** on Val-Realistic, using the chosen TTA + scales config (must match deployment per §4.6). Writes `deployment_config.yaml.temperature`.
+5. **Threshold selection** on Val-Realistic, using the same config; plot PR curves and select threshold where Precision ≥ target. Writes `deployment_config.yaml.threshold`.
+6. **Final evaluation**: report all metrics on Test-Realistic at all ratios (1:200, 1:500, 1:1000) using the now-frozen deployment config.
+7. **Multi-seed runs**: train final configuration with seeds [42, 43, 44], report mean ± std.
 
 ### 10.5 Overfitting Indicators
 
@@ -549,19 +639,21 @@ For each prevalence ratio (1:200, 1:500, 1:1000):
 3. Record corresponding recall
 4. Document threshold and expected performance
 
+**Calibration-deployment parity (per §4.6)**: the PR curve must be computed with the **exact** precision, TTA config, `torch.compile` setting, and scale/fusion choices that Phase 2 inference will use. Calibration loads `configs/deployment.yaml`, writes the learned `threshold` (and §12.1 `temperature`) back into the same file, and that file then travels with the deployment package. Any mismatch between calibration and deployment silently biases all ~7.5M deployment-time decisions (per `inference.md §3.2`).
+
 ---
 
 
 ## 13. Statistical Significance
 
-### 14.1 Multiple Seeds
+### 13.1 Multiple Seeds
 
 Single-run results are noisy. For final model and key comparisons:
-- Run with seeds [42, 43, 44]
+- Run with seeds [42, 43, 44] (seed count is conditional on the σ-band protocol — see `experiments.md §3.4`)
 - Report mean ± standard deviation
 - Example format: IoU_RTS: 0.723 ± 0.012
 
-### 14.2 Reporting Format
+### 13.2 Reporting Format
 
 Final results table should include:
 

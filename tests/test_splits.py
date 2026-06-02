@@ -17,7 +17,7 @@ def test_load_metadata_and_splits(synthetic_dataset):
     ds = synthetic_dataset
     df = load_metadata(f"{ds['root']}/metadata.csv")
     assert len(df) == 12
-    assert set(df["TrainClass"].unique()) == {"Positive", "Negative"}
+    assert set(df["TrainClass"].unique()) == {"positive", "negative"}
 
     splits = load_splits_yaml(f"{ds['root']}/splits.yaml")
     assert set(splits) == {"train", "val_balanced", "val_realistic", "test_realistic"}
@@ -32,7 +32,7 @@ def test_get_tile_ids_returns_correct_counts(synthetic_dataset):
     # 2 regions × 3 tiles = 6
     assert len(train_ids) == 6
 
-    train_pos = get_tile_ids("train", df, splits, class_filter="Positive")
+    train_pos = get_tile_ids("train", df, splits, class_filter="positive")
     assert len(train_pos) == 4  # 2 regions × 2 pos
 
 

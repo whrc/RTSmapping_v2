@@ -20,7 +20,7 @@
 | Training year | 2024 composites |
 | Inference year | 2025 composites |
 | Bands | RGB (3 channels) |
-| Resolution | 1.3–3.0 m (varies by latitude; ~3 m in study region) |
+| Resolution | 4.77 m projected (EPSG:3857; Web Mercator zoom 15; constant in projected space). Ground sample = 4.77 × cos(latitude) m: ~1.63 m at 70°N, ~1.32 m at 74°N. |
 | Effective GSD | ~10 m (due to mosaic processing) |
 | Coverage | Below 74°N only |
 | Notes | Proprietary color-correction optimized for CV analytics |
@@ -28,10 +28,12 @@
 
 ### 1.2 Auxiliary Data Sources
 
-| Source | Resolution | Channels/Derivatives | Purpose |
-|--------|------------|---------------------|---------|
-| Sentinel-2 | 10 m | NDVI, NIR | Differentiate vegetation from background|
-| ArcticDEM | 2 m | Relative Elevation (RE), Shaded Relief (SR) | Terrain context |
+| Source | Resolution | Purpose |
+|--------|------------|---------|
+| Sentinel-2 | 10 m | Vegetation / burn / spectral indices (NDVI, NBR, Tasselled Cap pair) |
+| Google Satellite Embedding | varies | Pretrained feature representation (PCA axes + RTS-prototype cosine similarity) |
+
+The full v2.0 EXTRA channel layout — group IDs, band indices, total band count — lives in §9 (single source of truth). Other auxiliary sources (ArcticDEM derivatives, NDMI, SAR backscatter, etc.) were considered but not included in v2.0; see §9 for the deferred-to-v2.1 list.
 
 ### 1.3 Secondary Training Data (Optional)
 
@@ -78,8 +80,8 @@ This is critical for training data quality:
 
 | Scenario | Action |
 |----------|--------|
-| Complete RTS fully within tile | Label as RTS ||
- Partial RTS with **both** headwall and floor visible | Label as RTS |
+| Complete RTS fully within tile | Label as RTS |
+| Partial RTS with **both** headwall and floor visible | Label as RTS |
 | Partial RTS with **only** floor visible (no headwall in tile) | Ignore Index：255 |
 | Partial RTS with **only** headwall visible (no floor in tile) | Ignore Index：255 |
 
@@ -110,7 +112,7 @@ The ignore values could be applied to several conditions, for example:
 | Parameter | Value |
 |-----------|-------|
 | Tile size | 512 × 512 pixels |
-| Spatial coverage | ~1.5 km × 1.5 km (at 3 m resolution) |
+| Spatial coverage | ~2.4 km × 2.4 km projected (512 × 4.77 m); ground coverage shrinks with latitude. |
 | CRS | EPSG:3857 (Pseudo-Mercator -- Spherical Mercator, Google Maps, OpenStreetMap, Bing, ArcGIS, ESRI) |
 | Format | GeoTIFF |
 | Grid alignment | Planet tile grid (same grid used for polygon refinement) |
@@ -121,16 +123,7 @@ The ignore values could be applied to several conditions, for example:
 {tile_id}.tif
 ```
 ### 3.3 File Structure
-Data lives in the GCS bucket, mounted via gcsfuse at training time. All paths are configured in the YAML config — no hardcoded paths in code:
-```yaml
-data:
-  root: "gs://abruptthawmapping/training/v2.0"  # configure per environment
-  rgb_dir: "PLANET-RGB"
-  extra_dir: "EXTRA"
-  labels_dir: "labels"
-  metadata_file: "metadata.csv"
-  splits_file: "splits.yaml"
-```
+Data lives in the GCS bucket, mounted via gcsfuse at training time. All paths are configured in the YAML config — no hardcoded paths in code (see `configs/baseline.yaml:data`).
 
 GCS directory layout:
 ```
@@ -172,20 +165,6 @@ metadata.csv:
 Note: TrainClass values are `Positive` or `Negative` only. Hard negatives, if exist (e.g. from Lingcao Huang's model false positives), are stored as `Negative` — no separate class needed.
 UIDs are RTS UIDs contained within the tile (used for tracking individual RTS); empty for Negative tiles.
 RegionName is Arctic subregion defined by ecology/permafrost extent (boundaries provided by Heidi Rodenhizer, see files in '/domain').
-split.yaml (e.g.):
-
-```yaml
-train:
-  - elias range tundra
-  - 
-  - 
-val:
-  - beringia lowland tundra
-  - 
-test:
-  - arctic foothills tundra
-  - 
-```
 
 **PLANET-RGB: derived from PlanetScope Basemap**
 ```
@@ -195,21 +174,18 @@ Label: (512, 512, 1) — uint8, values {0, 1， 255}
 
 **EXTRA: derived from other sources, resolution resampled to match the RGB**
 ```
-Image: (512, 512, N) — multi-band GeoTIFF, band count N and band order chosen per experiment
+Image: (512, 512, 8) — multi-band GeoTIFF; v2.0 layout fixed by §9
 Label: (512, 512, 1) — uint8, values {0, 1, 255}
 ```
-Example bands currently in use: NDVI, NIR (from Sentinel-2), RE (Relative Elevation), SR (Shaded Relief) from ArcticDEM. These are *examples*, not a fixed contract — any multi-band EXTRA raster works (e.g. slope, aspect from ArcticDEM, NDMI, NBR, SAR, GEE satellite embeddings).
+The v2.0 EXTRA disk layout and its 8 channels (NDVI, NBR, SE_PCA×3, SE_PROTO, TC×2) are fixed by §9; experiment configs select which subset to load.
 
-**Channel selection at training time**: Specified in the YAML config (see `configs/baseline.yaml` §channels) as a list of `{name, band}` entries. `name` is an arbitrary label used in `normalization_stats.json` and logs; `band` is the 0-indexed position inside the EXTRA GeoTIFF. Example:
+**Channel selection at training time**: Specified in the YAML config (see `configs/baseline.yaml:channels.extra`) as a list of `{name, band}` entries. `name` is an arbitrary label used in `normalization_stats.json` and logs; `band` is the 0-indexed position inside the EXTRA GeoTIFF (band positions per §9). Example loading the NDVI group only:
 ```yaml
 channels:
   extra:
     - {name: ndvi, band: 0}
-    - {name: nir,  band: 1}
-    - {name: re,   band: 2}
-    - {name: sr,   band: 3}
 ```
-Changing the stacked EXTRA set = edit the YAML. No code change. §9 below shows one concrete layout but is not authoritative.
+Changing which channels load at training time = edit the experiment YAML. The disk layout itself does not change; that's a v2.1 concern.
 
 **Build order**: Generate planet_rgb first for positive and negative samples, then derive EXTRA by extracting auxiliary channels with the planet_rgb extent (footprint).
 
@@ -217,7 +193,7 @@ Changing the stacked EXTRA set = edit the YAML. No code change. §9 below shows 
 
 All auxiliary data must be:
 1. Reprojected to EPSG:3857
-2. Resampled to match PlanetScope nominal resolution (~3 m) using **bilinear interpolation** for all channels
+2. Resampled to match PlanetScope nominal resolution (~4.77 m projected) using **bilinear interpolation** for all channels
 3. Co-registered with RGB using GeoTIFF bounding box information
 4. Stacked as channels in an order you keep stable across the dataset (that same order is what you reference by `band` index in the YAML config). §9 shows one example layout.
 
@@ -271,7 +247,7 @@ models/
 | rgb.channel_names | Fixed: `["R", "G", "B"]` |
 | rgb.mean | List of 3 values, order matches `rgb.channel_names` |
 | rgb.std | List of 3 values, order matches `rgb.channel_names` |
-| extra.channel_names | List of N names declared in the config (e.g. `["ndvi", "nir", "re", "sr"]`). Omit the whole `extra` block when training RGB-only. |
+| extra.channel_names | List of N names declared in the experiment config's `channels.extra` (e.g. `["ndvi", "nbr", "se_pca_1", "se_pca_2", "se_pca_3", "se_proto", "tc_1", "tc_2"]` for the full v2.0 stack per §9). Omit the whole `extra` block when training RGB-only. |
 | extra.mean | List of N values, order matches `extra.channel_names` |
 | extra.std | List of N values, order matches `extra.channel_names` |
 
@@ -368,28 +344,38 @@ Run before training:
 
 ## 9. Channel Index Reference
 
-RGB band order is fixed. EXTRA is declared per-experiment in the YAML config — the table below is *one example*, not a contract. Keep whatever layout you write to disk consistent across the dataset and referenced correctly in `configs/*.yaml §channels.extra`.
+RGB band order is fixed. EXTRA is the **canonical 8-band stack for v2.0** — one multi-band GeoTIFF in `EXTRA/{tile_id}.tif` with the band order below. Per-experiment configs select which subset to load via `configs/*.yaml:channels.extra` (a list of `{name, band}` entries; see §3.3). Adding a new group in v2.1 = appending bands to the EXTRA GeoTIFF and adding a row here. This section is the single source of truth for EXTRA channel composition; other docs cross-reference rather than enumerate.
 
-### RGB (fixed)
-| Index | Channel |
-|-------|---------|
+### RGB (PLANET-RGB GeoTIFF, fixed)
+
+| Band index | Channel |
+|------------|---------|
 | 0 | Red |
 | 1 | Green |
 | 2 | Blue |
 
-### EXTRA (example layout — adjust freely per experiment)
-| Index | Channel | Source |
-|-------|---------|--------|
-| 0 | NDVI | Sentinel-2 |
-| 1 | NIR | Sentinel-2 |
-| 2 | Relative Elevation (RE) | ArcticDEM |
-| 3 | Shaded Relief (SR) | ArcticDEM |
+### EXTRA (v2.0 stack — 8 bands; selection rationale and per-channel diagnostics in `./plots/extra_channel_vis/`)
 
-Other examples: slope, aspect, NDMI, NBR, SAR backscatter, GEE satellite embeddings. Any combination works as long as the YAML points at the right band indices.
+Each row is one **group** — a semantic unit treated together by the Phase 4 ablation (see `training/experiments.md §7`). Single-band groups occupy one index; multi-band groups span a contiguous range. Group IDs are the names referenced from experiment configs and from Phase 4 results docs.
 
-### Label File
+| Group ID | Band indices | N bands | Source | Description | Normalization treatment (intended; see note below) |
+|----------|--------------|---------|--------|-------------|------|
+| `NDVI` | 0 | 1 | Sentinel-2 | Normalized Difference Vegetation Index — vegetation density signal | Per-dataset z-score with `[0.1, 99.9]` percentile clip. Bounded but no load-bearing zero for a randomly-initialised first conv. Standard treatment. |
+| `NBR` | 1 | 1 | Sentinel-2 | Normalized Burn Ratio — sensitive to bare/burned ground vs. healthy vegetation | Per-dataset z-score with `[0.1, 99.9]` percentile clip. Same family as NDVI; same logic. |
+| `SE_PCA` | 2, 3, 4 | 3 | Google Satellite Embedding | First 3 Global PCA axes of the SE feature vector — generic pretrained representation | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Global-PCA orthogonality isn't load-bearing for this task; the network re-learns its own use of PC1/2/3 from the Arctic subset distribution. |
+| `SE_PROTO` | 5 | 1 | Google Satellite Embedding | Cosine similarity (contrast) to a hand-curated RTS prototype embedding | **No z-score.** Already bounded (cosine similarity ∈ [-1, 1]). Either pass raw, or apply fixed `(x − 0) / 0.5` to give a unit-scale signal without erasing the meaningful zero. Per-channel mode required (see note). |
+| `TC` | 6, 7 | 2 | Sentinel-2 (Tasselled Cap transform) | TCB, TCW | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Tasselled-cap components are radiometric quantities with no semantic zero; standard treatment. Two bands → two independent (μ, σ). |
+
+Total EXTRA band count: **8**.
+
+> **Implementation status (2026-05-02):** the per-band z-score column reflects what `data/normalization.py:WelfordStats` already computes (each EXTRA channel gets its own μ, σ — see [data/normalization.py:74-75](../data/normalization.py#L74-L75)). The `[0.1, 99.9]` percentile clipping and the `SE_PROTO` per-channel-mode bypass are **not yet implemented**; `scripts/compute_normalization_stats.py` runs Welford on raw values, and `RTSDataset.__getitem__` applies z-score uniformly to every channel. The treatments above are the **design intent** for when Phase 4 EXTRA experiments fire — see `training/experiments.md §7`. Implementing them requires (a) clipping in `compute_normalization_stats.py` and (b) a per-channel `normalization_mode` schema entry in `normalization_stats.json` plus a dispatch in the loader. Both are deferred to v2.1.
+
+Channels considered but **not** included in v2.0: NIR (Sentinel-2), Relative Elevation / Shaded Relief / slope / aspect (ArcticDEM), NDMI, SAR backscatter. These remain available for v2.1 if Phase 4 results or post-inference analysis flags a gap that the included groups cannot fill.
+
+### Label File (labels GeoTIFF, fixed)
+
 | Value | Meaning |
 |-------|---------|
 | 0 | Background |
 | 1 | RTS |
-|255 | ignore |
+| 255 | Ignore |

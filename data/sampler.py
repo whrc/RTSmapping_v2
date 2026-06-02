@@ -81,18 +81,18 @@ class BalancedBatchSampler(Sampler[list[int]]):
 
         # Map tile_id → dataset index (the list order) and classify positives/negatives.
         id_to_idx = {tid: i for i, tid in enumerate(self.tile_ids)}
-        class_by_id = metadata.set_index("Tile_id")["TrainClass"].to_dict()
+        class_by_id = metadata.set_index("Tile_ID")["TrainClass"].to_dict()
 
         self._pos: list[int] = []
         self._neg: list[int] = []
         for tid, idx in id_to_idx.items():
             cls = class_by_id.get(tid)
-            if cls == "Positive":
+            if cls == "positive":
                 self._pos.append(idx)
-            elif cls == "Negative":
+            elif cls == "negative":
                 self._neg.append(idx)
             else:
-                raise ValueError(f"Tile {tid} has TrainClass {cls!r}, expected Positive/Negative")
+                raise ValueError(f"Tile {tid} has TrainClass {cls!r}, expected positive/negative")
 
         if not self._pos or not self._neg:
             raise ValueError(

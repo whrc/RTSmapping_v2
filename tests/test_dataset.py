@@ -49,6 +49,42 @@ def test_parse_extra_spec_rejects_missing_keys():
         parse_extra_spec([{"name": "ndvi"}])
 
 
+def test_dataset_rejects_soft_labels(synthetic_dataset):
+    """boundary_handling='soft_labels' is deferred to v2.1 (training.md §5.5);
+    construction must raise rather than silently fall through to none."""
+    import pytest
+    ds = synthetic_dataset
+    metadata = load_metadata(f"{ds['root']}/metadata.csv")
+    splits = load_splits_yaml(f"{ds['root']}/splits.yaml")
+    ids = get_tile_ids("train", metadata, splits)
+    with pytest.raises(NotImplementedError, match="soft_labels"):
+        RTSDataset(
+            tile_ids=ids, metadata=metadata, data_root=ds["root"],
+            rgb_dir="PLANET-RGB", extra_dir="EXTRA", labels_dir="labels",
+            extra_channels=[], norm_stats_path=None,
+            transform=build_eval_transforms(),
+            tile_size=64,
+            boundary_handling="soft_labels",
+        )
+
+
+def test_dataset_rejects_unknown_boundary_handling(synthetic_dataset):
+    import pytest
+    ds = synthetic_dataset
+    metadata = load_metadata(f"{ds['root']}/metadata.csv")
+    splits = load_splits_yaml(f"{ds['root']}/splits.yaml")
+    ids = get_tile_ids("train", metadata, splits)
+    with pytest.raises(ValueError, match="boundary_handling"):
+        RTSDataset(
+            tile_ids=ids, metadata=metadata, data_root=ds["root"],
+            rgb_dir="PLANET-RGB", extra_dir="EXTRA", labels_dir="labels",
+            extra_channels=[], norm_stats_path=None,
+            transform=build_eval_transforms(),
+            tile_size=64,
+            boundary_handling="bogus",
+        )
+
+
 def test_dataset_rgb_only(synthetic_dataset):
     ds = synthetic_dataset
     metadata = load_metadata(f"{ds['root']}/metadata.csv")
@@ -118,3 +154,97 @@ def test_boundary_dilation_adds_ignore():
     assert (out == 255).sum() > 0
     # Interior of the square should still be 1.
     assert (out[14:16, 14:16] == 1).all()
+
+
+# ---------------------------------------------------------------------------
+# C1 (2026-05-02 review): channel-name binding asserted at training load.
+# training.md §4.5 mandates these checks; they were missing on the training side.
+# ---------------------------------------------------------------------------
+
+
+def test_init_raises_on_rgb_channel_name_mismatch(synthetic_dataset, tmp_path):
+    """RTSDataset must refuse stats whose RGB channel_names != ['R', 'G', 'B']."""
+    import json
+
+    import pytest
+
+    bad_stats = {
+        "dataset_version": "test",
+        "computed_date": "2026-05-02T00:00:00Z",
+        "n_tiles_used": 10,
+        "rgb": {
+            "channel_names": ["B", "G", "R"],   # permuted!
+            "mean": [128.0, 128.0, 128.0],
+            "std": [40.0, 40.0, 40.0],
+        },
+    }
+    bad_path = tmp_path / "bad_stats.json"
+    bad_path.write_text(json.dumps(bad_stats))
+
+    metadata = load_metadata(f"{synthetic_dataset['root']}/metadata.csv")
+    splits = load_splits_yaml(f"{synthetic_dataset['root']}/splits.yaml")
+    ids = get_tile_ids("train", metadata, splits)
+
+    with pytest.raises(ValueError, match=r"RGB channel_names"):
+        RTSDataset(
+            tile_ids=ids[:1],
+            metadata=metadata,
+            data_root=synthetic_dataset["root"],
+            rgb_dir="PLANET-RGB",
+            extra_dir="EXTRA",
+            labels_dir="labels",
+            extra_channels=[],
+            norm_stats_path=str(bad_path),
+            transform=build_eval_transforms(),
+            tile_size=64,
+        )
+
+
+def test_init_raises_on_extra_channel_name_mismatch(synthetic_dataset, tmp_path):
+    """When extra_channels is set, EXTRA channel_names must match exactly."""
+    import json
+
+    import pytest
+
+    from data.dataset import ExtraChannel
+
+    extra_channels = [
+        ExtraChannel(name="ndvi", band=0),
+        ExtraChannel(name="nir", band=1),
+    ]
+    # Stats file lists EXTRA names in REVERSED order vs the config:
+    bad_stats = {
+        "dataset_version": "test",
+        "computed_date": "2026-05-02T00:00:00Z",
+        "n_tiles_used": 10,
+        "rgb": {
+            "channel_names": ["R", "G", "B"],
+            "mean": [128.0, 128.0, 128.0],
+            "std": [40.0, 40.0, 40.0],
+        },
+        "extra": {
+            "channel_names": ["nir", "ndvi"],   # reversed!
+            "mean": [0.5, 0.0],
+            "std": [0.1, 0.3],
+        },
+    }
+    bad_path = tmp_path / "bad_stats_extra.json"
+    bad_path.write_text(json.dumps(bad_stats))
+
+    metadata = load_metadata(f"{synthetic_dataset['root']}/metadata.csv")
+    splits = load_splits_yaml(f"{synthetic_dataset['root']}/splits.yaml")
+    ids = get_tile_ids("train", metadata, splits)
+
+    with pytest.raises(ValueError, match=r"EXTRA channel_names"):
+        RTSDataset(
+            tile_ids=ids[:1],
+            metadata=metadata,
+            data_root=synthetic_dataset["root"],
+            rgb_dir="PLANET-RGB",
+            extra_dir="EXTRA",
+            labels_dir="labels",
+            extra_channels=extra_channels,
+            norm_stats_path=str(bad_path),
+            transform=build_eval_transforms(),
+            tile_size=64,
+        )

@@ -1,0 +1,50 @@
+# Deployment config — shared by calibration (training.md §12) and inference
+# (inference.md §8.2). Single source of truth for everything that must match
+# between the two (training.md §4.6):
+#
+#   threshold + temperature  — learned in calibration on val, written back here.
+#   precision                — must match training (bf16 on A100/H100 baseline).
+#   torch_compile            — opt-in; if enabled, calibration must be re-run.
+#   tta                      — validated in Step 8.5b; default none.
+#   scales + fusion          — validated in Step 8.5a; default single-scale.
+#
+# evaluate_test.py refuses to run if threshold or temperature is null
+# (plan Step 8: "calibrate on val first, then test").
+
+# Binary decision threshold on sigmoid probability. null until calibration
+# (training.md §12.2) writes it back.
+threshold: null
+
+# Temperature scaling parameter learned on val (training.md §12.1).
+# probability = sigmoid(logit / temperature). null until calibration.
+temperature: null
+
+# Must match the training run's effective precision. See training.md §4.6.
+precision: "bf16"           # bf16 | fp16 | fp32
+
+# torch.compile() on the model at inference time. Changes numerics slightly;
+# keep false unless Step 8.5 re-runs calibration with compile enabled.
+torch_compile: false
+
+# Test-time augmentation. Start at "none"; Step 8.5b upgrades if gain > 1%
+# PR-AUC AND precision@threshold drops <= 0.5%.
+tta: "none"                 # none | minimal | standard | full
+
+# Inference scale pyramid. Step 8.5a promotes to [1.0, 0.5] only if large-RTS
+# PR-AUC gain >= 2% AND global FP-rate delta <= 10%.
+scales: [1.0]
+
+# Cross-scale fusion method (only used when len(scales) > 1).
+fusion: "weighted_mean"     # weighted_mean | max | consensus
+
+# Min blob size for object-level decisions. Shared with training metrics;
+# lives in configs/baseline.yaml metrics.min_blob_size_px and is echoed here
+# so the deployment package is self-contained.
+min_blob_size_px: 10
+
+# Inference-time runtime values. Single source of truth; specs reference these
+# keys instead of restating numbers (inference.md §4.1, §4.2, §4.3, §8.1).
+inference:
+  stride_px: 344            # tile-grid stride; 33% overlap at 512 tile size (inference.md §4.2)
+  fusion_sigma_px: 128      # σ for distance-from-center weighted-mean fusion (inference.md §4.3)
+  batch_size: 64            # per-GPU batch at inference (inference.md §8.1)

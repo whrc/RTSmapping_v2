@@ -21,8 +21,8 @@ Outputs to plots/extra_channel_vis/correlation/:
   distance_from_ndvi.png, distance_from_nir.png, interpretations.md
 
 Usage:
-  python scripts/channel_correlation.py --config configs/se_investigation.yaml
-  python scripts/channel_correlation.py --config configs/se_investigation.yaml --n-tiles 3  # dry run
+  python scripts/channel_correlation.py --config configs/<se_investigation_config>.yaml
+  python scripts/channel_correlation.py --config configs/<se_investigation_config>.yaml --n-tiles 3  # dry run
 """
 
 import argparse
@@ -583,7 +583,7 @@ def parse_args() -> argparse.Namespace:
         description="Phase 1: channel correlation analysis for SE investigation.",
     )
     parser.add_argument(
-        "--config", required=True, help="Path to se_investigation.yaml",
+        "--config", required=True, help="Path to an SE-investigation YAML config",
     )
     parser.add_argument(
         "--no-cache", action="store_true",

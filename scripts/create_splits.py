@@ -55,8 +55,8 @@ def load_region_ecoregions(geojson_path: str | Path) -> dict[str, str]:
         return {}
 
     gdf = gpd.read_file(geojson_path)
-    name_col = _first_present(gdf, ["RegionName", "region_name", "name", "NAME"])
-    eco_col = _first_present(gdf, ["Ecoregion", "ecoregion", "ECOREGION"])
+    name_col = _first_present(gdf, ["RegionName", "region_name", "name", "ECO_NAME"])
+    eco_col = _first_present(gdf, ["Ecoregion", "ecoregion", "ECO_NAME"])
     if name_col is None:
         raise ValueError(f"{geojson_path}: no RegionName-like column found")
     if eco_col is None:
@@ -76,8 +76,8 @@ def region_stats(metadata: pd.DataFrame) -> pd.DataFrame:
     """Aggregate metadata.csv → per-region (positives, negatives, total)."""
     g = (
         metadata.assign(
-            is_pos=(metadata["TrainClass"] == "Positive").astype(int),
-            is_neg=(metadata["TrainClass"] == "Negative").astype(int),
+            is_pos=(metadata["TrainClass"] == "positive").astype(int),
+            is_neg=(metadata["TrainClass"] == "negative").astype(int),
         )
         .groupby("RegionName", as_index=False)
         .agg(positive=("is_pos", "sum"), negative=("is_neg", "sum"))
@@ -198,11 +198,11 @@ def _build_summary(
         }
     return summary
 
-
+# mian function now handles path as string to allow // path intro for gcs format
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--out-dir", type=Path, default=None,
+    parser.add_argument("--out-dir", type=str, default=None,
                         help="Where to write splits.yaml and splits_summary.json "
                              "(default: data_root from config)")
     args = parser.parse_args()
@@ -222,19 +222,35 @@ def main() -> int:
 
     splits, summary = generate_splits(metadata, ecoregions, cfg)
 
-    out_dir = args.out_dir or Path(data_root)
-    splits_out = out_dir / "splits.yaml" if not str(out_dir).startswith("gs://") else Path("splits.yaml")
-    summary_out = out_dir / "splits_summary.json" if not str(out_dir).startswith("gs://") else Path("splits_summary.json")
-    # gs:// writes are deferred — dump locally, user uploads with gsutil/gcloud.
-    if str(out_dir).startswith("gs://"):
-        logger.warning("GCS output not implemented in-script; writing to CWD. Upload with: "
-                       "gsutil cp splits.yaml splits_summary.json %s/", out_dir)
+    out_root = args.out_dir or data_root
 
-    splits_out.parent.mkdir(parents=True, exist_ok=True)
-    with splits_out.open("w") as f:
-        yaml.safe_dump(splits, f, sort_keys=False)
-    with summary_out.open("w") as f:
-        json.dump(summary, f, indent=2)
+    if str(out_root).startswith("gs://"):
+        base = str(out_root).rstrip("/")
+        splits_local = Path("splits.yaml")
+        summary_local = Path("splits_summary.json")
+
+        with splits_local.open("w") as f:
+            yaml.safe_dump(splits, f, sort_keys=False)
+        with summary_local.open("w") as f:
+            json.dump(summary, f, indent=2)
+
+        import subprocess
+        subprocess.run(
+            ["gsutil", "cp", str(splits_local), str(summary_local), f"{base}/"],
+            check=True,
+        )
+        splits_out = f"{base}/splits.yaml"
+        summary_out = f"{base}/splits_summary.json"
+    else:
+        out_path = Path(out_root)
+        splits_out = out_path / "splits.yaml"
+        summary_out = out_path / "splits_summary.json"
+
+        out_path.mkdir(parents=True, exist_ok=True)
+        with splits_out.open("w") as f:
+            yaml.safe_dump(splits, f, sort_keys=False)
+        with summary_out.open("w") as f:
+            json.dump(summary, f, indent=2)
 
     logger.info("Wrote %s and %s", splits_out, summary_out)
     for split_name, info in summary["splits"].items():
@@ -242,7 +258,6 @@ def main() -> int:
                     split_name, info["n_regions"], info["n_ecoregions"],
                     info["tiles"], info["positive"], info["negative"])
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
