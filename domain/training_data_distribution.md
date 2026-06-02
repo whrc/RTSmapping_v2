@@ -1,5 +1,4 @@
 # Training Data Distribution
-
 Heidi Rodenhizer
 
 # Check Training Polygon Counts by Subregion
@@ -17,22 +16,20 @@ region_train_count = train_meta |>
 region_train_count
 ```
 
-```         
-# A tibble: 50 × 3
-   RegionName                        RTSCount RTSPercent
-   <chr>                                <int>      <dbl>
- 1 Trans-Baikal Bald Mountain tundra     1386     0.0893
- 2 Taimyr-Central Siberian tundra        1294     0.0834
- 3 Yamal-Gydan tundra                    1270     0.0819
- 4 East Siberian taiga                   1145     0.0738
- 5 West Siberian taiga                    784     0.0505
- 6 Russian Bering tundra                  780     0.0503
- 7 Northwest Territories taiga            692     0.0446
- 8 Muskwa-Slave Lake taiga                610     0.0393
- 9 Urals montane forest and taiga         593     0.0382
-10 Eastern Canadian Shield taiga          452     0.0291
-# ℹ 40 more rows
-```
+    # A tibble: 50 × 3
+       RegionName                        RTSCount RTSPercent
+       <chr>                                <int>      <dbl>
+     1 Trans-Baikal Bald Mountain tundra     1386     0.0893
+     2 Taimyr-Central Siberian tundra        1294     0.0834
+     3 Yamal-Gydan tundra                    1270     0.0819
+     4 East Siberian taiga                   1145     0.0738
+     5 West Siberian taiga                    784     0.0505
+     6 Russian Bering tundra                  780     0.0503
+     7 Northwest Territories taiga            692     0.0446
+     8 Muskwa-Slave Lake taiga                610     0.0393
+     9 Urals montane forest and taiga         593     0.0382
+    10 Eastern Canadian Shield taiga          452     0.0291
+    # ℹ 40 more rows
 
 ![](training_data_distribution_files/figure-commonmark/unnamed-chunk-10-1.png)
 
@@ -45,12 +42,10 @@ small_clusters_percent = region_train_count |>
 small_clusters_percent
 ```
 
-```         
-# A tibble: 1 × 1
-  TotalPercentSmallClusters
-                      <dbl>
-1                         1
-```
+    # A tibble: 1 × 1
+      TotalPercentSmallClusters
+                          <dbl>
+    1                         1
 
 # Map Training Data
 
@@ -181,10 +176,8 @@ legend <- bi_legend(
   )
 ```
 
-```         
-Coordinate system already present.
-ℹ Adding new coordinate system, which will replace the existing one.
-```
+    Coordinate system already present.
+    ℹ Adding new coordinate system, which will replace the existing one.
 
 ``` r
 # legend
@@ -205,7 +198,7 @@ train_hexplot = ggplot(world_north) +
     linewidth = 0.25
   ) +
   geom_sf(
-    color = 'gray50',
+    color = 'gray80',
     fill = 'gray90'
   ) +
   geom_sf(
@@ -219,7 +212,7 @@ train_hexplot = ggplot(world_north) +
     data = train_hex,
     aes(geometry = geometry_scaled, fill = bi_class),
     color = "transparent",
-    alpha = 0.9
+    alpha = 1
   ) +
   bi_scale_fill(pal = custom_pal3, dim = 3) +
   geom_sf(
