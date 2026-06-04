@@ -119,6 +119,7 @@ The ignore values could be applied to several conditions, for example:
 
 ### 3.2 File Naming Convention
 
+Files' UIDs are 12 char geohashed references to their centroid location, where each uid is a alpahnumeric encoding of the tile's center lat and lon at a set precision level. Since there are no overlap in tiles this allows for unique checks and easy backtracing of tiles without supporting tables. This does require a reprojection so there is a level of area conservation that has to be considered, but this mainly operates as a differentiator and a topical organization tool.
 ```
 {tile_id}.tif
 ```
@@ -159,10 +160,10 @@ metadata.csv:
 
 | Tile_id |centroid_lat|centroid_lon| TrainClass | RegionName | UIDs |
 |---------|------------|---------|-----------|--------|------|
-0001| xx|xx |Negative | yakutia| |
-0002| xx|xx |Positive | yakutia| xxx, xxx|
+0001| xx|xx |negative | yakutia| |
+0002| xx|xx |positive | yakutia| xxx, xxx|
 
-Note: TrainClass values are `Positive` or `Negative` only. Hard negatives, if exist (e.g. from Lingcao Huang's model false positives), are stored as `Negative` — no separate class needed.
+Note: TrainClass values are `positive` or `negative` only. Hard negatives, if exist (e.g. from Lingcao Huang's model false positives), are stored as `negative` — no separate class needed.
 UIDs are RTS UIDs contained within the tile (used for tracking individual RTS); empty for Negative tiles.
 RegionName is Arctic subregion defined by ecology/permafrost extent (boundaries provided by Heidi Rodenhizer, see files in '/domain').
 

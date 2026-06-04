@@ -113,9 +113,18 @@ if missing.any():
 
 # Stratified sampling -----------------------------------------
 
+# Adjusts target to account for tiles already written
+remaining_target = (TARGET_TILES - len(done_centroids)) if TARGET_TILES else None
+if TARGET_TILES:
+    print(f"TARGET_TILES={TARGET_TILES}, already done={len(done_centroids)}, remaining={remaining_target}")
+
+if remaining_target is not None and remaining_target <= 0:
+    print("Target already reached — nothing to do.")
+    sys.exit(0)
+
 eco_groups   = gdf_polygons.groupby("ECO_NAME")
 n_ecoregions = len(eco_groups)
-per_region   = max(1, TARGET_TILES // n_ecoregions) if TARGET_TILES else None
+per_region   = max(1, remaining_target // n_ecoregions) if remaining_target else None
 
 sampled_parts = []
 for _, group in eco_groups:
@@ -126,14 +135,8 @@ for _, group in eco_groups:
 
 gdf_sampled = pd.concat(sampled_parts).reset_index(drop=True)
 
-if TARGET_TILES and len(gdf_sampled) > TARGET_TILES:
-    gdf_sampled = gdf_sampled.sample(n=TARGET_TILES, random_state=42).reset_index(drop=True)
-
-print(f"Sampled {len(gdf_sampled)} polygons across {n_ecoregions} ecoregions")
-
-sampled_local = f"{WORK_DIR}/input/polygons_sampled.geojson"
-gdf_sampled.to_file(sampled_local, driver="GeoJSON")
-
+if remaining_target and len(gdf_sampled) > remaining_target:
+    gdf_sampled = gdf_sampled.sample(n=remaining_target, random_state=42).reset_index(drop=True)
 
 # Build tasks -------------------------------------
 
@@ -350,6 +353,7 @@ print(f"\nProcessing {len(tasks_to_run)} polygons with {MAX_WORKERS} workers...\
 success_count = 0
 skip_count    = 0
 error_count   = 0
+duplicate_count = 0
 metadata_rows = []
 
 with concurrent.futures.ProcessPoolExecutor(
@@ -373,8 +377,7 @@ with concurrent.futures.ProcessPoolExecutor(
                     centroid_key = (round(centroid_lat, 6), round(centroid_lon, 6))
 
                     if centroid_key in done_centroids:
-                        skip_count += 1
-                        tqdm.write(f" already done  {task['blob_path'].split("/")[-1]}  (centroid match)")
+                        duplicate_count += 1
                         os.remove(local_rgb)
                     else:
                         uid_str = make_tile_uid(centroid_key[0], centroid_key[1])
@@ -393,17 +396,13 @@ with concurrent.futures.ProcessPoolExecutor(
 
                         done_centroids.add(centroid_key)
                         success_count += 1
-                        tqdm.write(f"{uid_str}  {task['blob_path'].split("/")[-1]}")
                 else:
                     skip_count += 1
-                    tqdm.write(f" skipped  {task['blob_path'].split("/")[-1]}")
 
             except Exception as exc:
                 error_count += 1
-                tqdm.write(f"{task['blob_path'].split("/")[-1]} — {exc}")
 
             pbar.update(1)
-
 
 # Write metadata -------------------------------------------------
 
@@ -421,8 +420,17 @@ if metadata_rows:
 
     bucket.blob(metadata_blob_path).upload_from_filename(local_csv)
     os.remove(local_csv)
-    print(f"Metadata: {len(combined)} rows > gs://{BUCKET}/{metadata_blob_path}")
 else:
     print("No successful tiles — metadata not written.")
 
-print(f"\n{success_count} written | {skip_count} skipped | {error_count} errors")
+total_written  = len(combined) if metadata_rows else (len(existing_df) if existing_df is not None else 0)
+remaining      = (TARGET_TILES - total_written) if TARGET_TILES else None
+
+print(f"  Written this run   : {success_count}")
+print(f"  Skipped (no window): {skip_count}")
+print(f"  Skipped (duplicate): {duplicate_count}")
+print(f"  Errors             : {error_count}")
+print(f"  Total in metadata  : {total_written}")
+if TARGET_TILES:
+    print(f"  Target             : {TARGET_TILES}")
+    print(f"  Remaining          : {max(0, remaining)}")

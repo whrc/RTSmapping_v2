@@ -11,7 +11,6 @@ This document describes the process of creating the inference domain over which 
 
 ```{r}
 #| include: false
-
 library(sf)
 library(terra)
 library(tidyterra)
@@ -22,7 +21,6 @@ library(viridis)
 
 ```{r}
 #| include: false
-
 theme_set(theme_bw())
 ```
 
@@ -100,7 +98,6 @@ any_ones = function(values) {
 ## Domain
 ```{r}
 #| output: false
-
 # ArcticDEM
 arctic_dem = st_read(
   "../../ArcticDEM_Mosaic_Index_latest_shp/ArcticDEM_Mosaic_Index_v4_1_2m.shp"
@@ -156,7 +153,6 @@ Ecoregions from Dinerstein et al. 2017 will be used as the starting point for ou
 
 ```{r}
 #| output: false
-#|
 ecoregions = st_read("../../Ecoregions2017/Ecoregions2017.shp") |>
   st_transform(crs = st_crs(arctic_dem)) |>
   mutate(
@@ -187,7 +183,6 @@ arcdem_domain = arctic_dem |>
 
 ```{r}
 #| echo: false
-
 ggplot() +
   geom_sf(
     data = arcdem_domain,
@@ -204,7 +199,6 @@ ggplot() +
 
 ```{r}
 #| include: false
-
 # st_write(
 #   planet_domain,
 #   './domain/data/circumpolar_planet_domain.geojson'
@@ -213,7 +207,6 @@ ggplot() +
 
 ```{r}
 #| echo: false
-
 ggplot() +
   geom_sf(
     data = arcdem_domain,
@@ -258,7 +251,6 @@ perm_prob_sf = perm_prob |>
 
 ```{r}
 #| echo: false
-
 ggplot() +
   geom_spatraster(data = perm_prob) +
   scale_fill_manual(
@@ -272,23 +264,69 @@ ggplot() +
     fill = "transparent",
     linewidth = 0.5
   ) +
-  scale_color_manual(values = c('black')) +
+  geom_sf(
+    data = planet_domain,
+    aes(color = "Planet"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  scale_color_manual(values = c('black', 'cyan4')) +
   coord_sf() +
   theme(legend.title = element_blank())
 ```
 
-## Circumpolar Domain
-We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is first reduced by taking the intersection with the ArcticDEM, because we need data from the ArcticDEM. It is further reduced by taking the intersection with the permafrost zone, because permafrost is a necessary precursor for RTS.
+## Circumpolar Domain - With ArcticDEM
+We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is first reduced by taking the intersection with the ArcticDEM, because we may use data from the ArcticDEM. It is further reduced by taking the intersection with the permafrost zone, because permafrost is a necessary precursor for RTS.
 
 ```{r}
-circumpolar = arctic_boreal |>
+circumpolar_dem = arctic_boreal |>
   st_intersection(arcdem_domain) |>
   st_intersection(perm_prob_sf)
 ```
 
 ```{r}
 #| echo: false
+ggplot() +
+  geom_sf(
+    data = arcdem_domain,
+    aes(color = "ArcticDEM"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = arctic_boreal,
+    aes(color = "Arctic/Boreal"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = circumpolar_dem,
+    aes(color = "Circumpolar\n(Limited by ArcticDEM"),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_manual(values = c("cyan4", "darkgoldenrod1", "black")) +
+  theme(legend.title = element_blank())
+```
 
+```{r}
+#| include: false
+# st_write(
+#   circumpolar_dem,
+#   "./domain/circumpolar_domain_ArcticDEM.geojson"
+# )
+```
+
+## Circumpolar Domain - Without ArcticDEM
+We started with the Arctic Boreal region that Anna V made to create our circumpolar region. This region is reduced by taking the intersection with the permafrost zone, because permafrost is a necessary precursor for RTS.
+
+```{r}
+circumpolar = arctic_boreal |>
+  st_intersection(perm_prob_sf)
+```
+
+```{r}
+#| echo: false
 ggplot() +
   geom_sf(
     data = arcdem_domain,
@@ -314,15 +352,49 @@ ggplot() +
 
 ```{r}
 #| include: false
-
 # st_write(
 #   circumpolar,
 #   "./domain/circumpolar_domain.geojson"
 # )
 ```
 
-## Circumpolar South Domain
+## Circumpolar South Domain - With ArcticDEM
 This is the portion of the ArcticDEM for which we have Planet imagery.
+
+```{r}
+circumpolar_south_dem = circumpolar_dem |>
+  st_intersection(planet_domain)
+```
+
+```{r}
+#| echo: false
+ggplot() +
+  geom_sf(
+    data = circumpolar_dem,
+    aes(color = "Circumpolar\n(Limited by ArcticDEM)"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf(
+    data = circumpolar_south_dem,
+    aes(color = "Circumpolar South\n(Limited by ArcticDEM)"),
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  scale_color_manual(values = c("black", "cyan4")) +
+  theme(legend.title = element_blank())
+```
+
+```{r}
+#| include: false
+# st_write(
+#   circumpolar_south_dem,
+#   "./domain/circumpolar_south_domain_ArcticDEM.geojson"
+# )
+```
+
+## Circumpolar South Domain - Without ArcticDEM
+This is the portion of the Arctic boreal region for which we have Planet imagery.
 
 ```{r}
 circumpolar_south = circumpolar |>
@@ -331,7 +403,6 @@ circumpolar_south = circumpolar |>
 
 ```{r}
 #| echo: false
-
 ggplot() +
   geom_sf(
     data = circumpolar,
@@ -351,7 +422,6 @@ ggplot() +
 
 ```{r}
 #| include: false
-
 # st_write(
 #   circumpolar_south,
 #   "./domain/circumpolar_south_domain.geojson"
@@ -368,7 +438,6 @@ circumpolar_north = circumpolar |>
 
 ```{r}
 #| echo: false
-
 ggplot() +
   geom_sf(
     data = circumpolar,
@@ -394,7 +463,6 @@ ggplot() +
 
 ```{r}
 #| include: false
-
 # st_write(
 #   circumpolar_north,
 #   "./domain/circumpolar_north_domain.geojson"
@@ -418,7 +486,6 @@ subregions = ecoregions |>
 #| echo: false
 #| fig-width: 9.5
 #| fig-height: 15
-
 ggplot() +
   geom_sf(
     data = subregions,
@@ -447,58 +514,9 @@ ggplot() +
 
 ```{r}
 #| include: false
-
 # st_write(
 #   subregions,
 #   "./domain/circumpolar_subregions.geojson"
 # )
 ```
 
-## Check Training Polygon Counts by Subregion
-```{r}
-region_poly_count = training_polys |>
-  st_join(
-    subregions |>
-      select(RegionName = ECO_NAME),
-    join = st_nearest_feature
-  ) |>
-  st_drop_geometry() |>
-  summarise(
-    RTSCount = n(),
-    .by = RegionName
-  ) |>
-  mutate(
-    RTSPercent = RTSCount / sum(RTSCount)
-  )
-```
-
-```{r}
-#| echo: false
-
-ggplot(
-  region_poly_count,
-  aes(x = RegionName, y = RTSCount)
-) +
-  geom_col() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
-```
-
-```{r}
-#| echo: false
-
-ggplot(
-  region_poly_count,
-  aes(x = RegionName, y = RTSPercent)
-) +
-  geom_col() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
-```
-
-```{r}
-small_clusters_percent = region_poly_count |>
-  filter(RTSPercent < 0.1) |>
-  summarise(TotalPercentSmallClusters = sum(RTSPercent))
-small_clusters_percent
-```
