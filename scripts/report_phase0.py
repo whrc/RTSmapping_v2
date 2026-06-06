@@ -275,66 +275,142 @@ stable loss descent before divergence. Update phase0b and phase0c configs before
 """
 
 
+def _fmt(v: float, places: int = 4) -> str:
+    """Format a metric value, or em-dash for NaN."""
+    return f"{v:.{places}f}" if not np.isnan(v) else "—"
+
+
+def _best_smoothed_from_history(mlflow, run_id: str, metric: str, window: int = 3) -> float:
+    """Max of the trailing `window`-validation moving average.
+
+    Replicates training/early_stopping.py so the reported "best" matches the
+    smoothed value the early-stopper used for best-checkpoint selection
+    (window = training.early_stopping.smoothing_window, 3 in all phase0 configs).
+    """
+    from collections import deque
+    vals = [v for _, v in sorted(_get_metric_history(mlflow, run_id, metric))]
+    if not vals:
+        return float("nan")
+    win: deque = deque(maxlen=window)
+    best = float("-inf")
+    for v in vals:
+        win.append(v)
+        best = max(best, sum(win) / len(win))
+    return best
+
+
+def _final_from_history(mlflow, run_id: str, metric: str) -> float:
+    """Last logged value of a metric (NaN if none)."""
+    hist = _get_metric_history(mlflow, run_id, metric)
+    return hist[-1][1] if hist else float("nan")
+
+
 def _section_phase0c(mlflow, experiment_name: str) -> str:
     runs = _search_runs(mlflow, experiment_name, "phase0c_seed")
     if runs.empty:
         return "<div class='todo'>⏳ Phase 0c multi-seed baseline not yet run.</div>"
 
+    # Defensive: a relaunched seed creates a second run with the same name.
+    # Keep only the most-recent run per seed so μ₀/σ₀ aren't double-counted.
+    if {"tags.mlflow.runName", "start_time"}.issubset(runs.columns):
+        runs = (runs.sort_values("start_time")
+                    .drop_duplicates("tags.mlflow.runName", keep="last"))
+
+    # Gate metric is the geomean over the honestly-supported ratios [5,10,20]
+    # (metrics.pr_auc_ratios; see docs/baseline_unetpp_effb5.md). pixel_iou and
+    # obj_f1 are logged as monotonic stability anchors.
     seed_rows = []
     best_vals = []
+    curve_blocks = []
     for _, run in runs.iterrows():
         name = run.get("tags.mlflow.runName", "?")
-        best = run.get("metrics.val_realistic_pr_auc_geomean", float("nan"))
-        pr200 = run.get("metrics.val_200_pr_auc", float("nan"))
-        pr500 = run.get("metrics.val_500_pr_auc", float("nan"))
-        pr1000 = run.get("metrics.val_1000_pr_auc", float("nan"))
-        iou = run.get("metrics.val_200_iou_rts", float("nan"))
-        obj_p = run.get("metrics.val_200_obj_precision", float("nan"))
-        obj_r = run.get("metrics.val_200_obj_recall", float("nan"))
+        rid = run.get("run_id", "")
+        # Best-per-seed = MAX over the epoch history (project defines μ₀/σ₀ on
+        # the best-per-seed gate value, not the last-logged one).
+        best = _best_smoothed_from_history(mlflow, rid, "val_realistic_pr_auc_geomean")
         seed_rows.append({
             "Run": name,
             "PR-AUC geomean (best)": f"{best:.4f}" if not np.isnan(best) else "—",
-            "PR-AUC 1:200": f"{pr200:.4f}" if not np.isnan(pr200) else "—",
-            "PR-AUC 1:500": f"{pr500:.4f}" if not np.isnan(pr500) else "—",
-            "PR-AUC 1:1000": f"{pr1000:.4f}" if not np.isnan(pr1000) else "—",
-            "IoU_RTS 1:200": f"{iou:.4f}" if not np.isnan(iou) else "—",
-            "Obj Prec": f"{obj_p:.3f}" if not np.isnan(obj_p) else "—",
-            "Obj Rec": f"{obj_r:.3f}" if not np.isnan(obj_r) else "—",
+            "PR-AUC 1:5 (final)": _fmt(_final_from_history(mlflow, rid, "pr_auc_ratio_5")),
+            "PR-AUC 1:10 (final)": _fmt(_final_from_history(mlflow, rid, "pr_auc_ratio_10")),
+            "PR-AUC 1:20 (final)": _fmt(_final_from_history(mlflow, rid, "pr_auc_ratio_20")),
+            "pixel_IoU (final)": _fmt(_final_from_history(mlflow, rid, "pixel_iou")),
+            "obj_F1 (final)": _fmt(_final_from_history(mlflow, rid, "object_f1")),
         })
-        if not np.isnan(best):
+        # μ₀/σ₀ are calibrated on COMPLETED seeds only — a still-running seed's
+        # best-so-far would otherwise contaminate the gate.
+        if not np.isnan(best) and run.get("status", "") == "FINISHED":
             best_vals.append(best)
+
+        # Per-seed curve panels: (1) train vs val loss overlay — overfitting
+        # detector; (2) gate metric + IoU/F1 quality anchors.
+        loss_hist = {
+            "train_loss": _get_metric_history(mlflow, rid, "train_loss"),
+            "val_loss": _get_metric_history(mlflow, rid, "val_loss"),
+        }
+        qual_hist = {
+            "PR-AUC geomean (gate)": _get_metric_history(mlflow, rid, "val_realistic_pr_auc_geomean"),
+            "pixel_IoU": _get_metric_history(mlflow, rid, "pixel_iou"),
+            "obj_F1": _get_metric_history(mlflow, rid, "object_f1"),
+        }
+        imgs = []
+        if any(loss_hist.values()):
+            b64 = _plot_metric_curves(loss_hist, title=f"{name} — train vs val loss",
+                                      ylabel="loss", colors=["#2563EB", "#DC2626"])
+            imgs.append(f"<img src='data:image/png;base64,{b64}' alt='{name} loss'>")
+        if any(qual_hist.values()):
+            b64 = _plot_metric_curves(qual_hist, title=f"{name} — gate metric + quality anchors",
+                                      ylabel="score", colors=["#9333EA", "#16A34A", "#EA580C"])
+            imgs.append(f"<img src='data:image/png;base64,{b64}' alt='{name} quality'>")
+        if imgs:
+            curve_blocks.append(
+                f"<div style='display:flex; gap:1rem; flex-wrap:wrap; margin:0.5rem 0;'>"
+                f"{''.join(imgs)}</div>")
 
     df = pd.DataFrame(seed_rows)
     table_html = _html_table(df)
 
     stats_html = ""
     if len(best_vals) >= 2:
+        n_done = len(best_vals)
+        prelim = ("<p style='color:#B45309; font-weight:600;'>⚠ Preliminary — "
+                  f"only {n_done}/3 seeds finished; σ₀ from &lt;3 seeds is unreliable. "
+                  "Final gate requires all 3.</p>") if n_done < 3 else ""
         mu0 = float(np.mean(best_vals))
         sigma0 = float(np.std(best_vals, ddof=1))
-        gate_g = max(0.01, 2 * sigma0)
+        gate_g = mu0 - 2 * sigma0          # canonical floor (current_working_status.md)
+        delta_sig = max(0.01, 2 * sigma0)  # min improvement to call an ablation real
         if sigma0 < 0.005:
             band = "Low-noise (σ₀ < 0.005) — single seed per candidate reliable"
         elif sigma0 < 0.015:
-            band = "Medium-noise (0.005 ≤ σ₀ < 0.015) — single seed OK; re-run top ties at seed 43"
+            band = "Medium-noise (0.005 ≤ σ₀ < 0.015) — single seed OK; re-run top ties"
         else:
             band = "High-noise (σ₀ ≥ 0.015) — investigate noise before continuing"
 
         stats_html = f"""
 <div class='card'>
+  {prelim}
   <div style='display:flex; gap:2rem; flex-wrap:wrap;'>
-    <div><span class='label'>μ₀ (mean PR-AUC geomean)</span><br><span class='metric'>{mu0:.4f}</span></div>
+    <div><span class='label'>μ₀ (mean best PR-AUC geomean)</span><br><span class='metric'>{mu0:.4f}</span></div>
     <div><span class='label'>σ₀ (std across seeds)</span><br><span class='metric'>{sigma0:.4f}</span></div>
-    <div><span class='label'>Gate G = max(2σ₀, 0.01)</span><br><span class='metric'>{gate_g:.4f}</span></div>
+    <div><span class='label'>Gate G = μ₀ − 2σ₀ (perf floor)</span><br><span class='metric'>{gate_g:.4f}</span></div>
+    <div><span class='label'>δ_sig = max(2σ₀, 0.01)</span><br><span class='metric'>{delta_sig:.4f}</span></div>
   </div>
   <p style='margin-top:0.8rem; font-size:0.9rem;'><strong>Noise band:</strong> {band}</p>
+  <p style='margin-top:0.4rem; font-size:0.85rem; color:#555;'>Gate metric = geomean(PR-AUC @ 1:5/1:10/1:20).
+  A later experiment must clear <strong>G = {gate_g:.4f}</strong> to pass, and beat the baseline by
+  ≥ <strong>{delta_sig:.4f}</strong> to count as a real improvement.</p>
 </div>"""
 
     return f"""
 <h2>Phase 0c — Multi-Seed Baseline</h2>
-<p>Seeds 42, 43, 44 with locked normalization and LRs from Phase 0a/0b.
-   σ₀ calibrates Gate G for all subsequent phase comparisons.</p>
+<p>Seeds 42, 43, 44 on the frozen dataset snapshot with locked normalization and LRs from Phase 0a/0b.
+   μ₀/σ₀ calibrate Gate <strong>G = μ₀ − 2σ₀</strong> for all subsequent phase comparisons.</p>
 {table_html}
 {stats_html}
+<h3>Per-seed training curves</h3>
+<p>Left: train vs val loss (overfitting detector). Right: gate metric with pixel_IoU / obj_F1 anchors.</p>
+{"".join(curve_blocks) if curve_blocks else "<p>(no curve history available)</p>"}
 """
 
 
