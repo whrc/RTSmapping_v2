@@ -10,7 +10,9 @@ Checks:
   6.  Duplicate Tile_IDs in metadata
   7.  Duplicate centroid (lat, lon) pairs
   8.  UID (Tile_ID) re-derivable from centroid coordinates
-  9.  RGB tile pixel values are non-zero / non-nodata
+  9.  RGB tile pixel values are non-zero / non-nodata (whole-tile), AND
+      per-band degradation: warn if any single band is >50% zero (catches
+      missing-band tiles, e.g. blue-band-missing, that whole-tile checks miss)
   10. Label tiles contain only valid values (0, 1, 255)
   11. RGB and label tile existence parity (every positive tile should have a label)
   12. Metadata TrainClass values are in expected set
@@ -314,6 +316,7 @@ else:
     band_errors          = []
     dim_errors           = []
     nodata_errors        = []
+    degraded_band_tiles  = []
     label_val_errors     = []
     label_crs_mismatches = []
 
@@ -346,6 +349,18 @@ else:
                     nodata_errors.append((tile_id, "rgb", "all nodata"))
                 elif (data == 0).all():
                     nodata_errors.append((tile_id, "rgb", "all zeros"))
+                else:
+                    # Per-band degradation: a single band mostly-zero is a
+                    # missing-band tile (e.g. the blue-band-missing tiles) that
+                    # the whole-tile all-zeros/all-nodata checks above miss.
+                    band_names = ["R", "G", "B"]
+                    zfrac = [(data[b] == 0).mean() for b in range(data.shape[0])]
+                    bad = [i for i, z in enumerate(zfrac) if z > 0.5]
+                    if bad:  # at least one (but not all) bands mostly empty
+                        detail = ", ".join(
+                            f"{band_names[i] if i < 3 else f'b{i}'}={zfrac[i]:.0%} zero"
+                            for i in bad)
+                        degraded_band_tiles.append((tile_id, detail))
 
                 rgb_crs = src.crs
 
@@ -439,6 +454,23 @@ else:
             print(f"    {tid} [{kind}]: {detail}")
     else:
         ok("nodata_check", "No tiles are entirely nodata or zero")
+
+    # Per-band degradation (missing-band tiles). WARN not FAIL — they are
+    # readable but spectrally incomplete; exclude them during dataset selection.
+    if degraded_band_tiles:
+        warn("band_degradation",
+             f"{len(degraded_band_tiles)} tiles have an RGB band >50% zero "
+             "(missing-band degradation; exclude in selection)")
+        for tid, detail in degraded_band_tiles[:15]:
+            print(f"    {tid}: {detail}")
+        if WORK_DIR:
+            import json as _json
+            _p = f"{WORK_DIR}/degraded_band_tiles.json"
+            with open(_p, "w") as _f:
+                _json.dump([{"tile_id": t, "detail": d} for t, d in degraded_band_tiles], _f, indent=1)
+            print(f"    (full list → {_p})")
+    else:
+        ok("band_degradation", "No tiles have a single mostly-empty RGB band")
 
     if label_val_errors:
         fail("label_values", f"{len(label_val_errors)} label tiles contain unexpected pixel values")
