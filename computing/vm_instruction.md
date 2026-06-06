@@ -1,5 +1,8 @@
 # GCP VM Guide for ML Training (Windows)
 
+> Canonical infra facts (projects, buckets, VM inventory, regions, the compute budget) live in
+> [infrastructure.md](infrastructure.md). This doc is the daily VM/SSH **how-to**.
+
 ## Overview
 
 **Development workflow**: VSCode Remote-SSH connected to `gpu-vm-l4`. All code editing, running, and debugging happens on the VM. Your local Windows machine is just a thin client — no local Python environment needed.
@@ -279,8 +282,8 @@ mkdir -p /mnt/argo_filestore/yili
 
 ### Option B: Google Cloud Storage
 ```bash
-gsutil cp gs://abruptthawmapping/path/to/file ~/data/
-gsutil -m cp -r gs://abruptthawmapping/folder ~/data/  # recursive, parallel
+gsutil cp gs://abrupt_thaw/path/to/file ~/data/
+gsutil -m cp -r gs://abrupt_thaw/folder ~/data/  # recursive, parallel
 ```
 
 ### Option C: Upload from Local Machine

@@ -1,5 +1,8 @@
 # RTS Segmentation Model v2: Docker Training Setup
 
+> Canonical infra facts (projects, buckets, VM inventory, regions, the compute budget) live in
+> [infrastructure.md](infrastructure.md). This doc is the Docker build/run **how-to**.
+
 ## Why Docker?
 
 Docker packages the entire training environment (PyTorch, CUDA, GDAL, Python libraries) into a single image. This means:
@@ -193,10 +196,10 @@ not in env vars.)
 ```
 1. Edit code on L4 VM via VSCode Remote-SSH
 2. Test directly on L4 (no Docker rebuild needed)
-3. When ready for production:
-     gcloud builds submit --tag gcr.io/abruptthawmapping/rts-train:v2 .
+3. When ready for production (see Part 3):
+     IMAGE=us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
 4. On production VM:
-     docker pull gcr.io/abruptthawmapping/rts-train:v2
+     docker pull us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
 5. Run training
 ```
 

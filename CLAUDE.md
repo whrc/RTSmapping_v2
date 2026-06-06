@@ -52,6 +52,7 @@ Every component has a detailed markdown spec. **Always read the relevant spec be
 | Vectorization, QC, evaluation | `post-inference/post-inference.md` |
 | Docker setup | `computing/docker_training.md` |
 | VM provisioning | `computing/vm_instruction.md` |
+| Progress Log | `current_working_status.md` |
 
 If a spec is unclear or incomplete, **ask — do not assume**.
 
@@ -91,7 +92,7 @@ This repo follows SSoT standard, if one variable is mentioned multiple places, r
 - **Environment**: Docker (see `computing/docker_training.md`)
 - **Compute**: GCP VMs only. Dev/test on L4 VM via VSCode Remote-SSH; production training on A100/H100 VM. No Colab. See `computing/vm_instruction.md`.
 - **MLflow**: GCS-backed; tracking URI is configured in `configs/baseline.yaml:mlflow.tracking_uri` (single source).
-- **Data storage**: GCS bucket `gs://abruptthawmapping/`, mounted via gcsfuse in Docker. All paths configured in YAML — no hardcoded GCS paths.
+- **Data storage**: training data lives in GCS bucket `gs://abrupt_thaw/` (in the non-PDG project `abruptthawmapping`, proj# 801926669176 — note `abruptthawmapping` is a *project*, not a bucket). Mounted via gcsfuse in Docker. All paths configured in YAML — no hardcoded GCS paths. Projects, buckets, VMs, and the compute budget are documented in `computing/infrastructure.md` (infra SSoT).
 
 ## Code Style
 
