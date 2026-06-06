@@ -248,3 +248,35 @@ def test_init_raises_on_extra_channel_name_mismatch(synthetic_dataset, tmp_path)
             transform=build_eval_transforms(),
             tile_size=64,
         )
+
+
+# --- transient-read resilience (data/dataset.py _read_with_retry) ----------
+
+def test_read_with_retry_recovers_from_transient_failure(monkeypatch):
+    """A transient read error is retried and the eventual success returned."""
+    import data.dataset as ds
+    monkeypatch.setattr(ds.time, "sleep", lambda *_: None)  # no real backoff
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError("TIFFReadDirectory: transient")
+        return np.zeros((4, 4, 3), dtype=np.uint8)
+
+    out = ds._read_with_retry(flaky, tile_id="abc123", what="RGB")
+    assert out.shape == (4, 4, 3)
+    assert calls["n"] == 3  # failed twice, succeeded on third
+
+
+def test_read_with_retry_raises_after_exhausting_attempts(monkeypatch):
+    """A persistently corrupt tile fails all attempts and surfaces its id."""
+    import pytest
+    import data.dataset as ds
+    monkeypatch.setattr(ds.time, "sleep", lambda *_: None)
+
+    def always_fails():
+        raise OSError("TIFFReadEncodedStrip: corrupt")
+
+    with pytest.raises(RuntimeError, match="badtile after 4 attempts"):
+        ds._read_with_retry(always_fails, tile_id="badtile", what="RGB")

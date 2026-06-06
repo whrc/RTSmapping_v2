@@ -15,6 +15,7 @@ Key decisions:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,6 +29,31 @@ from data.normalization import load_stats, stats_to_arrays
 from data.transforms import dilate_label_boundary
 
 logger = logging.getLogger(__name__)
+
+# GCS reads over rasterio's /vsigs/ layer occasionally fail transiently (a
+# truncated range read surfaces as TIFFReadDirectory / TIFFReadEncodedStrip).
+# A single such failure in a DataLoader worker otherwise crashes a multi-hour
+# run, so tile reads retry with exponential backoff. Genuinely corrupt tiles
+# still fail all attempts and surface loudly with the tile id.
+_READ_ATTEMPTS = 4
+_READ_BACKOFF_S = 0.5
+
+
+def _read_with_retry(read_fn: Any, *, tile_id: str, what: str) -> np.ndarray:
+    """Run a tile-read callable, retrying transient GCS/VSI read errors."""
+    last_exc: Exception | None = None
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            return read_fn()
+        except Exception as exc:  # rasterio: RasterioIOError / CPLE_AppDefinedError
+            last_exc = exc
+            if attempt < _READ_ATTEMPTS - 1:
+                logger.warning("Read %s failed for tile %s (attempt %d/%d): %s",
+                               what, tile_id, attempt + 1, _READ_ATTEMPTS, exc)
+                time.sleep(_READ_BACKOFF_S * (2 ** attempt))
+    raise RuntimeError(
+        f"Failed to read {what} for tile {tile_id} after {_READ_ATTEMPTS} attempts"
+    ) from last_exc
 
 
 @dataclass
@@ -129,23 +155,27 @@ class RTSDataset(Dataset):
 
     def _read_rgb(self, tile_id: str) -> np.ndarray:
         """(H, W, 3) uint8."""
-        with rasterio.open(self._path(self.rgb_dir, tile_id)) as src:
-            arr = src.read(out_dtype="uint8")  # (3, H, W)
-        return arr.transpose(1, 2, 0)
+        def _do() -> np.ndarray:
+            with rasterio.open(self._path(self.rgb_dir, tile_id)) as src:
+                return src.read(out_dtype="uint8").transpose(1, 2, 0)  # (H, W, 3)
+        return _read_with_retry(_do, tile_id=tile_id, what="RGB")
 
     def _read_extra(self, tile_id: str) -> np.ndarray:
         """(H, W, N) float32, where N = len(self.extra_channels)."""
         bands_1idx = [c.band + 1 for c in self.extra_channels]
-        with rasterio.open(self._path(self.extra_dir, tile_id)) as src:
-            arr = src.read(bands_1idx, out_dtype="float32")  # (N, H, W)
-        return arr.transpose(1, 2, 0)
+        def _do() -> np.ndarray:
+            with rasterio.open(self._path(self.extra_dir, tile_id)) as src:
+                return src.read(bands_1idx, out_dtype="float32").transpose(1, 2, 0)  # (H, W, N)
+        return _read_with_retry(_do, tile_id=tile_id, what="EXTRA")
 
     def _read_label(self, tile_id: str) -> np.ndarray:
         """(H, W) uint8. Negative tiles have no label file; return all-zeros."""
         if not self.is_positive(tile_id):
             return np.zeros((self.tile_size, self.tile_size), dtype=np.uint8)
-        with rasterio.open(self._path(self.labels_dir, tile_id)) as src:
-            return src.read(1, out_dtype="uint8")
+        def _do() -> np.ndarray:
+            with rasterio.open(self._path(self.labels_dir, tile_id)) as src:
+                return src.read(1, out_dtype="uint8")
+        return _read_with_retry(_do, tile_id=tile_id, what="label")
 
     def is_positive(self, tile_id: str) -> bool:
         return bool(self.metadata.loc[tile_id, "TrainClass"] == "positive")
