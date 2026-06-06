@@ -3,7 +3,7 @@
 # Pick `frozen_lr` as the order of magnitude where loss curve steepest before divergence.
 # Must run on production GPU (A100) at the batch size chosen in §3.1.
 #
-# UPDATE normalization_stats_path after Phase 0a winner is locked.
+# Phase 0a winner: Arm A (per-dataset z-score). normalization_stats_path already set correctly.
 #
 # Output: lr_range_curve.csv logged as MLflow artifact. Plot in MLflow UI or
 # with scripts/report_phase0.py (embedded in docs/phase0_report.html).
@@ -29,7 +29,6 @@ data:
   tile_size: 512
   crs: "EPSG:3857"
   label_ignore_index: 255
-  # TODO: update to Phase 0a winner stats path after arm-out completes
   normalization_stats_path: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json"
 
 channels:
@@ -46,7 +45,7 @@ splits:
   min_train_positive_fraction: 0.70
   max_drift: 0.10
   # 30% positive subset for LR range test (experiments.md §3.2)
-  train_positive_subset_pct: 0.30
+  train_positive_subset_pct: 30
 
 normalization:
   rgb_clip_percentiles: [0.1, 99.9]

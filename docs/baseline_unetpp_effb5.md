@@ -29,6 +29,16 @@ Semantic segmentation of Retrogressive Thaw Slumps on 2024 PlanetScope RGB basem
 
 PR-AUC at subsampled ratios 1:200/500/1000 is a **prevalence-conditional deployment estimate**, not a prevalence-free model-quality score. The model's predictions are identical across ratios; only the negative pool changes. Absolute values across ratios are mechanically different (AP scales with prevalence). Only **relative comparisons at the same ratio across epochs or ablations** are meaningful. See training.md §6 + §10.3.
 
+### Gate-metric decision (2026-06-04): honest ratios, not 1:1000
+
+The Phase 0c seed42 calibration run exposed that the **gate metric was starved of negatives**. The full negative inventory is now ~13.7k tiles (ceiling ~16k — the ARTS confirmed-negative source is very unlikely to reach 100k). With ~129 val positives and ~1.4k val negatives, the val set **honestly supports at most ~1:10–1:20**. The configured 1:200/1:1000 ratios need 25.8k / 129k negative tiles respectively — physically impossible from a 16k pool — so they fall back to bootstrap-with-replacement and oscillate (seed42 swung 0.33↔0.62 epoch-to-epoch while pixel_IoU/obj_F1 rose monotonically; the model was fine, the metric was noise).
+
+Augmentation-inflation of negatives was considered and **rejected for evaluation**: augmented copies are highly correlated with their source (a flipped confidently-negative tile is still confidently negative), so they add no independent information — effective sample size stays ~1.4k. It would smooth the number (a "smarter bootstrap") but at ~90× validation forward-pass cost, and it does not make 1:1000 a trustworthy deployment estimate. Augmentation belongs at train time (data.md §7.2), not in the val/test metric.
+
+**Decision:**
+- **Gate G** (early stopping + model selection + `G = μ₀ − 2σ₀`) is computed on `val_realistic_pr_auc_geomean` over the **honestly-supported ratios `[5, 10, 20]`** (config: `metrics.pr_auc_ratios`, SSoT in [training/metrics.py](../training/metrics.py)), with **pixel_IoU and obj_F1 as monotonic stability anchors**.
+- 1:200/1:1000 are **dropped from the gate** (they were bootstrap noise). Honest deployment-prevalence reporting at high imbalance is deferred to final **Test-Realistic** reporting, where the clean lever is *more real negatives* — not augmentation. If the 16k ceiling holds, the final report uses the highest honestly-supported ratio with CIs and states the limitation transparently.
+
 ---
 
 ## Experiment queue (priority order)

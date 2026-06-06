@@ -3,7 +3,7 @@
 # Pick `base_lr` as the order of magnitude where loss curve steepest before divergence.
 # Run AFTER phase0b_lr_frozen; use the same batch size.
 #
-# UPDATE normalization_stats_path after Phase 0a winner is locked.
+# Phase 0a winner: Arm A (per-dataset z-score). normalization_stats_path already set correctly.
 #
 # Run: docker run --rm --gpus '"device=0"' --privileged \
 #        -v /mnt/outputs:/outputs \
@@ -26,7 +26,6 @@ data:
   tile_size: 512
   crs: "EPSG:3857"
   label_ignore_index: 255
-  # TODO: update to Phase 0a winner stats path after arm-out completes
   normalization_stats_path: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json"
 
 channels:
@@ -42,7 +41,7 @@ splits:
   min_val_ecoregions: 2
   min_train_positive_fraction: 0.70
   max_drift: 0.10
-  train_positive_subset_pct: 0.30
+  train_positive_subset_pct: 30
 
 normalization:
   rgb_clip_percentiles: [0.1, 99.9]

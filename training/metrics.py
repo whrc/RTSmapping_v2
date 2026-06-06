@@ -143,7 +143,8 @@ class ValidationAccumulator:
     Args:
         cfg: Parsed YAML config (uses data.label_ignore_index and the metrics.*
             block from configs/baseline.yaml).
-        ratios: Prevalence ratios for PR-AUC. Defaults to [200, 500, 1000].
+        ratios: Prevalence ratios for PR-AUC. If None, read from
+            cfg["metrics"]["pr_auc_ratios"], falling back to [200, 500, 1000].
         seed: Seed for negative-subsampling RNG. Defaults to 42.
     """
 
@@ -158,7 +159,10 @@ class ValidationAccumulator:
         self.threshold = float(metrics_cfg.get("reporting_threshold", 0.5))
         self.min_blob_size = int(metrics_cfg.get("min_blob_size_px", 10))
         self.obj_iou_threshold = float(metrics_cfg.get("object_iou_threshold", 0.3))
-        self.ratios: list[int] = list(ratios) if ratios is not None else [200, 500, 1000]
+        self.ratios: list[int] = (
+            list(ratios) if ratios is not None
+            else [int(r) for r in metrics_cfg.get("pr_auc_ratios", [200, 500, 1000])]
+        )
         self._rng = np.random.default_rng(seed)
 
         # Pixel-level TP/FP/FN (ignore pixels excluded).

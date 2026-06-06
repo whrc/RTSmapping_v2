@@ -2,7 +2,7 @@
 # Full 300-epoch run with locked normalization (Phase 0a winner) and LRs (Phase 0b winner).
 # Three seeds (42, 43, 44) → measure μ₀ and σ₀ → calibrate gate G for all later phases.
 #
-# BEFORE RUNNING: update the three TODOs below from Phase 0a and 0b results.
+# Phase 0a winner: Arm A (per-dataset z-score). Phase 0b: frozen_lr=3e-3, base_lr=TBD.
 #
 # Run: docker run --rm --gpus '"device=0"' --privileged \
 #        -v /mnt/outputs:/outputs \
@@ -19,13 +19,12 @@ data:
   rgb_dir: "PLANET-RGB"
   extra_dir: "EXTRA"
   labels_dir: "labels"
-  metadata_csv: "metadata.csv"
-  splits_yaml: "splits.yaml"
+  metadata_csv: "metadata_phase0c.csv"   # frozen 15,528-tile snapshot (2026-06-04); bucket may grow with new negatives mid-experiment
+  splits_yaml: "splits_phase0c.yaml"      # frozen region assignment — keeps all 3 seeds on one immutable dataset
   splits_summary_json: "splits_summary.json"
   tile_size: 512
   crs: "EPSG:3857"
   label_ignore_index: 255
-  # TODO(phase0a): replace with winner stats path
   normalization_stats_path: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json"
 
 channels:
@@ -104,7 +103,6 @@ loss:
   soft_label_value: 0.05
 
 training:
-  # TODO(phase0b): update batch_size from memory profiling on A100
   batch_size: 32
   max_epochs: 300
   val_frequency: 5
@@ -134,9 +132,8 @@ optimizer:
   gradient_clip_norm: 1.0
 
 lr_schedule:
-  # TODO(phase0b): update frozen_lr and base_lr from LR range test results
-  frozen_lr: 1.0e-3
-  base_lr: 1.0e-4
+  frozen_lr: 3.0e-3   # phase0b frozen: steepest descent zone 2.4e-3–4.1e-3, divergence 1e-1
+  base_lr: 1.0e-3    # phase0b unfrozen: steepest descent 1.4e-3–4.1e-3, divergence 5.9e-2; backbone gets 1e-4
   backbone_lr_multiplier: 0.1
   freeze_backbone_epochs: 10
   scheduler: "warmup_cosine"
@@ -159,6 +156,11 @@ metrics:
   min_blob_size_px: 10
   object_iou_threshold: 0.3
   reporting_threshold: 0.5
+  # Gate metric = geomean(PR-AUC @ these ratios). Negative pool ceiling ~16k
+  # → val honestly supports up to ~1:10-20; 1:200/1:1000 are unreachable without
+  # bootstrap (see docs/baseline_unetpp_effb5.md). Gate on honest ratios; pixel_iou
+  # and obj_f1 are logged as stability anchors.
+  pr_auc_ratios: [5, 10, 20]
   preview_tile_config: "configs/preview_tiles.yaml"
 
 mlflow:
