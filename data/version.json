@@ -1,20 +1,24 @@
 {
-  "version": "2.0",
+  "version": "0.2",
+  "maturity": "immature — datasets stay on the v0.x track until the user anchors v1.0. v0.2 = the negative-expanded frozen Phase 0c snapshot; a selection-upgraded v0.3 (drops ambiguous-feature tiles, NO relabel) is expected next.",
   "created_date": "2026-05-27",
-  "validated_date": "2026-05-28",
+  "validated_date": "2026-06-04",
   "gcs_root": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA",
+  "frozen_snapshot": "metadata_phase0c.csv + splits_phase0c.yaml (15,528 tiles). Provisional gate G = mu0 - 2*sigma0 = 0.5433 (mu0=0.5683, sigma0=0.0125) over honest ratios [5,10,20]; re-measured when the dataset is anchored as v1.0.",
   "imagery_source": "PlanetScope Quarterly Basemap 2024 (July-September), RGB, ~3m/px",
   "crs": "EPSG:3857",
   "tile_size_px": 512,
   "label_values": {"0": "background", "1": "RTS", "255": "ignore"},
   "tile_counts": {
-    "total": 4572,
+    "total": 15528,
     "positive": 1819,
-    "negative": 2753
+    "negative": 13709,
+    "note": "negative pool expanded from 2753 (2026-06-04); 9 unreadable tiles dropped. On-disk PLANET-RGB also holds 14 valid-but-unregistered negatives + 9 dropped corrupt (see /mnt/outputs)."
   },
   "split_counts": {
     "ecoregions_total": 50,
-    "ecoregions_train": 37
+    "phase0c_regions": {"train": 30, "val": 9, "test": 11},
+    "phase0c_tiles": {"train": "1370 pos / 11435 neg", "val_realistic": "150 pos / 1287 neg", "test_realistic": "299 pos / 987 neg"}
   },
   "extra_channels": {
     "description": "8-band EXTRA stack in EXTRA/{tile_id}.tif — canonical layout fixed by data/data.md §9",
@@ -31,7 +35,8 @@
   },
   "normalization_stats_gcs": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json",
   "data_quality_notes": [
-    "tile vs3pfmb0808n: positive in metadata but 0 RTS pixels in label — non-blocking (1/1819 = 0.05%)"
+    "tile vs3pfmb0808n: positive in metadata but 0 RTS pixels in label — non-blocking (1/1819 = 0.05%)",
+    "~2.2% degraded tiles (335) have an RGB band >50% zero — 209 missing BLUE (systematic source/extraction issue). Clean during the v0.3 selection upgrade; list at /mnt/outputs/degraded_tiles.json (2026-06-05)."
   ],
   "not_in_v2": [
     "NIR (Sentinel-2)",
@@ -42,5 +47,5 @@
     "NDMI",
     "SAR backscatter"
   ],
-  "v2_to_v21_upgrade_path": "Append bands to EXTRA GeoTIFFs; add rows to data/data.md §9; bump version string here and in normalization_stats.json"
+  "upgrade_path": "v0.3 = tile-selection upgrade (drop ambiguous-feature + degraded tiles, no relabel). EXTRA bands appended to EXTRA GeoTIFFs per data/data.md §9. On any change: re-run create_splits + compute_normalization_stats, bump version string here and in normalization_stats.json, re-baseline the 3-seed gate."
 }
