@@ -53,8 +53,46 @@ Ablations to run after the baseline completes. Each gets its own sub-section bel
     - Tversky (α=0.3, β=0.7) for precision-focused training
 3. **Focal hyperparameters**: γ ∈ {1, 2, 3, 5}, α ∈ {0.1, 0.25, 0.5}
 4. **Encoder size**: EfficientNet-B3 (capacity-down) / B7 (capacity-up)
-5. **EXTRA channels**: NDVI, NIR, Red Edge, SAR — individually and stacked
+5. **EXTRA channels**: NDVI, NIR, Red Edge, SAR — individually and stacked (only once EXTRA tiles exist)
 6. **Architecture family**: SegFormer-B5 (training.md §3.2 priority 2)
+
+---
+
+## Runbook — v0.3/v1.0 dataset + multi-GPU launch
+
+The Phase 0c gate (G = 0.5433) is **provisional on the immature v0.2 snapshot**. When the
+selection-upgraded dataset (v0.3, no relabel) and the new multi-GPU VM land, execute in order:
+
+**A. Ingest the new dataset (selection-only change)**
+1. `validate_training_data.py` (full, not sampled) — confirm CRS/bands/dims/labels; review the new
+   **per-band degradation WARN** and exclude flagged tiles from the selection.
+2. `create_splits.py --config <baseline> --out-dir /outputs/new_splits` → inspect realized
+   train/val/test pos·neg counts → upload `splits.yaml`/`splits_summary.json` (back up old first).
+3. `compute_normalization_stats.py` over the **new** train split → upload `normalization_stats.json`.
+4. Freeze the snapshot (`metadata_vX.csv` / `splits_vX.yaml`); pin configs to it; bump `data/version.json`.
+
+**B. Re-baseline → new gate**
+5. Re-run the 3-seed baseline (42/43/44) on the new snapshot → recompute **μ₀, σ₀, G = μ₀−2σ₀, δ_sig**
+   via `report_phase0.py`. This G replaces 0.5433. (Provisional until the user anchors v1.0.)
+
+**C. Multi-GPU ablation program** (gated by new G; pass = clears G *and* beats baseline by ≥ δ_sig)
+6. Stage the dataset on the VM's local SSD (GPU is compute-bound, not I/O-bound — staging mainly
+   removes transient-read risk; the retry in `data/dataset.py` is the safety net).
+7. Decide experiment-tracking backend: **Cloud SQL Postgres** (concurrency-safe, recommended) or
+   **per-GPU file-stores merged at report time** (no-infra fallback). *(MLflow file-store is NOT
+   concurrency-safe across parallel runs.)*
+8. Build the orchestrator (`scripts/run_experiments.py`, deferred): config queue dispatched
+   one-experiment-per-GPU (`--gpus device=N`; no DDP — matches single-GPU code). **Open design choice:**
+   matrix-file+overrides vs one-YAML-per-experiment.
+9. Run the queue (boundary, loss, focal γ×α, encoders, SegFormer; EXTRA once generated) ×
+   multi-seed; consider leave-one-ecoregion-out CV for pan-arctic generalization.
+
+**D. Finalize → deploy → infer** (existing pipeline)
+10. Multi-seed finalization (below) → Test-Realistic once → `package_model.py` per seed → inference.
+
+**Deferred optimizations** (not blocking): `torch.compile` + `channels_last` (needs careful
+state_dict/EMA/deployment testing — wrap with a `raw_model` reference so checkpoints stay clean);
+`cudnn.benchmark` (safe one-liner for fixed 512² inputs).
 
 ---
 
