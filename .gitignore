@@ -188,3 +188,10 @@ rsconnect/
 
 # Training run outputs (checkpoints, figures, logs) — stored in GCS/MLflow
 runs/
+
+# Local Claude Code settings (machine-specific tool permissions)
+.claude/settings.json
+.claude/settings.local.json
+
+# Stray local test fixtures — conftest.py generates synthetic data at runtime
+tests/fixtures/
