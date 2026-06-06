@@ -1,0 +1,18 @@
+# Fixed preview tiles for cross-experiment visual comparison.
+#
+# Explicit tile UIDs (the .tif filenames in PLANET-RGB) drawn from the frozen
+# phase0c val_realistic split. Pinning these means every experiment and every
+# seed renders the SAME tiles, so preview grids are directly comparable across
+# runs (fix the input, vary the model) — instead of each seed picking its own.
+#
+# Edit freely to swap in any val UIDs you find more diagnostic. Tiles not present
+# in a given run's val split are skipped with a warning; if none match, the run
+# falls back to the seeded pass-1 heuristic (training/visualizations.py).
+positive:
+  - bkhfu0xuzvxy   # replaced zkc2768j80b5 (degraded: R/B bands ~empty, 91% blue=0) on 2026-06-05
+  - bs0dmb0h0hb2
+  - vjpt938j8h8q
+negative:
+  - bkj940b41426
+  - ze0wnzpq9yrb
+  - zedz82218h8h

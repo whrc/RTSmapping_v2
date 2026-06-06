@@ -393,3 +393,49 @@ def test_train_smoke_resume_then_continue(synthetic_dataset, tmp_path, monkeypat
         "Post-resume EMA shadow is bit-identical to the saved one across an "
         "extra epoch of training — resume likely did not restart the EMA decay."
     )
+
+
+# --- fixed preview-tile selection (scripts/train.py _select_preview_tiles) ---
+
+def test_select_preview_tiles_uses_fixed_list(tmp_path):
+    """A preview_tiles.yaml of UIDs is used verbatim (intersected with val)."""
+    import pandas as pd
+    import train
+
+    pv = tmp_path / "preview_tiles.yaml"
+    pv.write_text(yaml.safe_dump({"positive": ["pA", "pB"], "negative": ["nA"]}))
+    meta = pd.DataFrame({"Tile_ID": ["pA", "pB", "nA", "nB"],
+                         "TrainClass": ["positive", "positive", "negative", "negative"]})
+    cfg = {"seed": 7, "metrics": {"preview_tile_config": str(pv)}}
+
+    out = train._select_preview_tiles(cfg, meta, ["pA", "pB", "nA", "nB"])
+    assert out == ["pA", "pB", "nA"]  # order preserved, all kept
+
+
+def test_select_preview_tiles_is_seed_independent(tmp_path):
+    """Same fixed list → identical previews regardless of experiment seed."""
+    import pandas as pd
+    import train
+
+    pv = tmp_path / "preview_tiles.yaml"
+    pv.write_text(yaml.safe_dump({"positive": ["pA"], "negative": ["nA"]}))
+    meta = pd.DataFrame({"Tile_ID": ["pA", "nA"], "TrainClass": ["positive", "negative"]})
+    val = ["pA", "nA"]
+    a = train._select_preview_tiles({"seed": 42, "metrics": {"preview_tile_config": str(pv)}}, meta, val)
+    b = train._select_preview_tiles({"seed": 43, "metrics": {"preview_tile_config": str(pv)}}, meta, val)
+    assert a == b == ["pA", "nA"]
+
+
+def test_select_preview_tiles_falls_back_when_none_in_val(tmp_path):
+    """If no configured tile is in val, fall back to the seeded heuristic."""
+    import pandas as pd
+    import train
+
+    pv = tmp_path / "preview_tiles.yaml"
+    pv.write_text(yaml.safe_dump({"positive": ["ghost"], "negative": ["phantom"]}))
+    meta = pd.DataFrame({"Tile_ID": ["pA", "pB", "nA", "nB"],
+                         "TrainClass": ["positive", "positive", "negative", "negative"]})
+    cfg = {"seed": 1, "metrics": {"preview_tile_config": str(pv)}}
+    out = train._select_preview_tiles(cfg, meta, ["pA", "pB", "nA", "nB"])
+    assert "ghost" not in out and "phantom" not in out
+    assert len(out) > 0  # heuristic produced something
