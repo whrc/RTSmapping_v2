@@ -130,7 +130,8 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_output_bias_for_imbalanced_prior` | prior=0.01 → bias ≈ -log(99) | real |
 | `test_output_is_logits_not_probabilities` | Random-input outputs span beyond [0, 1] | real — logits contract |
 | `test_invalid_bias_prior_rejected` | Prior outside (0, 1) → `ValueError` | shallow |
-| `test_unknown_architecture_rejected` | Unsupported arch → clear `ValueError` | shallow |
+| `test_build_model_segformer_output_shape_and_bias` | SegFormer (mit_b5) builds, returns (B,1,H,W) logits at input res, and the class prior flows through its `.segmentation_head[0]` bias (fair arch comparison) | real — guards the new architecture branch (2026-06-06) |
+| `test_unknown_architecture_rejected` | Unsupported arch (`bogusnet`) → clear `ValueError` (`segformer` is now supported) | shallow |
 
 ### [test_losses.py](test_losses.py)
 

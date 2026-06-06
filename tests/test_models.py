@@ -95,8 +95,25 @@ def test_invalid_bias_prior_rejected():
         build_model(cfg)
 
 
+def test_build_model_segformer_output_shape_and_bias():
+    """SegFormer (mit_b5) builds, returns (B, 1, H, W) logits at input
+    resolution, and shares the .segmentation_head[0] bias path so the rare-class
+    prior is applied identically to UnetPlusPlus (fair architecture comparison)."""
+    cfg = _base_cfg(architecture="segformer", backbone="mit_b5",
+                    output_bias_prior=0.01)
+    model = build_model(cfg).eval()
+    x = torch.zeros(1, 3, 256, 256)
+    with torch.no_grad():
+        y = model(x)
+    assert y.shape == (1, 1, 256, 256)
+    bias = model.segmentation_head[0].bias.detach().item()
+    assert math.isclose(bias, -math.log((1.0 - 0.01) / 0.01), abs_tol=1e-5)
+
+
 def test_unknown_architecture_rejected():
-    """Unsupported architecture is a clear error, not a silent smp traceback."""
-    cfg = _base_cfg(architecture="segformer")
+    """Unsupported architecture is a clear error, not a silent smp traceback.
+
+    (Uses 'bogusnet' — 'segformer' is now a supported architecture.)"""
+    cfg = _base_cfg(architecture="bogusnet")
     with pytest.raises(ValueError, match="Unsupported model.architecture"):
         build_model(cfg)

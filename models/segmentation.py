@@ -87,11 +87,24 @@ def build_model(cfg: dict) -> nn.Module:
             classes=1,
             activation=None,  # logits (training.md §4.2)
         )
+    elif arch == "segformer":
+        # Transformer architecture (training.md §3.2). Uses MixVisionTransformer
+        # encoders (mit_b0..mit_b5), NOT the EfficientNet backbones. smp's
+        # Segformer exposes the same .segmentation_head[0] Conv2d (with bias) as
+        # UnetPlusPlus, so _init_output_bias below works unchanged, and the head
+        # already returns (B, 1, H, W) logits at input resolution.
+        model = smp.Segformer(
+            encoder_name=backbone,        # expect mit_b0..mit_b5
+            encoder_weights=encoder_weights,
+            in_channels=in_channels,
+            classes=1,
+            activation=None,  # logits (training.md §4.2)
+        )
     else:
         raise ValueError(
             f"Unsupported model.architecture: {arch!r}. "
-            f"Add an elif branch in build_model for SegFormer / DINOv3 "
-            f"(see training.md §3.2)."
+            f"Supported: 'unetplusplus', 'segformer'. Add an elif branch in "
+            f"build_model for new architectures (e.g. DINOv3; see training.md §3.2)."
         )
 
     _init_output_bias(model, prior)
