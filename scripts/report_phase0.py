@@ -378,12 +378,13 @@ def _section_phase0c(mlflow, experiment_name: str) -> str:
                   "Final gate requires all 3.</p>") if n_done < 3 else ""
         mu0 = float(np.mean(best_vals))
         sigma0 = float(np.std(best_vals, ddof=1))
-        gate_g = mu0 - 2 * sigma0          # canonical floor (current_working_status.md)
-        delta_sig = max(0.01, 2 * sigma0)  # min improvement to call an ablation real
+        # experiments.md §1.4: a candidate wins iff Δ(PR-AUC geomean) vs baseline μ₀ ≥ G
+        # AND precision@recall=0.5 does not regress. G is a Δ-threshold, NOT a perf floor.
+        gate_g = max(0.01, 2 * sigma0)
         if sigma0 < 0.005:
             band = "Low-noise (σ₀ < 0.005) — single seed per candidate reliable"
         elif sigma0 < 0.015:
-            band = "Medium-noise (0.005 ≤ σ₀ < 0.015) — single seed OK; re-run top ties"
+            band = "Medium-noise (0.005 ≤ σ₀ < 0.015) — single-seed first-pass; re-run top ties at seed 43"
         else:
             band = "High-noise (σ₀ ≥ 0.015) — investigate noise before continuing"
 
@@ -391,21 +392,20 @@ def _section_phase0c(mlflow, experiment_name: str) -> str:
 <div class='card'>
   {prelim}
   <div style='display:flex; gap:2rem; flex-wrap:wrap;'>
-    <div><span class='label'>μ₀ (mean best PR-AUC geomean)</span><br><span class='metric'>{mu0:.4f}</span></div>
+    <div><span class='label'>μ₀ (mean best PR-AUC geomean — baseline ref)</span><br><span class='metric'>{mu0:.4f}</span></div>
     <div><span class='label'>σ₀ (std across seeds)</span><br><span class='metric'>{sigma0:.4f}</span></div>
-    <div><span class='label'>Gate G = μ₀ − 2σ₀ (perf floor)</span><br><span class='metric'>{gate_g:.4f}</span></div>
-    <div><span class='label'>δ_sig = max(2σ₀, 0.01)</span><br><span class='metric'>{delta_sig:.4f}</span></div>
+    <div><span class='label'>Gate G = max(2σ₀, 0.01)</span><br><span class='metric'>{gate_g:.4f}</span></div>
   </div>
   <p style='margin-top:0.8rem; font-size:0.9rem;'><strong>Noise band:</strong> {band}</p>
   <p style='margin-top:0.4rem; font-size:0.85rem; color:#555;'>Gate metric = geomean(PR-AUC @ 1:5/1:10/1:20).
-  A later experiment must clear <strong>G = {gate_g:.4f}</strong> to pass, and beat the baseline by
-  ≥ <strong>{delta_sig:.4f}</strong> to count as a real improvement.</p>
+  Per <code>experiments.md §1.4</code>, a candidate <strong>wins</strong> only if Δ(PR-AUC geomean) vs
+  baseline μ₀={mu0:.4f} is ≥ <strong>G = {gate_g:.4f}</strong> <em>and</em> precision @ recall=0.5 does not regress.</p>
 </div>"""
 
     return f"""
 <h2>Phase 0c — Multi-Seed Baseline</h2>
 <p>Seeds 42, 43, 44 on the frozen dataset snapshot with locked normalization and LRs from Phase 0a/0b.
-   μ₀/σ₀ calibrate Gate <strong>G = μ₀ − 2σ₀</strong> for all subsequent phase comparisons.</p>
+   μ₀ is the baseline; σ₀ sets the winner gate <strong>G = max(2σ₀, 0.01)</strong> (experiments.md §1.4).</p>
 {table_html}
 {stats_html}
 <h3>Per-seed training curves</h3>

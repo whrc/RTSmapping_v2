@@ -177,8 +177,9 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# pkgdown site
-docs/
+# pkgdown site / generated reports — keep living docs (docs/*.md) tracked per
+# CLAUDE.md + experiments.md §11.2; ignore only generated HTML (e.g. phase0_report.html)
+docs/*.html
 
 # translation temp files
 po/*~

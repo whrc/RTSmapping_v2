@@ -33,16 +33,18 @@ Specs are the source of truth. Always read the relevant md before implementing (
   - **Gate metric**: `val_realistic_pr_auc_geomean` over **honest ratios `[5,10,20]`** + pixel_IoU/obj_F1 anchors (negatives cap ~16k → 1:200/1:1000 unsupportable; deferred to Test-Realistic). `metrics.pr_auc_ratios` config-driven ([training/metrics.py](training/metrics.py)).
   - **Phase 0c 3-seed baseline (frozen 15,528-tile snapshot, `metadata_phase0c.csv` / `splits_phase0c.yaml`):**
     - seed42 = **0.5607** (e65) · seed43 = **0.5828** (e55) · seed44 = **0.5615** (e35), ~13.7h each.
-    - **μ₀ = 0.5683, σ₀ = 0.0125 (medium-noise), GATE G = μ₀−2σ₀ = 0.5433, δ_sig = 0.0251.**
-    - G = 0.5433 is the **performance floor every later experiment must clear**; a change must beat baseline by ≥ δ_sig = 0.0251 to count as real.
+    - **μ₀ = 0.5683 (baseline ref), σ₀ = 0.0125 → medium-noise band.**
+    - **Gate G = max(2σ₀, 0.01) = 0.025** (`training/experiments.md §1.4`, the SSoT). A candidate **wins** iff Δ(`val_realistic_pr_auc_geomean`) vs μ₀ ≥ G **and** precision @ recall=0.5 does not regress. G is a Δ-over-baseline threshold, **not** a performance floor. (Earlier "G=μ₀−2σ₀=0.5433 floor" was an error — corrected 2026-06-07.)
+    - σ-band protocol (§3.4 medium): single-seed first-pass ranking; top ties (within 1σ) re-run at seed 43; final lock at 3 seeds. Recorded in `docs/phase0_baseline.md`.
     - Report: `docs/phase0_report.html` (per-seed train/val-loss + gate/IoU/F1 curves; μ₀/σ₀/G card).
   - **Mid-phase fixes** (see Key Decisions 2026-06-04/05): 9 corrupt tiles dropped; transient-GCS-read retry in `data/dataset.py`; preview tiles pinned by UID (`configs/preview_tiles.yaml`); MLflow dedupe + 2 stale seed42 runs deleted.
 - **Known data-quality debt (v2.1):** ~2.2% degraded tiles (209 missing BLUE band) — `/mnt/outputs/degraded_tiles.json`; 14 valid negatives unregistered in metadata. Left as-is (frozen baseline).
 - **Git**: merged `origin/main` (#12, #13) into `phase_0`. **Local changes uncommitted — ready to commit Phase 0c.**
 - **Compute**: $70k GCP credit (compute-only), **expires September 2026** — must be substantially spent. Plan: thorough ablation program on a multi-GPU node (8× A100 now / 8× H100 when quota lands) run in *short bursts* (~$5–15k), bulk of budget → pan-arctic inference + EXTRA generation + multi-year/ensemble (~$40–55k). Stop VMs when idle.
+- **Status**: Phase 0 PR #14 open (phase_0→main). Working on branch `phase1-prep`. **`training/experiments.md` is the SSoT for the experiment program** — all other docs defer to it (SSoT-drift repair, 2026-06-07).
 - **Next two steps**:
-  1. Commit the `phase_0` branch (configs, metrics.py SSoT, train.py retry+preview, dataset.py retry, docs, tests). Bump `data/version.json` for the 15,528-tile / 13,709-neg frozen snapshot.
-  2. Stand up the multi-GPU node + parallel experiment orchestrator (+ `torch.compile`, concurrency-safe MLflow backend) → launch the ablation program (boundary/loss/focal-grid/encoders/architectures/EXTRA + multi-seed + leave-one-region-out CV), gated by G = 0.5433.
+  1. SSoT repair (in progress, 2026-06-07): gate fix everywhere → G=max(2σ₀,0.01); propagate [5,10,20] gate-ratio + file-store MLflow + `train_iou` into experiments.md §2.1/§2.3; dedup baseline doc → pointer; create `docs/phase0_baseline.md`; add `train_iou` logging.
+  2. Re-queue the A100 in plan order (single-seed 42, gate G=0.025 over μ₀=0.5683): finish running `loss_tversky` → **Phase 2 data-scaling** (`phase2_scale_25/50/75`, gates Phase 5) → complete **Phase 3 §6.1 loss family** (compound 1:2, 2:1; tversky 0.2,0.8) → evaluate. Gated Phase-5 (encoder/SegFormer) removed from the queue.
 
 ---
 

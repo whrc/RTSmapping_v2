@@ -30,16 +30,20 @@ This section is the single source of truth for what each training run emits to M
 
 ### 2.1 MLflow configuration
 
-GCS-backed file store. Configurable via YAML (`configs/baseline.yaml:mlflow`):
+Local file store inside Docker (`/outputs/mlflow` → host `/mnt/outputs/mlflow`). Configurable via YAML
+(`configs/baseline.yaml:mlflow`):
 
 ```yaml
 mlflow:
-  tracking_uri: "gs://abruptthawmapping/abrupt_thaw/RTS_MODEL_V2/mlflow_tracking"
-  experiment_name: "rts-segmentation-v2"
+  tracking_uri: "file:///outputs/mlflow"   # MLflow 2.x+ does NOT support gs:// as a *tracking* backend
+  experiment_name: "rts-segmentation-v2"   # (gs:// is valid only as an artifact store). Corrected 2026-06-07.
   run_name: "<per-experiment-config-name>"
 ```
 
-The `MLFLOW_TRACKING_URI` environment variable overrides the YAML when set. No separate tracking-server process; view runs locally with `mlflow ui --backend-store-uri gs://...`.
+The `MLFLOW_TRACKING_URI` environment variable overrides the YAML when set. No separate tracking-server
+process; view runs with `mlflow ui --backend-store-uri file:///outputs/mlflow`. **The file store is not
+concurrency-safe** — for parallel multi-GPU runs switch to a DB backend (e.g. Cloud SQL Postgres) or give
+each GPU its own store and merge at report time.
 
 ### 2.2 Required parameters logged
 
@@ -57,12 +61,22 @@ The full config YAML is logged via `training/mlflow_utils.py:_flatten_params` (e
 
 ### 2.3 Metrics and artifacts
 
-**Metrics logged per epoch** (`scripts/train.py` via `mlflow_utils.log_metrics_step`):
-- `train_loss`, `train_iou_rts`, `train_nan_steps`
-- `scaler_scale`, `scaler_halves_this_epoch` (only when an AMP scaler is active, i.e. fp16)
-- `val_balanced_iou`, `val_balanced_pr_auc`, `val_loss`
-- For each ratio (200, 500, 1000): `val_{ratio}_pr_auc`, `val_{ratio}_iou_rts`, `val_{ratio}_obj_precision`, `val_{ratio}_obj_recall`
-- `val_realistic_pr_auc_geomean` — geomean across the three ratios; the early-stopping metric
+**Metrics logged per epoch** (`scripts/train.py` via `mlflow_utils.log_metrics_step`). Names below are the
+**actual keys emitted by `training/metrics.py` (the code SSoT)** — reconciled 2026-06-07:
+- Train (per epoch): `train_loss`, `train_iou` (pixel IoU over train batches — added 2026-06-07 for §5.4
+  gap + §8.1 Phase-5 gate), `train_nan_steps`
+- `scaler_scale`, `scaler_halves_this_epoch` (only when an AMP scaler is active, i.e. fp16; bf16 = inactive)
+- Val (per validation): `val_loss`; **global** `pixel_iou`, `pixel_f1`, `object_precision`,
+  `object_recall`, `object_f1` (at `metrics.reporting_threshold`); `val_n_positive_tiles`,
+  `val_n_negative_tiles`
+- Per gate ratio r ∈ **`metrics.pr_auc_ratios` (gate = `[5, 10, 20]`)**: `pr_auc_ratio_{r}`
+- `val_realistic_pr_auc_geomean` — geomean across the gate ratios; the early-stopping + selection metric
+
+> **Gate ratios are data-limited.** The deployment-prevalence ratios 1:200/500/1000 referenced elsewhere
+> in this doc (§5.1, §9) cannot be honestly evaluated at the ~16k negative ceiling, so the **gate** uses
+> `[5,10,20]`; 1:200/1000 are deferred to **Test-Realistic** (§9), reported with CIs + the limitation
+> stated. Per-ratio IoU/obj-precision and `val_balanced_*` are **not** currently emitted (only per-ratio
+> PR-AUC); add them only if a phase needs them.
 
 **Run-level metrics logged once at end of training** (`scripts/train.py:main` → `training/mlflow_utils.py:log_run_summary`):
 - `exposure_max`, `exposure_median`, `exposure_p99`, `exposure_unique_tiles` — per-tile sample-count statistics across the whole run
