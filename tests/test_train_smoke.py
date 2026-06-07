@@ -246,6 +246,18 @@ def test_mlflow_run_written(trained_run):
     assert experiments, "no MLflow experiments written"
 
 
+def test_train_iou_logged(trained_run):
+    """train_iou is logged per epoch and is a valid IoU in [0, 1].
+
+    Needed for experiments.md §5.4 (data-scaling gap) and §8.1 (Phase-5 gate)."""
+    mlruns = trained_run["mlruns_dir"]
+    files = list(mlruns.glob("**/metrics/train_iou"))
+    assert files, "train_iou metric not logged to MLflow"
+    vals = [float(ln.split()[1]) for ln in files[0].read_text().splitlines() if ln.strip()]
+    assert vals, "train_iou metric file is empty"
+    assert all(0.0 <= v <= 1.0 for v in vals), f"train_iou outside [0, 1]: {vals}"
+
+
 def test_ema_divergent_from_live_after_training(trained_run):
     """After training, EMA weights should not equal fresh live weights bit-for-bit.
 

@@ -270,6 +270,7 @@ End-to-end training loop on the synthetic fixture (~130 s, still Tier 1 — no G
 | `test_resume_checkpoint_rotation` | resume_latest-*.pth exists post-training | real |
 | `test_no_nan_in_model_params` | Final EMA weights all finite | real — numerical guard |
 | `test_mlflow_run_written` | MLflow directory populated | shallow |
+| `test_train_iou_logged` | `train_iou` logged per epoch ∈ [0,1] (needed for experiments.md §5.4 data-scaling gap + §8.1 Phase-5 gate) | real — guards the train-metric add (2026-06-07) |
 | `test_ema_divergent_from_live_after_training` | EMA ≠ live weights after unfreeze (exercises update path) | real — plan risk #15 |
 | `test_prediction_shows_response_on_positive_region` | max pred prob > 0.1 on a positive tile (collapse guard) | real — plan risk (mode collapse) |
 | `test_train_smoke_resume_then_continue` | Resume from epoch-2 snapshot for 1 more epoch; EMA shadow is restored and continues decaying (key set unchanged, post-resume ≠ saved) | real — Important I5 (2026-05-02); guards EMA-restore-on-resume audit fix |

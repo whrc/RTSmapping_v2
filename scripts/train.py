@@ -358,6 +358,7 @@ def _train_one_epoch(
     global_step_offset: int = 0,
     total_steps: int = 1,
     lr_history: list[tuple[int, float, float]] | None = None,
+    ignore_index: int = 255,
 ) -> dict[str, float]:
     """Run one training epoch. Returns per-epoch averages.
 
@@ -370,6 +371,7 @@ def _train_one_epoch(
     running_loss = 0.0
     running_n = 0
     nan_count = 0
+    tp_px = fp_px = fn_px = 0  # train pixel-IoU accumulators (experiments.md §5.4 / §8.1)
     scaler_halves = 0
     scaler_prev_scale: float | None = None
     if precision.scaler is not None:
@@ -403,6 +405,16 @@ def _train_one_epoch(
             logger.warning("Non-finite loss at step %d; skipping update", step)
             continue
 
+        # Train pixel-IoU accumulation (logit > 0 ⇔ prob > 0.5; ignore excluded).
+        # gt (label==1) ⊆ valid since the RTS class is never the ignore value.
+        with torch.no_grad():
+            pred = logits.detach().squeeze(1) > 0
+            gt = labels == 1
+            valid = labels != ignore_index
+            tp_px += int((pred & gt).sum())
+            fp_px += int((pred & valid & ~gt).sum())
+            fn_px += int((~pred & gt).sum())
+
         if precision.scaler is not None:
             precision.scaler.scale(loss).backward()
             precision.scaler.unscale_(optimizer)
@@ -431,7 +443,9 @@ def _train_one_epoch(
             lr_history.append((global_step, float(optimizer.param_groups[0]["lr"]), loss_val))
 
     avg_loss = running_loss / max(1, running_n)
-    out = {"train_loss": avg_loss, "train_nan_steps": float(nan_count)}
+    iou_den = tp_px + fp_px + fn_px
+    train_iou = tp_px / iou_den if iou_den > 0 else 0.0
+    out = {"train_loss": avg_loss, "train_iou": train_iou, "train_nan_steps": float(nan_count)}
     if precision.scaler is not None:
         out["scaler_scale"] = float(precision.scaler.get_scale())
         out["scaler_halves_this_epoch"] = float(scaler_halves)
@@ -795,6 +809,7 @@ def main() -> int:
                 global_step_offset=global_step_offset,
                 total_steps=total_steps,
                 lr_history=lr_history,
+                ignore_index=int(cfg["data"]["label_ignore_index"]),
             )
             epoch_t = time.time() - epoch_t0
 
