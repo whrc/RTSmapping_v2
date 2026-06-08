@@ -23,7 +23,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
-## Status — 2026-06-06
+## Status — 2026-06-08
 
 - **Spec phase**: complete except `post-inference/post-inference.md`.
 - **Phase 0 / Phase 1**: complete. Docker image `rts-train:v2` at `us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2`.
@@ -44,8 +44,9 @@ Specs are the source of truth. Always read the relevant md before implementing (
 - **Status**: Phase 0 PR #14 open (phase_0→main). Working on branch `phase1-prep`. **`training/experiments.md` is the SSoT for the experiment program** — all other docs defer to it (SSoT-drift repair, 2026-06-07).
 - **Next two steps**:
   1. ✅ **SSoT repair done (2026-06-07)**: gate → `G=max(2σ₀,0.01)` everywhere; `training/experiments.md` is the program SSoT (§2.1/§2.3 fixed); baseline doc deduped → pointer; `docs/phase0_baseline.md` created; `train_iou` logged. 135 tests pass; committed + pushed.
-  2. 🔄 **Corrected A100 queue running** (single-seed 42; win = Δ ≥ G=0.025 over μ₀=0.5683 + no precision drop): `phase2_scale_25` (running) → 50 → 75 → `phase3_loss_compound_1to2/2to1` → `tversky_2to8`. Then: data-scaling slope (§5.3) + Phase-5 gate eval (§8.1), then §6.2 boundary / §6.3 WD (conditional). Gated Phase-5 (`phase5_*`) kept but not queued.
-  - **Phase 3 §6.1 loss family — results so far:** focal-only baseline = 0.5607 (seed42); compound 1:1 = **0.5568** (≈baseline, no win); tversky 0.3/0.7 = **0.3486** (clear loss). Focal-only winning so far (§1.4 simpler-wins tie-break).
+  2. 🔄 **Corrected A100 queue running** (single-seed 42; win = Δ ≥ G=0.025 over μ₀=0.5683 + no precision drop): `phase2_scale_25/50` done → `phase2_scale_75` (running) → `phase3_loss_compound_1to2/2to1` → `tversky_2to8`. Then: data-scaling slope (§5.3) + Phase-5 gate eval (§8.1), then §6.2 boundary / §6.3 WD (conditional). Gated Phase-5 (`phase5_*`) kept but not queued.
+  - **Phase 2 data-scaling (§5) — results so far:** 25% (~475 pos) = **0.5361** · 50% (~950) = **0.5372** · 75% (~1425) running · 100% (~1900) = 0.5607 (seed42). Preliminary read: curve **still rising** (~0.536 → ~0.561 over 4× data) → **data-limited, not saturated** — more positives likely help (consistent with the feasibility read). Confirm with the §5.3 slope once 75% lands; also informs the §8.1 Phase-5 gate + §6.3 WD trigger (needs the `train_iou` gap).
+  - **Phase 3 §6.1 loss family — results so far:** focal-only baseline = 0.5607; compound 1:1 = **0.5568** (≈baseline, no win); tversky 0.3/0.7 = **0.3486** (clear loss). Focal-only winning (§1.4 simpler-wins tie-break).
 
 ---
 
