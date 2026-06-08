@@ -66,7 +66,7 @@ dataset changes (e.g. the v0.3 selection upgrade). Sequence:
 3. `compute_normalization_stats.py` over the **new** train split → upload `normalization_stats.json`.
 4. Freeze the snapshot (`metadata_vX.csv`/`splits_vX.yaml`); pin configs; bump `data/version.json`.
 5. Re-run the 3-seed baseline → recompute μ₀, σ₀, and the gate **G = max(2σ₀, 0.01)** via
-   `report_phase0.py` → update `docs/phase0_baseline.md`.
+   `build_report.py` → update `docs/phase0_baseline.md`.
 6. Resume the experiment program (`training/experiments.md`) against the new baseline.
 
 Deferred infra (not blocking): multi-GPU orchestrator (`scripts/run_experiments.py`) + a

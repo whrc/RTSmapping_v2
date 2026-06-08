@@ -6,7 +6,7 @@
 # Phase 0a winner: Arm A (per-dataset z-score). normalization_stats_path already set correctly.
 #
 # Output: lr_range_curve.csv logged as MLflow artifact. Plot in MLflow UI or
-# with scripts/report_phase0.py (embedded in docs/phase0_report.html).
+# with scripts/build_report.py (embedded in docs/report.html).
 #
 # Run: docker run --rm --gpus '"device=0"' --privileged \
 #        -v /mnt/outputs:/outputs \

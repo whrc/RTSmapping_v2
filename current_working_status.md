@@ -36,7 +36,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
     - **μ₀ = 0.5683 (baseline ref), σ₀ = 0.0125 → medium-noise band.**
     - **Gate G = max(2σ₀, 0.01) = 0.025** (`training/experiments.md §1.4`, the SSoT). A candidate **wins** iff Δ(`val_realistic_pr_auc_geomean`) vs μ₀ ≥ G **and** precision @ recall=0.5 does not regress. G is a Δ-over-baseline threshold, **not** a performance floor. (Earlier "G=μ₀−2σ₀=0.5433 floor" was an error — corrected 2026-06-07.)
     - σ-band protocol (§3.4 medium): single-seed first-pass ranking; top ties (within 1σ) re-run at seed 43; final lock at 3 seeds. Recorded in `docs/phase0_baseline.md`.
-    - Report: `docs/phase0_report.html` (per-seed train/val-loss + gate/IoU/F1 curves; μ₀/σ₀/G card).
+    - Report: `docs/report.html` (per-seed train/val-loss + gate/IoU/F1 curves; μ₀/σ₀/G card).
   - **Mid-phase fixes** (see Key Decisions 2026-06-04/05): 9 corrupt tiles dropped; transient-GCS-read retry in `data/dataset.py`; preview tiles pinned by UID (`configs/preview_tiles.yaml`); MLflow dedupe + 2 stale seed42 runs deleted.
 - **Known data-quality debt (v2.1):** ~2.2% degraded tiles (209 missing BLUE band) — `/mnt/outputs/degraded_tiles.json`; 14 valid negatives unregistered in metadata. Left as-is (frozen baseline).
 - **Git**: `phase_0` → PR #14 (open, → main). Active branch **`phase1-prep`** pushed to origin (8 commits ahead of phase_0: v0.2, per-band validator, SegFormer, SSoT repair, gate fix, train_iou, re-queue).

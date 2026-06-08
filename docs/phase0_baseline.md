@@ -38,6 +38,6 @@ See `[[negative-pool-ceiling-and-gate-metric]]` and `docs/baseline_unetpp_effb5.
 - **Final-phase seed count:** 3 (42, 43, 44).
 
 ## Notes
-- Report (curves + cards): `docs/phase0_report.html` (regenerated from MLflow; not committed).
+- Report (curves + cards): `docs/report.html` (regenerated from MLflow; not committed).
 - Mid-phase data/pipeline fixes (corrupt tiles, transient-read retry, preview-UID, MLflow dedup) are in
   `current_working_status.md` Key Decisions (2026-06-04/05) and git history.

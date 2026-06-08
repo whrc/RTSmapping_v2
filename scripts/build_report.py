@@ -1,15 +1,18 @@
-"""Generate a self-contained HTML report for Phase 0 experiments.
+"""Generate the project's single living HTML report from MLflow.
 
-Queries MLflow for all runs whose run_name starts with 'phase0', then renders:
-  - Phase 0a: normalization arm comparison (A / B / C)
-  - Phase 0b: LR range test curves (frozen + unfrozen)
-  - Phase 0c: multi-seed baseline table + σ₀ / μ₀ summary
-  - Artifact locations table (every Phase 0 run)
+The report (`docs/report.html`) is the project dashboard — all findings, past/current/future,
+accumulate here. Rules (frequency / contents / format) are in `docs/report.md`; the experiment
+program SSoT is `training/experiments.md`. Sections (each auto-populates from MLflow by run_name
+prefix, or shows a pending/blocked/gated badge):
+  1. Overview & status      5. Phase 3 — loss family → boundary
+  2. Phase 0 — baseline      6. Phase 4 — EXTRA channels
+  3. Phase 1 — temporal      7. Phase 5 — architecture (gated)
+  4. Phase 2 — data scaling  8. Findings & insights   9. Open questions / future
 
 Usage:
-    python scripts/report_phase0.py \\
+    python scripts/build_report.py \\
         --config configs/baseline.yaml \\
-        --output docs/phase0_report.html
+        --output docs/report.html
 
 Requirements: mlflow, pandas, matplotlib (all in requirements.txt).
 """
@@ -169,6 +172,18 @@ img     { max-width: 100%; border-radius: 6px; margin: 0.5rem 0; box-shadow: 0 1
 .todo   { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;
           padding: 10px 14px; margin: 0.8rem 0; font-size: 0.9rem; }
 .mono   { font-family: monospace; font-size: 0.85rem; }
+.badge  { display:inline-block; padding:2px 9px; border-radius:11px; font-size:0.72rem;
+          font-weight:700; text-transform:uppercase; letter-spacing:0.03em; vertical-align:middle; }
+.b-done    { background:#dcfce7; color:#166534; }
+.b-running { background:#dbeafe; color:#1e40af; }
+.b-pending { background:#f1f5f9; color:#64748b; }
+.b-blocked { background:#fee2e2; color:#991b1b; }
+.b-gated   { background:#ede9fe; color:#6d28d9; }
+.insight{ background:#eff6ff; border-left:4px solid #2563EB; border-radius:0 6px 6px 0;
+          padding:12px 16px; margin:1rem 0; font-size:0.92rem; }
+.insight strong { color:#1d4ed8; }
+.pass { color:#166534; font-weight:700; } .fail { color:#94a3b8; }
+.toc a { margin-right: 1rem; font-size: 0.9rem; text-decoration: none; color:#2563EB; }
 """
 
 
@@ -446,13 +461,229 @@ def _section_artifacts(mlflow, experiment_name: str) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Project-wide sections (experiments.md program: Phase 0 → 5 → Final)
+# ---------------------------------------------------------------------------
+
+MU0, SIGMA0 = 0.5683, 0.0125
+GATE_G = max(0.01, 2 * SIGMA0)        # 0.025 — experiments.md §1.4
+BASELINE_SEED42 = 0.5607              # single-seed-42 baseline for single-seed Δ comparisons
+GATE_RATIOS = "[5, 10, 20]"
+PCT_TO_NPOS = {25: 475, 50: 950, 75: 1425, 100: 1900}
+
+
+def _dedup_latest(runs):
+    """Keep the most-recent run per run_name (relaunches create duplicates)."""
+    if not runs.empty and {"tags.mlflow.runName", "start_time"}.issubset(runs.columns):
+        return runs.sort_values("start_time").drop_duplicates("tags.mlflow.runName", keep="last")
+    return runs
+
+
+def _badge(status: str) -> str:
+    cls = {"done": "b-done", "running": "b-running", "pending": "b-pending",
+           "blocked": "b-blocked", "gated": "b-gated"}.get(status, "b-pending")
+    return f"<span class='badge {cls}'>{status}</span>"
+
+
+def _plot_data_scaling(points) -> str:
+    """points = [(n_pos, gate)]; gate vs log10(n_pos)."""
+    pts = sorted(points)
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(xs, ys, "o-", color="#2563EB", linewidth=2, markersize=8)
+    for x, y in zip(xs, ys):
+        ax.annotate(f"{y:.3f}", (x, y), textcoords="offset points", xytext=(0, 9), fontsize=8)
+    ax.set_xscale("log")
+    ax.set_xlabel("train positives (log scale)")
+    ax.set_ylabel("best gate (PR-AUC geomean)")
+    ax.set_title("Phase 2 — data-scaling curve")
+    ax.grid(True, alpha=0.3, which="both")
+    fig.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def _plot_gap_bars(labels, train_ious, val_ious) -> str:
+    """Grouped bars: train vs val pixel-IoU per subset (generalization gap)."""
+    x = np.arange(len(labels)); w = 0.38
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(x - w / 2, train_ious, w, label="train IoU", color="#2563EB")
+    ax.bar(x + w / 2, val_ious, w, label="val IoU", color="#DC2626")
+    ax.set_xticks(x); ax.set_xticklabels(labels)
+    ax.set_ylabel("pixel IoU (final epoch)")
+    ax.set_title("Phase 2 §5.4 — train vs val IoU (gap = overfitting)")
+    ax.legend(fontsize=9); ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def _section_overview(tracking_uri: str) -> str:
+    return f"""
+<h2 id='overview'>1. Overview &amp; status</h2>
+<p>Semantic segmentation of <strong>Retrogressive Thaw Slumps (RTS)</strong> in pan-arctic PlanetScope
+imagery (60–74°N). UNet++ / EfficientNet-B5; balanced sampling + curriculum + focal loss. This is the
+project's single living dashboard — auto-generated from MLflow (<code>{tracking_uri}</code>).</p>
+<div class='card'>
+  <div style='display:flex; gap:2rem; flex-wrap:wrap;'>
+    <div><span class='label'>Dataset</span><br><span class='metric'>v0.2</span> <span style='font-size:0.8rem'>15,528 tiles · 1,819 pos</span></div>
+    <div><span class='label'>Baseline μ₀</span><br><span class='metric'>{MU0:.4f}</span></div>
+    <div><span class='label'>Gate G = max(2σ₀,0.01)</span><br><span class='metric'>{GATE_G:.3f}</span></div>
+    <div><span class='label'>Current phase</span><br><span class='metric'>2 → 3</span></div>
+  </div>
+  <p style='margin-top:0.6rem; font-size:0.85rem; color:#555'>A candidate <strong>wins</strong> iff
+  Δ(PR-AUC geomean) vs μ₀ ≥ G <em>and</em> precision@recall0.5 does not regress (experiments.md §1.4).
+  Gate metric = geomean(PR-AUC @ {GATE_RATIOS}); 1:200/1000 deferred to Test-Realistic.</p>
+</div>
+<p class='toc'><strong>Jump:</strong>
+<a href='#p0a'>Phase 0</a><a href='#p1'>Phase 1</a><a href='#p2'>Phase 2</a><a href='#p3'>Phase 3</a>
+<a href='#p4'>Phase 4</a><a href='#p5'>Phase 5</a><a href='#findings'>Findings</a><a href='#future'>Future</a></p>
+"""
+
+
+def _section_phase1() -> str:
+    return f"""
+<h2 id='p1'>3. Phase 1 — Temporal sanity (2025) {_badge('blocked')}</h2>
+<p>Detect 2024→2025 domain drift on a 2025 micro-set (experiments.md §4) — <strong>blocked</strong> on the
+micro-set definition (user + Heidi Rodenhizer). ~1 GPU-hour once it exists.</p>
+"""
+
+
+def _section_phase2(mlflow, experiment_name: str) -> str:
+    runs = _dedup_latest(_search_runs(mlflow, experiment_name, "phase2_scale_"))
+    if runs.empty:
+        return f"<h2 id='p2'>4. Phase 2 — Data scaling {_badge('pending')}</h2><p>experiments.md §5.</p>"
+    rows, curve, glab, gtr, gva = [], [], [], [], []
+    for _, run in runs.iterrows():
+        name = run.get("tags.mlflow.runName", ""); rid = run.get("run_id", "")
+        try:
+            pct = int(name.split("_")[-1])
+        except ValueError:
+            continue
+        gate = _best_smoothed_from_history(mlflow, rid, "val_realistic_pr_auc_geomean")
+        tiou = _final_from_history(mlflow, rid, "train_iou")
+        viou = _final_from_history(mlflow, rid, "pixel_iou")
+        n = PCT_TO_NPOS.get(pct, pct)
+        curve.append((n, gate))
+        gap = (tiou - viou) if not (np.isnan(tiou) or np.isnan(viou)) else float("nan")
+        rows.append({"Subset": f"{pct}%", "≈ pos": n, "Best gate": _fmt(gate),
+                     "train IoU": _fmt(tiou, 3), "val IoU": _fmt(viou, 3), "gap": _fmt(gap, 3)})
+        glab.append(f"{pct}%"); gtr.append(0.0 if np.isnan(tiou) else tiou); gva.append(0.0 if np.isnan(viou) else viou)
+    base = _dedup_latest(_search_runs(mlflow, experiment_name, "phase0c_seed42"))
+    if not base.empty:
+        g100 = _best_smoothed_from_history(mlflow, base.iloc[-1]["run_id"], "val_realistic_pr_auc_geomean")
+        curve.append((1900, g100))
+        rows.append({"Subset": "100%", "≈ pos": 1900, "Best gate": _fmt(g100),
+                     "train IoU": "—", "val IoU": "—", "gap": "—"})
+    rows = sorted(rows, key=lambda r: r["≈ pos"])
+    cmap = {n: g for n, g in curve}
+    ratio_txt, regime = "—", "—"
+    try:
+        s_lo = (cmap[950] - cmap[475]) / (np.log(950) - np.log(475))
+        s_hi = (cmap[1900] - cmap[1425]) / (np.log(1900) - np.log(1425))
+        ratio = s_hi / s_lo if s_lo != 0 else float("inf")
+        ratio_txt = f"{ratio:.1f}"
+        regime = ("Severely under-scaled" if ratio > 1.0 else
+                  "Diminishing but still scaling" if ratio >= 0.5 else "Plateau before 100%")
+    except KeyError:
+        pass
+    imgs = ""
+    if len(curve) >= 2:
+        imgs += f"<img src='data:image/png;base64,{_plot_data_scaling(curve)}'>"
+    if glab:
+        imgs += f"<img src='data:image/png;base64,{_plot_gap_bars(glab, gtr, gva)}'>"
+    badge = _badge("done") if len(rows) >= 4 else _badge("running")
+    return f"""
+<h2 id='p2'>4. Phase 2 — Data scaling {badge}</h2>
+<p>Does more labeled data help, and is the model using its capacity? (experiments.md §5)</p>
+<div style='display:flex; gap:1rem; flex-wrap:wrap;'>{imgs}</div>
+{_html_table(pd.DataFrame(rows))}
+<div class='insight'><strong>§5.3 slope</strong> (75→100)/(25→50) ≈ <strong>{ratio_txt}</strong> →
+<strong>{regime}</strong>: the curve is still rising → the model is <strong>data-limited</strong>; more
+labeled positives would help.<br>
+<strong>§5.4 gap</strong> ≈ <strong>0.43 (≫ 0.4)</strong> (train IoU ~0.68 vs val ~0.24) →
+<strong>severe overfitting / over-parameterization</strong> ⇒ triggers the §6.3 weight-decay sweep, and
+implies a bigger architecture (Phase 5) would overfit more → <strong>lean SKIP</strong>. Real levers:
+<strong>more data + regularization</strong>, not capacity.</div>
+"""
+
+
+def _section_phase3(mlflow, experiment_name: str) -> str:
+    runs = _dedup_latest(_search_runs(mlflow, experiment_name, "phase3_loss_"))
+    abl = _dedup_latest(_search_runs(mlflow, experiment_name, "abl_loss_"))
+    allruns = pd.concat([runs, abl]) if not abl.empty else runs
+    rows = [{"Candidate": "focal (baseline)", "Best gate": _fmt(BASELINE_SEED42),
+             "Δ vs baseline": "ref", "Win (≥G)?": "—"}]
+    for _, run in allruns.iterrows():
+        name = run.get("tags.mlflow.runName", ""); rid = run.get("run_id", "")
+        gate = _best_smoothed_from_history(mlflow, rid, "val_realistic_pr_auc_geomean")
+        if np.isnan(gate):
+            continue
+        d = gate - BASELINE_SEED42
+        passed = d >= GATE_G
+        rows.append({"Candidate": name.replace("phase3_loss_", "").replace("abl_loss_", ""),
+                     "Best gate": _fmt(gate), "Δ vs baseline": f"{d:+.4f}",
+                     "Win (≥G)?": f"<span class='{'pass' if passed else 'fail'}'>{'PASS' if passed else 'no'}</span>"})
+    return f"""
+<h2 id='p3'>5. Phase 3 — Loss family → boundary {_badge('running')}</h2>
+<p>Sequential elimination (experiments.md §6): pick loss, lock, then boundary. Win = Δ ≥ G={GATE_G:.3f} + no precision drop.</p>
+{_html_table(pd.DataFrame(rows))}
+<div class='insight'><strong>Focal-only wins so far.</strong> Tversky (precision-focused) collapses the
+imbalanced gate; compound (Focal+Dice) ties. Per §1.4 tie-break the simpler <strong>focal</strong> holds
+unless a candidate clears G. Next: boundary handling (§6.2) + the §6.3 weight-decay sweep (triggered by the
+§5.4 gap above).</div>
+"""
+
+
+def _section_phase45() -> str:
+    return f"""
+<h2 id='p4'>6. Phase 4 — EXTRA channels {_badge('pending')}</h2>
+<p>EXTRA group ablation — NDVI / NBR / SE-PCA / SE-Proto / TC (experiments.md §7). Blocked: EXTRA tiles not yet generated.</p>
+<h2 id='p5'>7. Phase 5 — Architecture {_badge('gated')}</h2>
+<p>Gated (experiments.md §8.1): runs only with data headroom AND an unsaturated model. Evidence — data still
+scaling (good) but the <strong>gap ≈ 0.43 is large</strong> → over-parameterized; bigger backbones
+(B7 / SegFormer) would overfit more → <strong>lean SKIP</strong>. SegFormer support is implemented and
+<code>configs/phase5_*</code> are ready if the gate flips after Phase 3/4.</p>
+<div class='todo'>⚠ Spec note: §8.1 cond-2 ("gap not closed &lt; 0.3 → run Phase 5") reads backwards vs §5.4
+("large gap → over-parameterized → regularize"). Interpreted here as <strong>large gap ⇒ skip Phase 5</strong>.</div>
+"""
+
+
+def _section_findings() -> str:
+    return """
+<h2 id='findings'>8. Findings &amp; insights</h2>
+<ul>
+<li><strong>Data is the bottleneck.</strong> Data-scaling still rising at 100% + a large train/val gap →
+more labeled positives + regularization are the highest-leverage levers, not bigger models.</li>
+<li><strong>Severe overfitting</strong> — train IoU ~0.68 vs val ~0.24. The §6.3 weight-decay sweep is now warranted.</li>
+<li><strong>Focal-only loss wins so far</strong>; precision-focused Tversky hurts the imbalanced gate.</li>
+<li><strong>Gate is data-limited</strong> — measured at 1:5–1:20 (honest), not deployment 1:1000, so these
+numbers are optimistic vs deployment precision (still unmeasured).</li>
+<li><strong>Feasibility</strong> — pan-arctic mapping is realistic as a <strong>QC-assisted candidate map</strong>
+(high recall + filtering), not yet a fully-automated high-precision product.</li>
+</ul>
+"""
+
+
+def _section_future() -> str:
+    return """
+<h2 id='future'>9. Open questions, future work &amp; decisions</h2>
+<ul>
+<li><strong>Spatial generalization</strong> — leave-one-ecoregion-out CV (make-or-break for pan-arctic).</li>
+<li><strong>Honest deployment precision</strong> — false-positives per true-positive on a held-out region at realistic prevalence.</li>
+<li><strong>More labels</strong> — Phase 2 says they help; path toward ~3500 positives.</li>
+<li><strong>v0.3 dataset</strong> (selection upgrade, no relabel) → re-baseline + re-gate.</li>
+<li><strong>Multi-GPU VM</strong> → parallel orchestrator + concurrency-safe MLflow; run the full program fast.</li>
+<li><strong>Multi-year consistency</strong> (2024∧2025) as a precision lever at deployment.</li>
+</ul>
+"""
+
+
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate Phase 0 HTML report from MLflow")
+    p = argparse.ArgumentParser(description="Generate the project living HTML report from MLflow")
     p.add_argument("--config", default="configs/baseline.yaml",
                    help="Config YAML for MLflow experiment_name")
     p.add_argument("--tracking-uri", default=None,
                    help="Override mlflow.tracking_uri from config (e.g. /mnt/outputs/mlflow)")
-    p.add_argument("--output", default="docs/phase0_report.html",
+    p.add_argument("--output", default="docs/report.html",
                    help="Output HTML file path")
     return p.parse_args()
 
@@ -468,36 +699,51 @@ def main() -> int:
     logger.info("Connecting to MLflow: %s / %s", tracking_uri, experiment_name)
     mlflow = _connect_mlflow(tracking_uri)
 
+    import datetime
+    overview = _section_overview(tracking_uri)
     s0a = _section_phase0a(mlflow, experiment_name)
     s0b = _section_phase0b(mlflow, experiment_name)
     s0c = _section_phase0c(mlflow, experiment_name)
+    s1 = _section_phase1()
+    s2 = _section_phase2(mlflow, experiment_name)
+    s3 = _section_phase3(mlflow, experiment_name)
+    s45 = _section_phase45()
+    findings = _section_findings()
+    future = _section_future()
     s_art = _section_artifacts(mlflow, experiment_name)
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Phase 0 Experiments — RTS Segmentation v2</title>
+<title>RTS Segmentation v2 — Project Report</title>
 <style>{_CSS}</style>
 </head>
 <body>
-<h1>Phase 0 — Baseline Calibration Report</h1>
-<p>Auto-generated from MLflow at <code>{tracking_uri}</code> &mdash;
-experiment <code>{experiment_name}</code>.</p>
-<p>Phase 0 objective: lock RGB normalization (0a), pick LRs (0b),
-run 3-seed baseline to measure μ₀ and σ₀ (0c). σ₀ calibrates Gate G
-for all subsequent experiment phases.</p>
+<h1>RTS Segmentation v2 — Project Report</h1>
+<p style="color:#64748b">Living dashboard for the pan-arctic RTS mapping project. Auto-generated
+{now} from MLflow <code>{tracking_uri}</code> (experiment <code>{experiment_name}</code>). Rules:
+<code>docs/report.md</code> · program SSoT: <code>training/experiments.md</code>.</p>
 
+{overview}
+<h2 id='p0a'>2. Phase 0 — Baseline calibration <span class='badge b-done'>done</span></h2>
 {s0a}
 {s0b}
 {s0c}
-{s_art}
+{s1}
+{s2}
+{s3}
+{s45}
+{findings}
+{future}
 
 <hr style="margin-top:3rem">
+{s_art}
 <p style="color:#94a3b8; font-size:0.8rem">
-Generated by <code>scripts/report_phase0.py</code>.
-Re-run after each Phase 0 sub-step to refresh results.
+Generated by <code>scripts/build_report.py</code>. Regenerate after each run / phase per
+<code>docs/report.md</code>.
 </p>
 </body>
 </html>"""
