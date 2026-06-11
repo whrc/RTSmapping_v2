@@ -973,7 +973,13 @@ def _resume_from(
         # Reconstruct EMA so validation/best-checkpoint comparisons stay on
         # EMA weights instead of silently using live weights.
         ema = ema_mod.EMAModel(model, decay=float(cfg["ema"]["decay"]))
-        ema.shadow = {k: v.detach().clone() for k, v in sd["ema_state_dict"].items()}
+        # Checkpoint was loaded with map_location="cpu"; shadow tensors must
+        # live on the model's device or EMA.update mixes cpu/cuda tensors.
+        device = next(model.parameters()).device
+        ema.shadow = {
+            k: v.detach().clone().to(device)
+            for k, v in sd["ema_state_dict"].items()
+        }
     return next_epoch, ema
 
 

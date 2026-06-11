@@ -451,3 +451,43 @@ def test_select_preview_tiles_falls_back_when_none_in_val(tmp_path):
     out = train._select_preview_tiles(cfg, meta, ["pA", "pB", "nA", "nB"])
     assert "ghost" not in out and "phantom" not in out
     assert len(out) > 0  # heuristic produced something
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA to expose device mismatch")
+def test_resume_ema_shadow_on_model_device(tmp_path):
+    """EMA shadow restored by _resume_from must live on the model's device.
+
+    Regression for the 2026-06-11 A100 crash: the resume checkpoint is loaded
+    with map_location="cpu", and the restored shadow stayed on CPU while the
+    model was on CUDA — EMA.update then raised a cpu/cuda device mismatch.
+    """
+    import train
+    from training import early_stopping as es_mod
+
+    model = torch.nn.Linear(4, 2).cuda()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    es = es_mod.EarlyStopping(metric_name="m", patience=3, min_delta=0.0, start_epoch=1)
+    precision = train.PrecisionSetup(
+        requested="fp32", effective="fp32", autocast_dtype=None,
+        use_scaler=False, scaler=None,
+    )
+    cpu_sd = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+    ckpt_path = tmp_path / "resume_latest-0005.pth"
+    torch.save({
+        "checkpoint_type": "resume",
+        "epoch": 5,
+        "live_state_dict": cpu_sd,
+        "optimizer_state_dict": optimizer.state_dict(),
+        "early_stopping_state": es.state_dict(),
+        "ema_state_dict": cpu_sd,
+    }, ckpt_path)
+
+    next_epoch, ema = train._resume_from(
+        ckpt_path, model, optimizer, precision, es,
+        {"ema": {"enabled": True, "decay": 0.999}}, freeze_epochs=0,
+    )
+    assert next_epoch == 6
+    assert ema is not None
+    device = next(model.parameters()).device
+    assert all(v.device == device for v in ema.shadow.values())
+    ema.update(model)  # must not raise a device-mismatch RuntimeError
