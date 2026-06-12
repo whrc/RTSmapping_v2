@@ -12,6 +12,7 @@ Two-tier verification:
 - **Tier 2 — real-data scripts**: runs on the real v2.0 bucket on the L4 VM.
     - Phase 0 data checks: `scripts/check_data_content.py` (bucket structure) + `scripts/check_data.py` (DataLoader preview).
     - Phase 1 training smoke: `python scripts/train.py --config configs/smoke.yaml` (2 epochs on a subset of real regions; inference.md §6.4 gate).
+    - Inference validation: `scripts/validate_inference_tiny.py` (real 2025 quads + GPU; 11 PASS/FAIL checks on overlap/stitching/fusion/NoData/resume — results in `docs/inference_validation.md`).
 
 **Green pytest ≠ "this works on real imagery"** — it means the plumbing doesn't crash and the invariants hold on canned input. Real-data surprises (CRS mismatches, radiometric drift, missing EXTRA bands, OOM on real tile sizes) are caught by Tier 2, not here.
 

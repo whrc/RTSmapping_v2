@@ -152,7 +152,7 @@ Flow:
 
 ### 4.3 Overlap Aggregation
 
-Fusion method: **distance-from-tile-center weighted average**, Gaussian weighting with σ = 128 px in tile coordinates, normalized per pixel.
+Fusion method: **distance-from-tile-center weighted average**, Gaussian weighting with σ = 128 px in tile coordinates, normalized per pixel. **Implementation refinement (2026-06-12, found by the tiny-area validation):** the weight is a separable *edge-zeroed* Gaussian (per-axis `g(i) = exp(−(i−c)²/2σ²) − g_edge`, `w = g⊗g`) rather than the plain radial form — the radial Gaussian retains weight ≈ 0.135 at the tile edge, so contributions appear/disappear discontinuously across seams (measured ~7× elevated probability gradients on seam lines). Zeroing the edge makes contributions fade in continuously; σ and the center-trust rationale are unchanged. Side effect: a pixel covered only by tiles' outermost row/column (the 1-px ring at an unchunked AOI boundary) has zero total weight → NoData.
 
 Rationale: edge-of-tile predictions come from locations where the model has seen fewer surrounding pixels within *this* tile. Center-of-tile predictions are more trustworthy. Max fusion (taking the highest probability across tiles) is recall-biased and contradicts §1's precision-over-recall goal; averaging preserves calibration.
 

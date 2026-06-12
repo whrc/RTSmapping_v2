@@ -102,6 +102,16 @@ def test_grid_constants_consistent():
     assert QUAD_SIZE_M / 4096 == pytest.approx(RESOLUTION_M)
 
 
+def test_quad_name_regex_handles_both_delivery_layouts():
+    from inference.quad_index import _QUAD_NAME_RE
+    m = _QUAD_NAME_RE.search("338-1622_quad_file_format.tif")
+    assert m and (m.group(1), m.group(2)) == ("338", "1622")
+    # Flat layout with mosaic name embedded (observed in 2025-Q3 column 338).
+    m = _QUAD_NAME_RE.search("global_quarterly_2025q3_mosaic_338-1474_quad_file_format.tif")
+    assert m and (m.group(1), m.group(2)) == ("338", "1474")
+    assert _QUAD_NAME_RE.search("338-1622_ortho_udm2_file_format.tif") is None
+
+
 def test_load_quad_index_validates_columns(tmp_path):
     bad = tmp_path / "bad.csv"
     pd.DataFrame({"quad_id": ["a"]}).to_csv(bad, index=False)
@@ -304,11 +314,16 @@ def test_manifest_resume_skips_completed(tmp_path):
 # merge: Gaussian fusion
 # ---------------------------------------------------------------------------
 
-def test_gaussian_weights_peak_center_symmetric():
+def test_gaussian_weights_peak_center_symmetric_zero_at_edges():
     w = gaussian_center_weights(512, 128.0)
     assert w.shape == (512, 512)
     assert w.max() == pytest.approx(w[255:257, 255:257].max())
     assert np.allclose(w, w[::-1, :]) and np.allclose(w, w[:, ::-1])
+    # Edge-zeroed: contributions fade in continuously across stitch seams
+    # (seam-gradient artifact found by the tiny-area validation, 2026-06-12).
+    assert (w[0, :] == 0).all() and (w[:, 0] == 0).all()
+    assert (w[-1, :] == 0).all() and (w[:, -1] == 0).all()
+    assert (w[1:-1, 1:-1] > 0).all()
 
 
 def test_merge_weighted_average_and_nodata(tmp_path):
@@ -330,8 +345,11 @@ def test_merge_weighted_average_and_nodata(tmp_path):
 
     merged, mb = merge_tiles(tiles, str(tmp_path), sigma_px=128.0)
     assert mb == bounds
-    assert np.allclose(merged[:, 10:], 0.5, atol=1e-6)
-    assert np.allclose(merged[:, :10], 0.2, atol=1e-6)
+    # Interior: equal weights cancel -> exact mean; NoData strip -> tile a only.
+    assert np.allclose(merged[1:-1, 10:-1], 0.5, atol=1e-6)
+    assert np.allclose(merged[1:-1, 1:10], 0.2, atol=1e-6)
+    # Outermost ring has zero weight from every tile (edge-zeroed fusion) -> NoData.
+    assert (merged[0, :] == NODATA_PROB).all() and (merged[:, 0] == NODATA_PROB).all()
 
 
 def test_merge_ignores_missing_tiles(tmp_path):
@@ -346,4 +364,4 @@ def test_merge_ignores_missing_tiles(tmp_path):
     write_probability_tile(str(tmp_path / "present.tif"),
                            np.full((512, 512), 0.3, dtype=np.float32), bounds)
     merged, _ = merge_tiles(tiles, str(tmp_path), sigma_px=128.0)
-    assert np.allclose(merged, 0.3, atol=1e-6)
+    assert np.allclose(merged[1:-1, 1:-1], 0.3, atol=1e-6)

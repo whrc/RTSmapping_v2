@@ -44,10 +44,23 @@ logger = logging.getLogger(__name__)
 
 
 def gaussian_center_weights(size_px: int, sigma_px: float) -> np.ndarray:
-    """(size, size) weight grid peaking at the tile center (§4.3)."""
+    """(size, size) weight grid peaking at the tile center, zero at edges (§4.3).
+
+    Separable edge-zeroed Gaussian: per-axis g(i) = exp(−(i−c)²/2σ²) − g_edge,
+    w = g ⊗ g. The plain radial Gaussian keeps weight exp(−2) ≈ 0.135 at the
+    tile edge, so a tile's contribution appears/disappears *discontinuously*
+    across stitch seams — measured as ~7× elevated probability gradients on
+    seam lines (tiny-area validation, 2026-06-12). Zeroing the weight exactly
+    at the edge makes contributions fade in continuously and removes the seam
+    artifact while keeping the §4.3 center-trust rationale and σ unchanged.
+    Consequence: pixels covered only by another tile's outermost row/column
+    (e.g. the 1-px ring at an AOI boundary) have zero total weight → NoData.
+    """
     c = (size_px - 1) / 2.0
-    yy, xx = np.mgrid[0:size_px, 0:size_px]
-    return np.exp(-((yy - c) ** 2 + (xx - c) ** 2) / (2.0 * sigma_px ** 2))
+    i = np.arange(size_px)
+    g = np.exp(-((i - c) ** 2) / (2.0 * sigma_px ** 2))
+    g = np.maximum(g - g[0], 0.0)
+    return np.outer(g, g)
 
 
 def merge_tiles(

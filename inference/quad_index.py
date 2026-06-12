@@ -17,6 +17,7 @@ the south edge. No raster opens are needed to build the index.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -34,6 +35,12 @@ RESOLUTION_M = QUAD_SIZE_M / QUAD_SIZE_PX  # 4.7773142...
 
 QUAD_SUFFIX = "_quad_file_format.tif"
 UDM2_SUFFIX = "_ortho_udm2_file_format.tif"
+
+# Matches "<x>-<y>_quad_file_format.tif" at the end of a filename. The id is
+# anchored on a non-digit boundary because some deliveries embed the mosaic
+# name in the filename instead of using an order-UUID subdirectory (observed:
+# ".../338/1474/global_quarterly_2025q3_mosaic_338-1474_quad_file_format.tif").
+_QUAD_NAME_RE = re.compile(r"(?:^|[^0-9])(\d+)-(\d+)" + re.escape(QUAD_SUFFIX) + r"$")
 
 
 def quad_bounds(x: int, y: int) -> tuple[float, float, float, float]:
@@ -63,12 +70,13 @@ def build_quad_index(
     for blob in client.list_blobs(bucket, prefix=prefix):
         n_objects += 1
         name = blob.name
-        if not name.endswith(QUAD_SUFFIX):
+        m = _QUAD_NAME_RE.search(name.rsplit("/", 1)[-1])
+        if m is None:
             continue
-        quad_id = name.rsplit("/", 1)[-1][: -len(QUAD_SUFFIX)]
+        x_str, y_str = m.group(1), m.group(2)
+        quad_id = f"{x_str}-{y_str}"
         prev = rows.get(quad_id)
         if prev is None or blob.updated > prev["_updated"]:
-            x_str, y_str = quad_id.split("-")
             minx, miny, maxx, maxy = quad_bounds(int(x_str), int(y_str))
             rows[quad_id] = {
                 "quad_id": quad_id,
