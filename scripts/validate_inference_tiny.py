@@ -69,12 +69,13 @@ def record(check: str, ok: bool | None, detail: str) -> None:
 
 
 def run_inference_cli(tile_list: Path, quad_index: Path, package: str,
-                      out_dir: Path) -> None:
+                      out_dir: Path, scale: float = 1.0) -> None:
     """Run the real entry point (subprocess) so the CLI path is what's tested."""
     cmd = [sys.executable, str(Path(__file__).parent / "inference.py"),
            "--config", "configs/deployment.yaml",
            "--tile-list", str(tile_list), "--quad-index", str(quad_index),
-           "--package", package, "--output", str(out_dir), "--num-workers", "4"]
+           "--package", package, "--output", str(out_dir), "--num-workers", "4",
+           "--scale", str(scale)]
     subprocess.run(cmd, check=True)
 
 
@@ -441,6 +442,109 @@ def check_blobs(merged: np.ndarray, mbounds: tuple, metadata: str | None) -> Non
 
 # ---------------------------------------------------------------------------
 
+def run_scale05_experiment(args, quad_index: pd.DataFrame, stride_px: int,
+                           sigma_px: float) -> None:
+    """Scale-0.5 (2x GSD, 4x FOV) run over the same AOI + comparison figure.
+
+    Qualitative evidence for/against multi-scale training (inference.md §6.2;
+    the §6.4 quantitative gate runs on the val set, not here).
+    """
+    from scipy import ndimage
+    from inference.writer import write_probability_tile
+
+    out_root = args.out_root
+    cx = WORLD_MIN + args.corner_x * QUAD_SIZE_M
+    cy = WORLD_MIN + args.corner_y * QUAD_SIZE_M
+    half = args.aoi_half_km * 1000
+    aoi = (cx - half, cy - half, cx + half, cy + half)
+    res05 = RESOLUTION_M / 0.5  # 9.5546 m
+
+    tiles05 = generate_tile_grid(quad_index, stride_px, aoi=aoi, scale=0.5)
+    tl = out_root / "scale05_tiles.csv"; tiles05.to_csv(tl, index=False)
+    logger.info("Scale-0.5 grid: %d tiles (each %.1f km FOV)",
+                len(tiles05), TILE_SIZE_PX * res05 / 1000)
+    out = out_root / "scale05_out"
+    run_inference_cli(tl, args.quad_index, args.package, out, scale=0.5)
+    merged05, mb05 = merge_tiles(tiles05, str(out), sigma_px=sigma_px,
+                                 resolution_m=res05)
+    write_probability_tile(str(out_root / "merged_prob_scale05.tif"),
+                           merged05, mb05)
+
+    with rasterio.open(out_root / "merged_prob.tif") as src:
+        m10 = src.read(1)
+        b10 = src.bounds
+    mb10 = (b10.left, b10.bottom, b10.right, b10.top)
+
+    # Common window, pixel-aligned to the scale-1.0 grid; upsample 0.5 by 2x.
+    ix0, iy0 = max(mb10[0], mb05[0]), max(mb10[1], mb05[1])
+    ix1, iy1 = min(mb10[2], mb05[2]), min(mb10[3], mb05[3])
+    def crop(arr, b, res):
+        c0 = int(round((ix0 - b[0]) / res)); c1 = int(round((ix1 - b[0]) / res))
+        r0 = int(round((b[3] - iy1) / res)); r1 = int(round((b[3] - iy0) / res))
+        return arr[r0:r1, c0:c1]
+    c10 = crop(m10, mb10, RESOLUTION_M)
+    c05 = crop(merged05, mb05, res05)
+    up05 = np.repeat(np.repeat(c05, 2, axis=0), 2, axis=1)[:c10.shape[0], :c10.shape[1]]
+    if up05.shape != c10.shape:  # pad if rounding left a 1px shortfall
+        pad = np.full(c10.shape, NODATA_PROB, dtype=up05.dtype)
+        pad[:up05.shape[0], :up05.shape[1]] = up05
+        up05 = pad
+
+    # Stats: distributions, blobs, agreement.
+    v10, v05 = c10[c10 != NODATA_PROB], up05[up05 != NODATA_PROB]
+    both = (c10 != NODATA_PROB) & (up05 != NODATA_PROB)
+    hot10, hot05 = (c10 >= 0.1) & both, (up05 >= 0.1) & both
+    inter, union = (hot10 & hot05).sum(), (hot10 | hot05).sum()
+    lab10, n10 = ndimage.label(hot10)
+    lab05, n05 = ndimage.label(hot05)
+    only05 = hot05 & ~ndimage.binary_dilation(hot10, iterations=10)
+    _, n_only05 = ndimage.label(only05)
+    fused = np.where(both, (c10 + up05) / 2.0,
+                     np.where(c10 != NODATA_PROB, c10,
+                              np.where(up05 != NODATA_PROB, up05, NODATA_PROB)))
+    record("S scale-0.5 vs 1.0", None,
+           f"P>=0.1 blobs: scale1.0={n10}, scale0.5={n05}, only-at-0.5 (>=100m "
+           f"from any 1.0 blob)={n_only05}; IoU(hot)={inter / union if union else 0:.3f}; "
+           f"max prob 1.0={v10.max():.3f} vs 0.5={v05.max():.3f}; "
+           f"mean 1.0={v10.mean():.4f} vs 0.5={v05.mean():.4f}")
+
+    # Figure: 2x3 — RGB | P1.0 | P0.5 ; fused | zoom@hottest-1.0 | zoom@max(P0.5-P1.0).
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    rgb = _read_rgb_canvas((ix0, iy0, ix1, iy1), quad_index, c10.shape)
+    vmax = max(0.2, float(max(v10.max(), v05.max())))
+    fig, axes = plt.subplots(2, 3, figsize=(21, 13))
+    fig.suptitle(f"scale 1.0 (4.78 m/px, 2.4 km FOV) vs scale 0.5 (9.55 m/px, 4.9 km FOV) — "
+                 f"common window {c10.shape[1]}×{c10.shape[0]} px", fontsize=13)
+    def show(ax, arr, title, prob=True):
+        if prob:
+            im = ax.imshow(np.ma.masked_where(arr == NODATA_PROB, arr),
+                           vmin=0, vmax=vmax, cmap="inferno")
+            fig.colorbar(im, ax=ax, shrink=0.6)
+        else:
+            ax.imshow(arr)
+        ax.set_title(title); ax.set_xticks([]); ax.set_yticks([])
+    show(axes[0][0], np.moveaxis(rgb, 0, -1), "2025 RGB", prob=False)
+    show(axes[0][1], c10, "scale 1.0 probability")
+    show(axes[0][2], up05, "scale 0.5 probability (upsampled 2x)")
+    show(axes[1][0], fused, "fused mean (§7.3 over valid scales)")
+    hr, hc = np.unravel_index(np.argmax(np.where(both, c10, -1)), c10.shape)
+    diff = np.where(both, up05 - c10, -1)
+    dr, dc = np.unravel_index(np.argmax(diff), diff.shape)
+    for ax, (r, c), name in ((axes[1][1], (hr, hc), "hottest scale-1.0 blob"),
+                             (axes[1][2], (dr, dc), "max(P0.5 − P1.0)")):
+        r0, c0 = max(r - 200, 0), max(c - 200, 0)
+        a = c10[r0:r0 + 400, c0:c0 + 400]
+        b = up05[r0:r0 + 400, c0:c0 + 400]
+        sep = np.full((a.shape[0], 6), vmax, dtype=a.dtype)  # bright divider
+        show(ax, np.concatenate([a, sep, b], axis=1), f"zoom {name}: 1.0 | 0.5")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    png = out_root / "scale_comparison.png"
+    fig.savefig(png, dpi=130); plt.close(fig)
+    logger.info("Wrote %s", png)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--quad-index", required=True, type=Path)
@@ -454,6 +558,10 @@ def main() -> int:
     p.add_argument("--overlay-only", action="store_true",
                    help="regenerate validation_overlay.png from the existing "
                         "merged_prob.tif + corner_tiles.csv (no GPU run)")
+    p.add_argument("--scale05", action="store_true",
+                   help="scale-0.5 experiment (2x GSD, 4x FOV) over the same "
+                        "AOI; compares against the existing scale-1.0 "
+                        "merged_prob.tif -> scale_comparison.png")
     args = p.parse_args()
     setup_logging()
     out_root = args.out_root; out_root.mkdir(parents=True, exist_ok=True)
@@ -475,6 +583,12 @@ def main() -> int:
         check_geo_overlay(merged, (b.left, b.bottom, b.right, b.top),
                           merged_path, tiles, quad_index, out_root,
                           dep_cfg["threshold"], corner_xy=(cx, cy))
+        return 0
+
+    if args.scale05:
+        run_scale05_experiment(args, quad_index, stride_px, sigma_px)
+        for check, status, detail in RESULTS:
+            print(f"  {status:4s}  {check}: {detail}")
         return 0
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

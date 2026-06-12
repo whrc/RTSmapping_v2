@@ -287,6 +287,8 @@ Inference pipeline (`inference/` + grid/merge entry scripts), GPU-free. Fixture:
 | `test_gaussian_weights_peak_center_symmetric` | σ=128 weight grid peaks center, symmetric | shallow |
 | `test_merge_weighted_average_and_nodata` | equal-weight overlap → exact mean; NoData strip falls back to valid tile | real — §4.3 |
 | `test_merge_ignores_missing_tiles` | absent (skipped) tile rasters don't break the merge | real |
+| `test_read_tile_scale05_expands_fov` | scale=0.5 decimated read: 2× ground bbox → same px dims, values survive bilinear | real — §6.2 scale path |
+| `test_read_tile_scale05_nodata_stays_crisp` | alpha resampled nearest: NoData boundary exact under decimation | real |
 
 > Not covered (deliberate): `scripts/inference.py` main loop and
 > `vectorize_predictions.py` are exercised by the Tier-2 real-data smoke

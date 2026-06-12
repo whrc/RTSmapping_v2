@@ -45,6 +45,31 @@ threshold 0.5 / temperature 1.0).
    background. Spec note added to `inference.md §4.3`. Side effect: 1-px NoData ring at
    unchunked AOI boundaries (zero total weight) — irrelevant once PDG chunks overlap.
 
+## Scale-0.5 experiment (2× GSD, 4× FOV) — 2026-06-12
+
+Same AOI, same model, tiles read at 9.55 m/px covering 4.9 km FOV per 512² input
+(real expanded-footprint decimated reads, not the within-tile downsample approximation in
+`inference_feasibility.py`). Run: `validate_inference_tiny.py --scale05`; figure:
+`scale_comparison.png`; raster: `merged_prob_scale05.tif`.
+
+**Result: the v2.0 model does not transfer zero-shot to 2× GSD.**
+
+| Metric | scale 1.0 | scale 0.5 |
+|---|---|---|
+| blobs ≥ 0.1 | 9 | **0** |
+| max probability | 0.145 | 0.047 |
+| hot-region IoU vs scale 1.0 | — | 0.000 |
+
+The scale-0.5 map shows the same features only as faint ~3× weaker responses (visible in the
+side-by-side zooms); nothing new appears at the larger FOV. **Implication for training**: plain
+multi-scale *inference* on a single-GSD-trained model is not viable — if medium/large-RTS
+coverage at wider FOV is wanted, it must come from **multi-scale or context-expanded training**
+(the inference.md §6.4 "Phase-1.5" path: fetch 2× area, downsample to 512 during training).
+Caveats: uncalibrated v2.0 dev checkpoint, single AOI, qualitative — but the response collapse
+is large enough that the §6.4 quantitative gate would very likely fail too. Recommend deciding
+the multi-scale-training question alongside the v2.1 re-baseline (it changes the data pipeline,
+so it is cheapest to fold in before the Phase-3 re-runs if wanted at all).
+
 ## Notes / known characteristics
 
 - **bf16 batch-shape jitter**: identical tiles inferred in different batch shapes differ by up

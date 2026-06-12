@@ -159,6 +159,26 @@ def test_read_tile_outside_coverage_is_all_nodata(quad_setup):
     assert nodata.all()
 
 
+def test_read_tile_scale05_expands_fov(quad_setup):
+    # bbox covering the WHOLE quad at scale 0.5 with tile_size 256: the quad's
+    # 512 native px decimate to 256 -> uniform fill survives bilinear.
+    bbox = quad_bounds(QX, QY)
+    rgb, nodata = read_tile(bbox, quad_setup["index"], tile_size_px=256, scale=0.5)
+    assert rgb.shape == (3, 256, 256)
+    assert not nodata.any()
+    assert (rgb == 100).all()
+
+
+def test_read_tile_scale05_nodata_stays_crisp(quad_setup):
+    # Quad with alpha hole on its left half: nearest-resampled alpha keeps the
+    # NoData boundary exact (no bilinear blending of validity).
+    bbox = quad_bounds(QX + 1, QY)
+    rgb, nodata = read_tile(bbox, quad_setup["index"], tile_size_px=256, scale=0.5)
+    assert nodata[:, :128].all()
+    assert not nodata[:, 128:].any()
+    assert (rgb[:, :, 128:] == 150).all()
+
+
 def test_dataset_normalizes_and_mean_substitutes(quad_setup):
     mean = np.array([100.0, 100.0, 100.0], dtype=np.float32)
     std = np.array([10.0, 10.0, 10.0], dtype=np.float32)

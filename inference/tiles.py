@@ -30,14 +30,35 @@ _READ_ATTEMPTS = 4
 _RETRY_BASE_DELAY_S = 1.0
 
 
-def _read_window_with_retry(path: str, bounds: tuple[float, float, float, float]) -> np.ndarray:
-    """Read all bands of `path` within `bounds`, boundless with 0-fill, retried."""
+def _read_window_with_retry(
+    path: str,
+    bounds: tuple[float, float, float, float],
+    out_size: int | None = None,
+) -> np.ndarray:
+    """Read all bands of `path` within `bounds`, boundless with 0-fill, retried.
+
+    With `out_size`, the window is decimated/resampled to (out_size, out_size):
+    RGB bands bilinear, alpha band (if present) nearest — so the NoData mask
+    stays crisp instead of blending validity at coverage edges.
+    """
     last_exc: Exception | None = None
     for attempt in range(_READ_ATTEMPTS):
         try:
             with rasterio.open(path) as src:
                 window = from_bounds(*bounds, transform=src.transform)
-                return src.read(window=window, boundless=True, fill_value=0)
+                if out_size is None:
+                    return src.read(window=window, boundless=True, fill_value=0)
+                from rasterio.enums import Resampling
+                rgb = src.read(indexes=list(range(1, min(src.count, 3) + 1)),
+                               window=window, boundless=True, fill_value=0,
+                               out_shape=(min(src.count, 3), out_size, out_size),
+                               resampling=Resampling.bilinear)
+                if src.count >= 4:
+                    alpha = src.read(indexes=[4], window=window, boundless=True,
+                                     fill_value=0, out_shape=(1, out_size, out_size),
+                                     resampling=Resampling.nearest)
+                    return np.concatenate([rgb, alpha], axis=0)
+                return rgb
         except rasterio.errors.RasterioIOError as exc:
             last_exc = exc
             delay = _RETRY_BASE_DELAY_S * 2 ** attempt
@@ -51,6 +72,7 @@ def read_tile(
     bbox: tuple[float, float, float, float],
     quad_index: pd.DataFrame,
     tile_size_px: int = TILE_SIZE_PX,
+    scale: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Read one inference tile by mosaicking the intersecting quads.
 
@@ -58,6 +80,9 @@ def read_tile(
         bbox: (minx, miny, maxx, maxy) in EPSG:3857.
         quad_index: DataFrame from inference.quad_index (bounds + gcs_path).
         tile_size_px: output tile edge in pixels.
+        scale: inference scale per inference.md §6.2 — at scale s the bbox
+            covers tile_size_px/s native pixels and the read is decimated to
+            tile_size_px (e.g. s=0.5 → 2× GSD, 4× ground area, same 512²).
 
     Returns:
         (rgb, nodata_mask): rgb float32 (3, H, W) raw values [0, 255];
@@ -73,7 +98,8 @@ def read_tile(
     res_y = (maxy - miny) / tile_size_px
 
     for _, quad in hits.iterrows():
-        data = _read_window_with_retry(quad["gcs_path"], bbox)
+        data = _read_window_with_retry(quad["gcs_path"], bbox,
+                                       out_size=None if scale == 1.0 else tile_size_px)
         if data.shape[1] != tile_size_px or data.shape[2] != tile_size_px:
             raise ValueError(
                 f"Quad {quad['quad_id']} window is {data.shape[1:]} for a "
@@ -109,6 +135,7 @@ class InferenceTileDataset(Dataset):
         mean: np.ndarray,
         std: np.ndarray,
         tile_size_px: int = TILE_SIZE_PX,
+        scale: float = 1.0,
     ) -> None:
         """tile_list needs columns: tile_id, minx, miny, maxx, maxy."""
         required = {"tile_id", "minx", "miny", "maxx", "maxy"}
@@ -120,6 +147,7 @@ class InferenceTileDataset(Dataset):
         self.mean = mean.astype(np.float32)
         self.std = std.astype(np.float32)
         self.tile_size_px = tile_size_px
+        self.scale = scale
 
     def __len__(self) -> int:
         return len(self.tiles)
@@ -127,7 +155,8 @@ class InferenceTileDataset(Dataset):
     def __getitem__(self, i: int) -> dict:
         row = self.tiles.iloc[i]
         bbox = (row["minx"], row["miny"], row["maxx"], row["maxy"])
-        rgb, nodata = read_tile(bbox, self.quad_index, self.tile_size_px)
+        rgb, nodata = read_tile(bbox, self.quad_index, self.tile_size_px,
+                                scale=self.scale)
         all_nodata = bool(nodata.all())
         if not all_nodata:
             # Mean-substitute NoData before z-scoring (training.md §4.4 parity);

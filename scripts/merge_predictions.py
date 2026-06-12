@@ -68,16 +68,19 @@ def merge_tiles(
     tiles_dir: str,
     sigma_px: float,
     tile_size_px: int = TILE_SIZE_PX,
+    resolution_m: float = RESOLUTION_M,
 ) -> tuple[np.ndarray, tuple[float, float, float, float]]:
     """Weighted-average merge of per-tile probability rasters.
 
     Returns (merged float32 array with -1.0 NoData, merge bounds).
     Tiles whose raster is missing (skipped all-NoData tiles) are ignored.
+    `resolution_m` is the per-pixel size of the tile rasters (9.55 m at
+    inference scale 0.5).
     """
     minx, miny = tile_list["minx"].min(), tile_list["miny"].min()
     maxx, maxy = tile_list["maxx"].max(), tile_list["maxy"].max()
-    width = int(round((maxx - minx) / RESOLUTION_M))
-    height = int(round((maxy - miny) / RESOLUTION_M))
+    width = int(round((maxx - minx) / resolution_m))
+    height = int(round((maxy - miny) / resolution_m))
     logger.info("Merge canvas: %d x %d px over (%.0f, %.0f, %.0f, %.0f)",
                 width, height, minx, miny, maxx, maxy)
 
@@ -94,8 +97,8 @@ def merge_tiles(
         except rasterio.errors.RasterioIOError:
             continue  # skipped tile (all-NoData) or not yet produced
         valid = probs != NODATA_PROB
-        col0 = int(round((t["minx"] - minx) / RESOLUTION_M))
-        row0 = int(round((maxy - t["maxy"]) / RESOLUTION_M))
+        col0 = int(round((t["minx"] - minx) / resolution_m))
+        row0 = int(round((maxy - t["maxy"]) / resolution_m))
         w = weights * valid
         sl = (slice(row0, row0 + tile_size_px), slice(col0, col0 + tile_size_px))
         acc[sl] += np.where(valid, probs, 0.0) * w

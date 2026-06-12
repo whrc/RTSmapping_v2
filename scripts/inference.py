@@ -86,6 +86,11 @@ def main() -> int:
                    help="output dir for probability tiles + inference_log.json")
     p.add_argument("--device", default=None)
     p.add_argument("--num-workers", type=int, default=8)
+    p.add_argument("--scale", type=float, default=1.0,
+                   help="inference scale (inference.md §6.2); 0.5 = 2x GSD / "
+                        "4x FOV decimated reads. Experimental — production "
+                        "multi-scale is gated by §6.4; tile list must be "
+                        "generated with the matching scale.")
     args = p.parse_args()
     setup_logging()
 
@@ -128,7 +133,8 @@ def main() -> int:
         manifest.save()
         return 0
 
-    dataset = InferenceTileDataset(todo, quad_index, pkg["mean"], pkg["std"])
+    dataset = InferenceTileDataset(todo, quad_index, pkg["mean"], pkg["std"],
+                                   scale=args.scale)
     loader = DataLoader(dataset, batch_size=run_cfg["inference"]["batch_size"],
                         num_workers=args.num_workers, collate_fn=_collate)
 

@@ -41,10 +41,15 @@ def generate_tile_grid(
     quad_index: pd.DataFrame,
     stride_px: int,
     aoi: tuple[float, float, float, float] | None = None,
+    scale: float = 1.0,
 ) -> pd.DataFrame:
-    """Enumerate stride-grid tiles intersecting the indexed quads (and AOI)."""
-    stride_m = stride_px * RESOLUTION_M
-    tile_m = TILE_SIZE_PX * RESOLUTION_M
+    """Enumerate stride-grid tiles intersecting the indexed quads (and AOI).
+
+    `scale` < 1 expands the ground footprint (inference.md §6.2): at scale s a
+    512px tile covers 512/s native pixels, and the stride scales with it.
+    """
+    stride_m = stride_px * RESOLUTION_M / scale
+    tile_m = TILE_SIZE_PX * RESOLUTION_M / scale
     rows: list[dict] = []
     seen: set[tuple[int, int]] = set()
 
