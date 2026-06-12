@@ -13,8 +13,13 @@
 #       phase2_scale_25 phase2_scale_50 ... > /mnt/outputs/experiment_queue.log 2>&1 &
 #
 # Resumable: skips any config whose out-dir already has a run_summary.md from a
-# completed run (a summary with `best_epoch | -1` is a crash artifact → rerun).
+# completed run. Crash artifacts are rerun: a summary with `best_epoch | -1`
+# (no improvement before crash) or `Status: **crashed**` (train.py finally-block
+# wrote the summary after a mid-training exception).
 # WAIT_FOR (optional env): wait for this container to finish before starting.
+# One-shot: it only waits if the container exists when this script starts —
+# launch the awaited queue first and let its docker run start before launching
+# a WAIT_FOR queue.
 # GPU (optional env, default 0): GPU index — run one queue per GPU in parallel.
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,14 +29,16 @@ PATCH='sed -i "s/LayerId = cv2.dnn.DictValue/LayerId = object/" /usr/local/lib/p
 
 GPU="${GPU:-0}"
 WAIT_FOR="${WAIT_FOR:-}"
-if [ -n "$WAIT_FOR" ] && sudo docker ps -q --filter name="$WAIT_FOR" | grep -q .; then
+if [ -n "$WAIT_FOR" ] && sudo docker ps -q --filter name="^/${WAIT_FOR}$" | grep -q .; then
   echo "[queue] $(date) waiting for ${WAIT_FOR} (already running) ..."
   sudo docker wait "$WAIT_FOR" || true
 fi
 
 for name in "$@"; do
   out="/mnt/outputs/${name}"
-  if [ -f "${out}/run_summary.md" ] && ! grep -q 'best_epoch | -1' "${out}/run_summary.md"; then
+  if [ -f "${out}/run_summary.md" ] \
+     && ! grep -Eq 'best_epoch *\| *-1' "${out}/run_summary.md" \
+     && ! grep -q 'Status: \*\*crashed\*\*' "${out}/run_summary.md"; then
     echo "[queue] $(date) SKIP ${name} (run_summary.md exists)"; continue
   fi
   echo "[queue] $(date) START ${name}"
