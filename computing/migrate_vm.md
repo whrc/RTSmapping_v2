@@ -47,30 +47,53 @@ GPU=1 nohup bash scripts/run_ablation_queue.sh <configB> >> /mnt/outputs/queue_g
 - Win gate: Δ(`val_realistic_pr_auc_geomean`) ≥ G=0.025 over μ₀=0.5683 + no precision regression
   (`training/experiments.md §1.4`).
 
-## Experiment backlog at handover (2026-06-12)
+## ⚠️ BLOCKER: v2.0 training data deleted from the bucket (2026-06-12)
+
+The entire `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/` prefix was **rewritten in place
+~04:30–05:45 UTC on 2026-06-12** (not by us — the bucket belongs to the data-production project):
+- Deleted: `metadata_phase0c.csv`, `splits_phase0c.yaml`, `normalization_stats.json`, `EXTRA/`,
+  and all v2.0 tiles. Bucket versioning is **Suspended** → old objects unrecoverable from GCS.
+- Now present: new `metadata.csv` (schema gains `Version` col, value `batch1`) with only **1,757
+  tiles**, and rewritten `PLANET-RGB/` + `labels/` — this looks like an in-progress v2.1/batch
+  drop, NOT a complete dataset.
+- Yesterday's 04:10 UTC "transient" 404 crashes (boundary_w2/w3, wd_5e2, aug_strong) were the
+  leading edge of this rewrite.
+
+**Consequence: the whole experiment backlog below is blocked** — configs reference the deleted
+frozen snapshot, and the v2.0 tiles themselves are gone. All Phase-0c-comparable numbers
+(μ₀/σ₀/G and every result so far) are tied to v2.0; new-batch data is NOT comparable. Before any
+new run: talk to the data team (restore v2.0 somewhere? when is the new drop complete?), then
+decide whether to re-baseline. Going forward, **stage frozen training snapshots into
+`gs://rts-mapping-v2/training/<version>/`** (our project) per `infrastructure.md` so external
+rewrites can't destroy reproducibility again.
+
+## Experiment backlog at handover (2026-06-12) — BLOCKED on data (see above)
 
 | Run | Status |
 |---|---|
-| `phase3_boundary_ignore_w2` | ☐ rerun (crashed 2026-06-12 on transient GCS 404s) |
-| `phase3_boundary_ignore_w3` | ☐ rerun (same) |
-| `phase3_wd_5e2` | ☐ rerun (same) |
-| `phase3_aug_strong` | ☐ rerun (same) |
-| `phase3_loss_compound_2to1_seed44` | ☐ run — tiebreak: compound 2:1 is borderline (seed42=0.6035, seed43=0.5760; 2-seed mean Δ=+0.021 < G=0.025) |
+| `phase3_boundary_ignore_w2` | ☐ blocked (crashed on the bucket rewrite; rerun needs v2.0 data) |
+| `phase3_boundary_ignore_w3` | ☐ blocked (same) |
+| `phase3_wd_5e2` | ☐ blocked (same) |
+| `phase3_aug_strong` | ☐ blocked (same) |
+| `phase3_loss_compound_2to1_seed44` | ☐ blocked — tiebreak: compound 2:1 is borderline (seed42=0.6035, seed43=0.5760; 2-seed mean Δ=+0.021 < G=0.025) |
 | After those | §5.3 data-scaling slope fit · §8.1 Phase-5 gate eval · §6.4 Phase-3 lock |
+
+(The §5.3 slope fit and §8.1 gate eval only need existing run outputs in `/mnt/outputs` — those
+can still be done now.)
 
 Results to date live in `current_working_status.md` (Status section) and `/mnt/outputs/*/run_summary.md`.
 
 ## Migration checklist
 
 - [x] Queue script hardened (pipefail, crash-artifact rerun, `GPU=N`) + seed44 config committed
-- [ ] `/mnt/outputs` archived to `gs://rts-mapping-v2/runs/ml-training-vm-outputs/`
-- [ ] a100-8x-train provisioned (docker + toolkit verified, ADC copied, `rts-train:v2` pulled)
-- [ ] `/mnt/outputs` restored from GCS on a100-8x-train
-- [ ] Repo cloned (`phase1-prep`), home scripts copied
-- [ ] Validation: backlog queues launched, each run past epoch 1, MLflow writing
-- [ ] H100 spin-retry killed
-- [ ] Final outputs re-sync, `ml-training-vm` stopped
-- [ ] `infrastructure.md` VM inventory + `current_working_status.md` updated
+- [x] `/mnt/outputs` archived to `gs://rts-mapping-v2/runs/ml-training-vm-outputs/` (28.6 GB, size-verified)
+- [x] a100-8x-train provisioned (docker + nvidia-container-toolkit installed & 8-GPU verified, ADC copied, `rts-train:v2` pulled)
+- [x] `/mnt/outputs` transferred (tar-over-ssh; GCS restore blocked — new VM's gsutil runs as the compute SA which lacks `rts-mapping-v2` access, and `gcloud auth activate-refresh-token` rejects the ADC token (`unauthorized_client`); user `gcloud auth login` on the new VM would fix this)
+- [x] Repo cloned (`phase1-prep` @ d6515b7), home scripts copied
+- [x] Validation: environment good — 122 fast tests + cuda EMA test pass in-container on GPU 0. Backlog queues launched but **all 5 crashed on the deleted dataset** (see blocker above) — NOT an environment problem.
+- [x] H100 spin-retry killed (2026-06-12 ~10:00 UTC)
+- [x] Final outputs re-sync; `ml-training-vm` stopped
+- [x] `infrastructure.md` VM inventory + `current_working_status.md` updated
 
 (Claude: update these boxes as you complete steps; if a session dies mid-migration, resume from the
 first unchecked box.)

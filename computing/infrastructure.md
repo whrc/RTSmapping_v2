@@ -65,9 +65,8 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 | VM | On / idle cost (approx) |
 |----|--------------------------|
-| `gpu-vm-l4` (L4) | ~$0.35/hr idle |
-| `ml-training-vm` (single A100) | ~$4.50/hr idle |
-| Planned 8×A100 node | ~$30+/hr running (a2-highgpu-8g class) |
+| `a100-8x-train` (8× A100-80GB, a2-ultragpu-8g) | ~$30/hr running |
+| `gpu-vm-l4` (L4) / `ml-training-vm` (single A100) | stopped/deprecated |
 | Planned 8×H100 node | higher; pending quota |
 
 > Prices are rough planning figures — confirm against current GCP pricing for the chosen
@@ -121,23 +120,24 @@ a **recommendation to confirm** — once authoritative, mirror any path code rea
 
 ## 5. VM inventory
 
-All VMs are in the **PDG project**, region **us-west1**. Daily start/stop/SSH workflow:
-[vm_instruction.md](vm_instruction.md).
+All VMs are in the **PDG project**. Daily start/stop/SSH workflow:
+[vm_instruction.md](vm_instruction.md). Migration runbook/handover: [migrate_vm.md](migrate_vm.md).
 
 ### Existing
 
 | VM | Zone | GPU | Role | Idle cost |
 |----|------|-----|------|-----------|
-| `gpu-vm-l4` | us-west1-a | NVIDIA L4 (23 GB) | Development, testing, `check_data.py`, smoke runs, Docker build | ~$0.35/hr |
-| `ml-training-vm` | us-west1-b | single NVIDIA A100 | Production single-GPU training | ~$4.50/hr |
+| **`a100-8x-train`** | us-central1-a | **8× NVIDIA A100-80GB** (`a2-ultragpu-8g`) | **Production training node** (since 2026-06-12) — per-GPU parallel queues via `GPU=N scripts/run_ablation_queue.sh` | ~$30/hr running; stopping risks losing stockout-won capacity |
+| `ml-training-vm` | us-west1-b | single NVIDIA A100-40GB | **STOPPED 2026-06-12** (superseded; boot disk kept) | — |
+| `gpu-vm-l4` | us-west1-a | NVIDIA L4 (23 GB) | **Deprecated** | — |
 
 ### Planned
 
-- **Multi-GPU training node** — for the parallel ablation program. **Spec TBD.**
-  - Target: **8×A100 now** (`a2-highgpu-8g` / `a2-ultragpu-8g`) → **8×H100 when quota lands**
-    (`a3-highgpu-8g`).
-  - Requires: GPU quota in the chosen zone, a parallel-experiment orchestrator, and a
-    concurrency-safe MLflow backend (see §7). `torch.compile` is on the roadmap.
+- **8×H100 upgrade (`a3-highgpu-8g`) when quota lands** — the 2×H100 (`a3-highgpu-2g`) spin-retry
+  was stopped 2026-06-12 after the 8×A100 node landed.
+  - Still required for multi-node scale-out: a parallel-experiment orchestrator and a
+    concurrency-safe MLflow backend (see §7) — single-node per-GPU queues work today.
+    `torch.compile` is on the roadmap.
 - **Inference compute — open decision.** Pan-arctic inference is large (≈7.5M tiles). Options:
   1. **Reuse the multi-GPU node** for batch inference between ablation bursts (simplest; one VM to
      manage).
