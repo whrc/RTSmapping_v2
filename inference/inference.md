@@ -495,15 +495,25 @@ Performed before releasing results (detailed in post-inference.md):
 | Multiple streams | Overlap data transfer and compute |
 | Model compilation | **Opt-in only.** `torch.compile()` changes numerics slightly; if enabled at deployment but disabled during calibration (or vice versa), the calibrated threshold is systematically wrong. Phase 1 baseline: `torch_compile: false`. Enable only when a benchmark demonstrates > 15% throughput gain *and* calibration is re-run with compile enabled. |
 
-### 11.3 Estimated Throughput
+### 11.3 Measured Throughput (2026-06-12)
 
-| Configuration | Tiles/Second (est.) | Wallclock for the §3.2 tile count |
-|---------------|---------------------|-----------------------------------|
-| 1 scale, no TTA, batch=64 | ~100-200 | ≈ tiles / throughput |
-| 2 scales, minimal TTA, batch=64 | ~50-100 | ≈ tiles / throughput |
-| 2 scales, standard TTA, batch=64 | ~25-50 | ≈ tiles / throughput |
+A100-80GB, bf16, no TTA, scale 1.0, 552-tile Banks Island AOI, quads streamed from GCS via
+windowed reads, no caching:
 
-**Note**: Estimates are rough pre-Phase-1 numbers; actual performance depends on I/O bandwidth, tile complexity, and GCS latency. Replace with the measured A100/H100 throughput from `scripts/inference_feasibility.py` (Phase 1 Step 8.5) before publishing the deployment plan.
+| Configuration | Tiles/s (measured) | §3.2 pan-arctic 7.5M tiles |
+|---------------|--------------------|----------------------------|
+| batch 64, 4 workers | 6.4 | — |
+| **batch 64, 8 workers** | **10.5** | **~198 GPU-h ≈ 25 h on the 8×A100 node** |
+| batch 128, 8 workers | 6.9 | — |
+| batch 128, 16 workers | 7.3 | — |
+
+The pipeline is **GCS-read-bound, not GPU-bound** (workers 4→8 nearly doubled throughput;
+larger batches did not help): at stride 344 each quad is re-opened by ~36 overlapping tiles
+with no reuse. **Highest-value optimization before the production run**: quad-level caching —
+a per-worker LRU of decoded quads, or restructuring the loop to process all tiles of a
+quad-block per fetch; expected ~10–30× (toward the original ~150 tiles/s estimate ⇒ a full
+pass at ~14 GPU-h). Cheaper GPUs (L4) are viable since the GPU idles at current throughput.
+Re-benchmark after the caching change and update this table.
 
 ---
 
