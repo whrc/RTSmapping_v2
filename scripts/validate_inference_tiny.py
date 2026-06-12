@@ -110,6 +110,19 @@ def check_coverage(tiles: pd.DataFrame, bounds: tuple) -> None:
            f"{ {int(k): int(v) for k, v in counts.items()} } (design: 1/2/4 at stride 344)")
 
 
+def _seam_positions(tiles: pd.DataFrame, mbounds: tuple) -> tuple[list[int], list[int]]:
+    """Pixel columns/rows of production-tile boundaries (stitch lines) on the
+    merge canvas — every interior tile edge in x and y."""
+    minx, miny, maxx, maxy = mbounds
+    edges_x = set(tiles["minx"]).union(tiles["maxx"])
+    edges_y = set(tiles["miny"]).union(tiles["maxy"])
+    cols = sorted({int(round((e - minx) / RESOLUTION_M)) - 1
+                   for e in edges_x if minx < e < maxx})
+    rows = sorted({int(round((maxy - e) / RESOLUTION_M)) - 1
+                   for e in edges_y if miny < e < maxy})
+    return cols, rows
+
+
 def check_stitching(merged: np.ndarray, mbounds: tuple, tiles: pd.DataFrame,
                     quad_index: pd.DataFrame, pkg: dict, stride_px: int,
                     device: torch.device) -> None:
@@ -151,8 +164,7 @@ def check_stitching(merged: np.ndarray, mbounds: tuple, tiles: pd.DataFrame,
     # columns/rows vs everywhere else.
     valid = merged != NODATA_PROB
     gx = np.abs(np.diff(merged, axis=1)); gvx = valid[:, 1:] & valid[:, :-1]
-    seam_cols = sorted({int(round((t - minx) / RESOLUTION_M)) - 1
-                        for t in tiles["minx"].unique() if minx < t < maxx})
+    seam_cols, _ = _seam_positions(tiles, mbounds)
     seam_mask = np.zeros_like(gx, dtype=bool)
     for c in seam_cols:
         if 0 <= c < gx.shape[1]:
@@ -315,7 +327,8 @@ def _read_rgb_canvas(bounds: tuple, quad_index: pd.DataFrame,
 
 def check_geo_overlay(merged: np.ndarray, mbounds: tuple, merged_path: Path,
                       tiles: pd.DataFrame, quad_index: pd.DataFrame,
-                      out_root: Path, threshold: float) -> None:
+                      out_root: Path, threshold: float,
+                      corner_xy: tuple[float, float] | None = None) -> None:
     with rasterio.open(merged_path) as src:
         res_ok = (abs(src.res[0] - RESOLUTION_M) < 1e-6
                   and abs(src.res[1] - RESOLUTION_M) < 1e-6)
@@ -326,24 +339,74 @@ def check_geo_overlay(merged: np.ndarray, mbounds: tuple, merged_path: Path,
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    minx, miny, maxx, maxy = mbounds
+    h, w = merged.shape
     rgb = _read_rgb_canvas(mbounds, quad_index, merged.shape)
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    axes[0].imshow(np.moveaxis(rgb, 0, -1)); axes[0].set_title("2025 RGB")
+    seam_cols, seam_rows = _seam_positions(tiles, mbounds)
     pm = np.ma.masked_where(merged == NODATA_PROB, merged)
-    im = axes[1].imshow(pm, vmin=0, vmax=max(0.2, float(pm.max())), cmap="inferno")
-    axes[1].set_title("merged probability"); fig.colorbar(im, ax=axes[1], shrink=0.7)
-    axes[2].imshow(np.moveaxis(rgb, 0, -1))
-    axes[2].contour(np.where(merged == NODATA_PROB, 0.0, merged),
-                    levels=[threshold], colors="red", linewidths=0.8)
-    axes[2].set_title(f"contours @ {threshold}")
-    for ax in axes:
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 17))
+    (ax_a, ax_b), (ax_c, ax_d) = axes
+    title = (f"merge canvas {w}×{h} px @ {RESOLUTION_M:.4f} m "
+             f"({w * RESOLUTION_M / 1000:.1f} × {h * RESOLUTION_M / 1000:.1f} km), "
+             f"{len(tiles)} tiles, stride 344 px")
+    fig.suptitle(title, fontsize=13)
+
+    # A: RGB + tile outlines + quad boundaries.
+    ax_a.imshow(np.moveaxis(rgb, 0, -1))
+    for _, t in tiles.iterrows():
+        c0 = (t.minx - minx) / RESOLUTION_M
+        r0 = (maxy - t.maxy) / RESOLUTION_M
+        ax_a.add_patch(Rectangle((c0, r0), TILE_SIZE_PX, TILE_SIZE_PX,
+                                 fill=False, edgecolor="cyan", linewidth=0.4))
+    if corner_xy is not None:
+        cx, cy = corner_xy
+        ax_a.axvline((cx - minx) / RESOLUTION_M, color="yellow", ls="--", lw=1.2)
+        ax_a.axhline((maxy - cy) / RESOLUTION_M, color="yellow", ls="--", lw=1.2)
+    ax_a.set_title("2025 RGB — tile outlines (cyan, 512 px) + quad boundaries (yellow)")
+
+    # B: probability + stitch lines.
+    im = ax_b.imshow(pm, vmin=0, vmax=max(0.2, float(pm.max())), cmap="inferno")
+    for c in seam_cols:
+        ax_b.axvline(c, color="lime", lw=0.4, alpha=0.7)
+    for r in seam_rows:
+        ax_b.axhline(r, color="lime", lw=0.4, alpha=0.7)
+    ax_b.set_title("merged probability + stitch lines (green = tile edges)")
+    fig.colorbar(im, ax=ax_b, shrink=0.7)
+
+    # C: RGB + threshold contours.
+    ax_c.imshow(np.moveaxis(rgb, 0, -1))
+    ax_c.contour(np.where(merged == NODATA_PROB, 0.0, merged),
+                 levels=[threshold], colors="red", linewidths=0.8)
+    ax_c.set_title(f"RGB + contours @ threshold {threshold}")
+
+    # D: 400px seam zoom centered on the seam intersection nearest the hottest pixel.
+    hot_r, hot_c = np.unravel_index(np.argmax(np.where(pm.mask, -1, pm.data)), merged.shape)
+    zc = min(seam_cols, key=lambda c: abs(c - hot_c)) if seam_cols else w // 2
+    zr = min(seam_rows, key=lambda r: abs(r - hot_r)) if seam_rows else h // 2
+    r0, c0 = max(zr - 200, 0), max(zc - 200, 0)
+    crop = pm[r0:r0 + 400, c0:c0 + 400]
+    imd = ax_d.imshow(crop, vmin=0, vmax=max(0.2, float(pm.max())), cmap="inferno")
+    for c in seam_cols:
+        if c0 <= c < c0 + 400:
+            ax_d.axvline(c - c0, color="lime", lw=0.8, alpha=0.8)
+    for r in seam_rows:
+        if r0 <= r < r0 + 400:
+            ax_d.axhline(r - r0, color="lime", lw=0.8, alpha=0.8)
+    ax_d.set_title(f"seam zoom 400×400 px @ ({zc},{zr}) near hottest blob — "
+                   "continuity across stitch lines")
+    fig.colorbar(imd, ax=ax_d, shrink=0.7)
+
+    for ax in (ax_a, ax_b, ax_c, ax_d):
         ax.set_xticks([]); ax.set_yticks([])
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
     png = out_root / "validation_overlay.png"
-    fig.savefig(png, dpi=110); plt.close(fig)
+    fig.savefig(png, dpi=150); plt.close(fig)
     record("9 geo-alignment", bool(res_ok and bounds_ok and crs_ok),
            f"res==4.7773m:{res_ok} bounds==AOI:{bounds_ok} crs==3857:{crs_ok}; "
-           f"overlay: {png}")
+           f"canvas {w}x{h}px; overlay: {png}")
 
 
 def check_blobs(merged: np.ndarray, mbounds: tuple, metadata: str | None) -> None:
@@ -388,15 +451,33 @@ def main() -> int:
     p.add_argument("--aoi-half-km", type=float, default=5.0)
     p.add_argument("--metadata", default=None,
                    help="v2.1 metadata.csv (local copy) for check 10")
+    p.add_argument("--overlay-only", action="store_true",
+                   help="regenerate validation_overlay.png from the existing "
+                        "merged_prob.tif + corner_tiles.csv (no GPU run)")
     args = p.parse_args()
     setup_logging()
     out_root = args.out_root; out_root.mkdir(parents=True, exist_ok=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     cfg = load_config("configs/deployment.yaml")
     stride_px = cfg["inference"]["stride_px"]
     sigma_px = cfg["inference"]["fusion_sigma_px"]
     quad_index = load_quad_index(args.quad_index)
+
+    if args.overlay_only:
+        dep_cfg = load_config(f"{str(args.package).rstrip('/')}/deployment_config.yaml")
+        cx = WORLD_MIN + args.corner_x * QUAD_SIZE_M
+        cy = WORLD_MIN + args.corner_y * QUAD_SIZE_M
+        tiles = pd.read_csv(out_root / "corner_tiles.csv")
+        merged_path = out_root / "merged_prob.tif"
+        with rasterio.open(merged_path) as src:
+            merged = src.read(1)
+            b = src.bounds
+        check_geo_overlay(merged, (b.left, b.bottom, b.right, b.top),
+                          merged_path, tiles, quad_index, out_root,
+                          dep_cfg["threshold"], corner_xy=(cx, cy))
+        return 0
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pkg = load_deployment_package(args.package, device)
     threshold = pkg["dep_cfg"]["threshold"]
 
@@ -450,7 +531,7 @@ def main() -> int:
 
     check_tta(pkg, tiles, quad_index, device)
     check_geo_overlay(merged, mbounds, merged_path, tiles, quad_index,
-                      out_root, threshold)
+                      out_root, threshold, corner_xy=(cx, cy))
     check_blobs(merged, mbounds, args.metadata)
 
     print("\n===== VALIDATION SUMMARY =====")

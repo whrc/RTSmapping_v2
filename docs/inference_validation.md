@@ -28,7 +28,7 @@ threshold 0.5 / temperature 1.0).
 | 6 | Determinism | PASS | two full runs byte-identical (same batching) |
 | 7 | Resume equivalence | PASS | interrupt-at-20 + resume: value-equivalent, max Δprob = 0.0062 — **bf16 batch-shape jitter**, not a resume bug (see notes) |
 | 8 | TTA sanity | PASS | minimal == (identity+hflip)/2 algebra holds; mean Δ vs none = 0.00025 |
-| 9 | Geo-alignment | PASS | merged raster res 4.7773 m, bounds == AOI, EPSG:3857; `validation_overlay.png` shows no tile-grid seams |
+| 9 | Geo-alignment | PASS | merged raster res 4.7773 m, bounds == AOI, EPSG:3857; canvas **2576×2920 px = 12.3×14.0 km**. `validation_overlay.png` (2×2): RGB + tile outlines (cyan) + quad-boundary cross (yellow); probability + stitch lines (green); threshold contours; **400px seam-zoom** — the hottest blob sits on a seam intersection with smooth probability across both stitch lines. Regenerate without GPU: `--overlay-only` |
 | 10 | Detection plausibility | INFO | 9 blobs ≥ 0.1; top-5 peaks 0.107–0.145, each within **0.87–1.14 km** of a v2.1 positive centroid (uncalibrated v2.0 model — qualitative only) |
 
 ## Bugs found and fixed by this validation
