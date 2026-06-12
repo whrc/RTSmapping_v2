@@ -47,39 +47,37 @@ GPU=1 nohup bash scripts/run_ablation_queue.sh <configB> >> /mnt/outputs/queue_g
 - Win gate: Δ(`val_realistic_pr_auc_geomean`) ≥ G=0.025 over μ₀=0.5683 + no precision regression
   (`training/experiments.md §1.4`).
 
-## ⚠️ BLOCKER: v2.0 training data deleted from the bucket (2026-06-12)
+## Dataset transition: v2.0 → v2.1 (2026-06-12, resolved as intentional)
 
-The entire `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/` prefix was **rewritten in place
-~04:30–05:45 UTC on 2026-06-12** (not by us — the bucket belongs to the data-production project):
-- Deleted: `metadata_phase0c.csv`, `splits_phase0c.yaml`, `normalization_stats.json`, `EXTRA/`,
-  and all v2.0 tiles. Bucket versioning is **Suspended** → old objects unrecoverable from GCS.
-- Now present: new `metadata.csv` (schema gains `Version` col, value `batch1`) with only **1,757
-  tiles**, and rewritten `PLANET-RGB/` + `labels/` — this looks like an in-progress v2.1/batch
-  drop, NOT a complete dataset.
-- Yesterday's 04:10 UTC "transient" 404 crashes (boundary_w2/w3, wd_5e2, aug_strong) were the
-  leading edge of this rewrite.
+The rewrite of `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/` on 2026-06-12 (~04:30–05:45
+UTC) was initially logged here as a data-loss incident; **user confirmed it is the intentional
+v2.1 drop**: the new `metadata.csv` holds **1,757 quality-filtered positives**
+(`Version` ∈ batch1: 1169, batch2: 261, batch3: 327) — this is the canonical positive training
+set going forward. Still in preparation upstream: **negative tiles** (~12 h ETA as of
+2026-06-12) and the final **EXTRA** channel definition (inference EXTRA prepared after that
+settles).
 
-**Consequence: the whole experiment backlog below is blocked** — configs reference the deleted
-frozen snapshot, and the v2.0 tiles themselves are gone. All Phase-0c-comparable numbers
-(μ₀/σ₀/G and every result so far) are tied to v2.0; new-batch data is NOT comparable. Before any
-new run: talk to the data team (restore v2.0 somewhere? when is the new drop complete?), then
-decide whether to re-baseline. Going forward, **stage frozen training snapshots into
-`gs://rts-mapping-v2/training/<version>/`** (our project) per `infrastructure.md` so external
-rewrites can't destroy reproducibility again.
+What this means:
+- **v2.0 is gone and stays gone**: `metadata_phase0c.csv` contents, `splits_phase0c.yaml`,
+  `normalization_stats.json`, `EXTRA/`, and all v2.0 tiles were overwritten with versioning
+  Suspended. The old negatives are unrecoverable from our side; the frozen v2.0 tile inventory
+  (15,528 rows incl. ~13.7k negative tile IDs + centroids) survives at
+  `/mnt/outputs/phase0c_frozen_metadata.csv` and can be handed to the data team if regeneration
+  of the same negative pool is wanted.
+- **All v2.0-tied numbers are stale** (μ₀=0.5683, σ₀, gate G, every phase result). Once
+  negatives land: freeze a v2.1 snapshot in `gs://rts-mapping-v2/training/v2.1/` (lesson from
+  this incident — snapshots live in our own bucket), regenerate splits + normalization stats,
+  re-run the Phase-0c 3-seed baseline, then re-test past decisions per
+  `docs/v21_staleness_audit.md`.
+- The 2026-06-11 04:10 UTC "transient" 404 crashes were the leading edge of this rewrite.
 
-## Experiment backlog at handover (2026-06-12) — BLOCKED on data (see above)
+## Experiment backlog at handover (2026-06-12) — superseded by the v2.1 re-baseline
 
-| Run | Status |
-|---|---|
-| `phase3_boundary_ignore_w2` | ☐ blocked (crashed on the bucket rewrite; rerun needs v2.0 data) |
-| `phase3_boundary_ignore_w3` | ☐ blocked (same) |
-| `phase3_wd_5e2` | ☐ blocked (same) |
-| `phase3_aug_strong` | ☐ blocked (same) |
-| `phase3_loss_compound_2to1_seed44` | ☐ blocked — tiebreak: compound 2:1 is borderline (seed42=0.6035, seed43=0.5760; 2-seed mean Δ=+0.021 < G=0.025) |
-| After those | §5.3 data-scaling slope fit · §8.1 Phase-5 gate eval · §6.4 Phase-3 lock |
-
-(The §5.3 slope fit and §8.1 gate eval only need existing run outputs in `/mnt/outputs` — those
-can still be done now.)
+The pre-rewrite backlog (boundary_ignore_w2/w3, wd_5e2, aug_strong, compound_2to1_seed44
+tiebreak) referenced the deleted v2.0 snapshot and **cannot be run as-is**. The successor plan
+is the staleness audit + v2.1 re-baseline queue in `docs/v21_staleness_audit.md`; the §5.3
+slope fit and §8.1 gate eval were completed from existing `/mnt/outputs` results (see
+`docs/phase2_data_scaling.md`).
 
 Results to date live in `current_working_status.md` (Status section) and `/mnt/outputs/*/run_summary.md`.
 

@@ -1,3 +1,6 @@
+# ⚠ STALE (v2.0): references the deleted frozen snapshot `metadata_phase0c.csv` — the v2.0 dataset
+# was replaced by v2.1 on 2026-06-12 (see computing/migrate_vm.md "Dataset transition").
+# DO NOT RUN as-is. v2.1 successors are planned via docs/v21_staleness_audit.md.
 # Phase 3 §6.2 — boundary handling: ignore band width 2 on the §6.1 winner.
 # Full 300-epoch run with locked normalization (Phase 0a winner) and LRs (Phase 0b winner).
 # Single-seed (42) first-pass ranking vs baseline μ₀ (experiments.md §1.4 gate).
