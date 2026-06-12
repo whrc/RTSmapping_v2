@@ -80,7 +80,7 @@ def _check_tile(args: tuple[str, str]) -> dict:
     return out
 
 
-def make_figures(meta: pd.DataFrame, results: pd.DataFrame, data_root: str,
+def make_figures(positives: pd.DataFrame, results: pd.DataFrame, data_root: str,
                  out_dir: Path) -> None:
     import matplotlib
     matplotlib.use("Agg")
@@ -88,7 +88,7 @@ def make_figures(meta: pd.DataFrame, results: pd.DataFrame, data_root: str,
 
     # Gallery: 24 tiles spread across batches, weighted toward larger RTS.
     rng = np.random.default_rng(42)
-    merged = results.merge(meta, left_on="tile_id", right_on="Tile_ID")
+    merged = results.merge(positives, left_on="tile_id", right_on="Tile_ID")
     picks = []
     for batch, grp in merged.groupby("Version"):
         grp = grp[grp["rts_frac"].fillna(0) > 0].sort_values("rts_frac", ascending=False)
@@ -119,7 +119,7 @@ def make_figures(meta: pd.DataFrame, results: pd.DataFrame, data_root: str,
 
     # Batch map.
     fig, ax = plt.subplots(figsize=(13, 7))
-    for batch, grp in meta.groupby("Version"):
+    for batch, grp in positives.groupby("Version"):
         ax.scatter(grp["centroid_lon"], grp["centroid_lat"], s=6, alpha=0.6, label=batch)
     ax.legend(); ax.set_xlabel("lon"); ax.set_ylabel("lat")
     ax.set_title("v2.1 positive tile centroids by batch")
@@ -156,6 +156,9 @@ def main() -> int:
     client = storage.Client()
     meta = pd.read_csv(io.BytesIO(
         client.bucket(bucket_name).blob(f"{prefix}/metadata.csv").download_as_bytes()))
+    if "Version" not in meta.columns:  # schema drift 2026-06-12: column dropped mid-drop
+        meta["Version"] = "unversioned"
+    positives = meta[meta["TrainClass"] == "positive"]
     rgb_ids, label_ids = set(), set()
     for blob in client.list_blobs(bucket_name, prefix=f"{prefix}/"):
         rest = blob.name[len(prefix) + 1:]
@@ -165,7 +168,10 @@ def main() -> int:
             label_ids.add(rest.split("/")[1][:-4])
 
     meta_ids = set(meta["Tile_ID"].astype(str))
-    print(f"\n== v2.1 positive QC — {len(meta)} metadata rows, "
+    pos_ids = set(positives["Tile_ID"].astype(str))
+    neg_ids = meta_ids - pos_ids
+    print(f"\n== v2.1 QC — {len(meta)} metadata rows "
+          f"({len(pos_ids)} pos / {len(neg_ids)} neg), "
           f"{len(rgb_ids)} RGB, {len(label_ids)} labels ==")
     issues: list[str] = []
 
@@ -174,16 +180,21 @@ def main() -> int:
         if not ok:
             issues.append(f"{name}: {detail}")
 
-    check("metadata->objects", meta_ids <= rgb_ids and meta_ids <= label_ids,
-          f"missing RGB: {sorted(meta_ids - rgb_ids)[:5]}; "
-          f"missing labels: {sorted(meta_ids - label_ids)[:5]}")
-    check("objects->metadata", rgb_ids <= meta_ids and label_ids <= meta_ids,
-          f"unregistered RGB: {sorted(rgb_ids - meta_ids)[:5]}; "
-          f"unregistered labels: {sorted(label_ids - meta_ids)[:5]}")
-    check("metadata classes", set(meta["TrainClass"].unique()) == {"positive"},
-          f"classes: {dict(meta['TrainClass'].value_counts())}")
+    # Labels exist for positives ONLY (negatives have no label file by design).
+    check("positives have RGB+label", pos_ids <= rgb_ids and pos_ids <= label_ids,
+          f"missing RGB: {sorted(pos_ids - rgb_ids)[:5]}; "
+          f"missing labels: {sorted(pos_ids - label_ids)[:5]}")
+    check("negatives have RGB, no label", neg_ids <= rgb_ids
+          and not (neg_ids & label_ids),
+          f"missing RGB: {len(neg_ids - rgb_ids)}; "
+          f"unexpected labels: {sorted(neg_ids & label_ids)[:5]}")
+    # While the drop is in progress these counts shrink toward 0.
+    check("objects->metadata (transient while drop in progress)",
+          rgb_ids <= meta_ids and label_ids <= meta_ids,
+          f"unregistered RGB: {len(rgb_ids - meta_ids)}; "
+          f"unregistered labels: {len(label_ids - meta_ids)}")
 
-    tile_ids = sorted(meta_ids & rgb_ids)
+    tile_ids = sorted(pos_ids & rgb_ids)
     if args.sample:
         tile_ids = list(np.random.default_rng(42).choice(tile_ids, args.sample, replace=False))
     logger.info("Checking %d tiles with %d workers ...", len(tile_ids), args.workers)
@@ -218,17 +229,22 @@ def main() -> int:
     from pyproj import Transformer
     t = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
     m = results.merge(meta, left_on="tile_id", right_on="Tile_ID")
+    m = m[m["bounds"].apply(lambda v: isinstance(v, tuple))]
     mx, my = t.transform(m["centroid_lon"].values, m["centroid_lat"].values)
     b = np.array([list(v) for v in m["bounds"]])
     inside = (b[:, 0] <= mx) & (mx <= b[:, 2]) & (b[:, 1] <= my) & (my <= b[:, 3])
     check("centroid in tile bounds", bool(inside.all()),
           f"{int((~inside).sum())} outside: {m.loc[~inside, 'tile_id'].tolist()[:5]}")
 
-    print("\n  per-batch:", dict(meta["Version"].value_counts()))
+    print("\n  positives per-batch:", dict(positives["Version"].value_counts()))
+    print("  negatives so far:", len(neg_ids),
+          "| neg lat range:", (meta.loc[meta.TrainClass == "negative", "centroid_lat"].min(),
+                               meta.loc[meta.TrainClass == "negative", "centroid_lat"].max())
+          if len(neg_ids) else "-")
     print("  regions:", meta["RegionName"].nunique(), "| top:",
           dict(meta["RegionName"].value_counts().head(5)))
 
-    make_figures(meta, results, root, args.out_dir)
+    make_figures(positives, results, root, args.out_dir)
     logger.info("Figures + qc_per_tile.csv written to %s", args.out_dir)
     print(f"\n== {len(issues)} issue(s) ==")
     for i in issues:
