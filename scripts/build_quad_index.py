@@ -7,6 +7,9 @@ Usage:
     python scripts/build_quad_index.py \
         --bucket pdg-planet-data --prefix global_quarterly/2025/q3/ \
         --output /mnt/outputs/inference/quad_index_2025q3.csv
+
+Needs GOOGLE_CLOUD_PROJECT set when running on bare ADC (the storage client
+requires a quota project, e.g. abruptthawmapping).
 """
 
 from __future__ import annotations

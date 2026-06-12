@@ -1,5 +1,18 @@
 # RTS Segmentation Model v2: Inference Pipeline
 
+> **Implementation status (2026-06-12).** Phase-1 single-scale pipeline implemented and
+> smoke-tested end-to-end on real 2025-Q3 quads: `inference/{quad_index,tiles,predictor,writer}.py`
+> + `scripts/{build_quad_index,generate_tile_grid,inference,merge_predictions,vectorize_predictions}.py`.
+> §3.1 correction discovered at implementation: the 2025 data in `gs://pdg-planet-data` is **not**
+> pre-cut tiles but Planet **quad deliveries** — 4096×4096 uint8 RGBA quads on the zoom-15 mosaic
+> grid (2048×2048 grid over EPSG:3857; alpha band = NoData; per-quad UDM2 + metadata; a quad may
+> appear under several order UUIDs). Tiles are therefore 512×512 **windowed reads** that may
+> straddle quad boundaries (`inference/tiles.py` mosaics intersecting quads per tile). The §14
+> calibration-mismatch assertion is implemented (`inference/predictor.py:assert_runtime_matches_package`).
+> Deferred, per spec gates: multi-scale (§6.4), TTA validation (§7.4/8.5b), EXTRA channels
+> (definition pending upstream), final calibration (threshold/temperature still null). Smoke
+> evidence: `/mnt/outputs/inference/` (dev package from phase0c_seed42 with DEV-ONLY threshold).
+
 ## 1. Inference Objective
 
 Deploy the trained segmentation model for pan-arctic inference (60-74°N) on 2025 PlanetScope basemap imagery to produce an RTS survey map. The pipeline prioritizes **precision over recall** to minimize false alarms in the final product.
