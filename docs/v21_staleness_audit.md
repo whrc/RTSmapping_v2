@@ -37,6 +37,13 @@ completes — affects the realistic-ratio gate metric directly).
 
 ## Resulting v2.1 queue (once negatives land and the snapshot is frozen)
 
+> Queue amendments 2026-06-12 (see `docs/experiments_8gpu_proposals.md`): (a) borderline
+> candidates get seeds 43/44 launched in parallel immediately (proposal #1); (b) the
+> conditional wd_5e2 + aug_strong probes are replaced by the 4-cell wd × aug grid
+> (proposal #6) iff the v2.1 gap still exceeds 0.4; (c) the multi-scale-training decision
+> (proposal #3, evidence in `docs/inference_validation.md`) must be taken BEFORE Phase-3
+> re-runs since it changes the data pipeline.
+
 Priority order, one config per GPU (`scripts/run_ablation_queue.sh`):
 
 1. **Data prep** (no GPU): freeze snapshot → `gs://rts-mapping-v2/training/v2.1/`; `create_splits.py`; recompute norm stats; `check_data.py`.
