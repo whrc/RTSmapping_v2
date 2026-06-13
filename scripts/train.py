@@ -830,8 +830,12 @@ def main() -> int:
             if train_metrics.get("train_nan_steps", 0) > 0:
                 nan_events.append({"epoch": epoch, "nan_steps": int(train_metrics["train_nan_steps"])})
 
-            # Validation cadence.
-            if epoch % val_frequency != 0 and epoch != max_epochs:
+            # Validation cadence. An lr_range_test deliberately ramps LR to
+            # divergence; its deliverable is the per-step loss-vs-LR curve, not val
+            # metrics on a (NaN) blown-up model — so skip validation entirely (the
+            # forced final-epoch pass would otherwise feed NaN logits to PR-AUC /
+            # figure rendering and crash).
+            if is_range_test or (epoch % val_frequency != 0 and epoch != max_epochs):
                 continue
 
             # Swap EMA in for validation (if EMA exists — post-unfreeze).
