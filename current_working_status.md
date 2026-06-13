@@ -1,6 +1,6 @@
 # Master Working Document
 
-Living doc maintained by YYang and Claude Code. Track development progress, record critical decisions, log current status and the next steps. This is the diary and roadmap of this project. Stale decision/information that has been replaced should be deleted (pre-v1.0 history lives in `docs/archive/v2.0-preliminary/`).
+Living doc maintained by YYang and Claude Code. Track development progress, record critical decisions, log current status and the next steps. This is the diary and roadmap of this project. Stale decision/information that has been replaced should be deleted (pre-v1.0 history lives in `docs/archive/v2-alpha/`).
 
 ---
 
@@ -25,7 +25,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ## Status — 2026-06-13
 
-**Dataset: v1.0 is the STANDARD training dataset** (declared 2026-06-13 after a full fresh-from-rasters QC — `docs/v1.0_qc.md`). The previous v2.0/v0.x dataset was destroyed 2026-06-12 and is gone; **all v2.0 numbers are invalid and archived** (`docs/archive/v2.0-preliminary/`).
+**Dataset: v1.0 is the STANDARD training dataset** (declared 2026-06-13 after a full fresh-from-rasters QC — `docs/v1.0_qc.md`). The previous v2-alpha/v0.x dataset was destroyed 2026-06-12 and is gone; **all v2-alpha numbers are invalid and archived** (`docs/archive/v2-alpha/`).
 
 - **Snapshot**: `gs://rts-mapping-v2/training/v1.0/` (our bucket — survives external rewrites). Cleaned metadata 22,259 tiles (**1,718 pos / 20,541 neg**), `splits.yaml`, `normalization_stats.json`, `TESTING/`, QC artifacts under `qc/`. Provenance + version semantics in `data/version.json`.
 - **QC verdict**: labels + structure flawless (0 unreadable, 0 invalid labels, 0 empty, **0 full-frame** — batch2 rasterization bug fixed). Known issues (next re-stage, negatives only): **49 black + 564 degraded** negatives to drop; also **restore 28 positives** wrongly dropped by the stale-QC staging (target clean pos = 1,746). List: `…/v1.0/qc/known_issues_v1.0.json`.
@@ -37,7 +37,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 - `phase0b_lr_{frozen,unfrozen}` → LR re-confirm — done, curves saved.
 - All prior locks (Arm A, frozen_lr=3e-3/base_lr=1e-3, gate ratios [5,10,20]) are being re-verified on v1.0; nothing is assumed.
 
-**Repo cleanup (2026-06-13)**: tag `v2.0-preliminary-archive` preserves everything; archived the 2 stale results docs + condensed dev-log to `docs/archive/v2.0-preliminary/`; removed 18 dead pre-made configs (recreated on-demand per `experiments.md §11.1`); re-pointed `baseline`/`smoke` to v1.0; fixed stale EXTRA/bucket refs. `configs/` is now 8 active phase0 + `baseline`/`deployment`/`smoke`/`preview_tiles`.
+**Repo cleanup (2026-06-13)**: tag `v2-alpha-archive` preserves everything; archived the 2 stale results docs + condensed dev-log to `docs/archive/v2-alpha/`; removed 18 dead pre-made configs (recreated on-demand per `experiments.md §11.1`); re-pointed `baseline`/`smoke` to v1.0; fixed stale EXTRA/bucket refs. `configs/` is now 8 active phase0 + `baseline`/`deployment`/`smoke`/`preview_tiles`.
 
 **Branch state** (consolidation pending, after the runs finish — merging now would disturb the mounted repo): `v21-rebaseline` = active mainline (v1.0 work). Unmerged unique work to fold in: `inference-pipeline` (Phase-2 inference code) and `docs-eval-interim` (QC code `validate_v21_positives.py`, `base:` config inheritance, staleness audit).
 
@@ -56,7 +56,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 |-------|-------------|--------|
 | **Phase 0** | Data pipeline (`data/`, `scripts/create_splits.py`, `compute_normalization_stats.py`, `check_data*.py`, tests, `configs/baseline.yaml`) | **complete** |
 | **Phase 1** | Training loop (`models/`, `losses/`, `training/`, `scripts/train.py`, `evaluate_test.py`, `package_model.py`, MLflow, Docker) | **complete** |
-| **Exp Phase 0** | Baseline calibration on the **v1.0 standard dataset**: normalization arm-out (0a), LR range test (0b), 3-seed baseline (0c) → new gate G. | **re-baselining** (running on v1.0; v2.0 results archived) |
+| **Exp Phase 0** | Baseline calibration on the **v1.0 standard dataset**: normalization arm-out (0a), LR range test (0b), 3-seed baseline (0c) → new gate G. | **re-baselining** (running on v1.0; v2-alpha results archived) |
 | Exp Phases 2–5 | Data-scaling, loss/boundary, EXTRA channels (blocked), architecture (gated) — `training/experiments.md` | pending (after Phase 0 lock + review) |
 | Phase 2 (build) | Inference pipeline (`scripts/inference.py`, tiling, merge, vectorize) | drafted on `inference-pipeline` branch |
 | Phase 3 (build) | Post-inference spec + implementation | pending |
@@ -73,14 +73,14 @@ Build order is strict (`CLAUDE.md` §Rule 2).
 - **2026-06-04** — **Gate metric = `val_realistic_pr_auc_geomean` over honest ratios `[5,10,20]`** + pixel_IoU/obj_F1 anchors. 1:200/1:1000 need 25.8k/129k val negatives (unsupportable at the ~16–20k pool) → noisy; deferred to Test-Realistic. `metrics.pr_auc_ratios` config-driven. (Being re-verified on v1.0.)
 - **2026-04-22** — **EXTRA channels are config-driven**, not hardcoded: `configs/*.yaml` declares which bands to stack; `data/dataset.py` reads count/names from config.
 
-(Pre-v1.0 decisions and the full dev-log are in `docs/archive/v2.0-preliminary/`.)
+(Pre-v1.0 decisions and the full dev-log are in `docs/archive/v2-alpha/`.)
 
 ---
 
 ## Dev Log Convention
 
-Append entries below with date prefix `YYYY-MM-DD — <summary>`. When a decision changes a spec, also edit the relevant md and note the path. On first load, read this doc + the relevant spec md(s) — this living doc is the launchpad. Pre-2026-06-13 entries: `docs/archive/v2.0-preliminary/devlog_v2.0.md`.
+Append entries below with date prefix `YYYY-MM-DD — <summary>`. When a decision changes a spec, also edit the relevant md and note the path. On first load, read this doc + the relevant spec md(s) — this living doc is the launchpad. Pre-2026-06-13 entries: `docs/archive/v2-alpha/devlog_v2-alpha.md`.
 
 ### Log
 
-- **2026-06-13** — **v1.0 re-baseline + standard-dataset declaration + repo cleanup.** Staged the regenerated data into `gs://rts-mapping-v2/training/v1.0/` (`scripts/stage_v1_snapshot.py`), regenerated splits + normalization stats, re-pointed the 8 phase0 configs, fixed an MLflow env-override bug + a `--privileged`/`--gpus` GPU-pinning bug (`run_ablation_queue.sh`), and launched the parallel Phase-0 calibration on 8 A100s at BS 32. Ran a full fresh QC (`scripts/qc_full_dataset.py`) → declared **v1.0 the standard dataset** (`docs/v1.0_qc.md`). Cleanup: tagged `v2.0-preliminary-archive`, archived stale v2.0 results + dev-log, removed 18 dead configs, fixed stale refs. Decisions: BS=32, no-DDP (above). Pending: compute the new gate when runs finish (pause for review), then branch consolidation.
+- **2026-06-13** — **v1.0 re-baseline + standard-dataset declaration + repo cleanup.** Staged the regenerated data into `gs://rts-mapping-v2/training/v1.0/` (`scripts/stage_v1_snapshot.py`), regenerated splits + normalization stats, re-pointed the 8 phase0 configs, fixed an MLflow env-override bug + a `--privileged`/`--gpus` GPU-pinning bug (`run_ablation_queue.sh`), and launched the parallel Phase-0 calibration on 8 A100s at BS 32. Ran a full fresh QC (`scripts/qc_full_dataset.py`) → declared **v1.0 the standard dataset** (`docs/v1.0_qc.md`). Cleanup: tagged `v2-alpha-archive`, archived stale v2-alpha results + dev-log, removed 18 dead configs, fixed stale refs. Decisions: BS=32, no-DDP (above). Pending: compute the new gate when runs finish (pause for review), then branch consolidation.

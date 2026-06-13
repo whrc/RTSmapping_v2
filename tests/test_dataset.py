@@ -50,7 +50,7 @@ def test_parse_extra_spec_rejects_missing_keys():
 
 
 def test_dataset_rejects_soft_labels(synthetic_dataset):
-    """boundary_handling='soft_labels' is deferred to v2.1 (training.md §5.5);
+    """boundary_handling='soft_labels' is deferred to a later iteration (training.md §5.5);
     construction must raise rather than silently fall through to none."""
     import pytest
     ds = synthetic_dataset

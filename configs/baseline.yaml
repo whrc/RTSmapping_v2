@@ -38,7 +38,7 @@ data:
 # ---------------------------------------------------------------------------
 # EXTRA is a list of {name, band} entries. `name` is an arbitrary label used by
 # normalization_stats and logs; `band` is the 0-indexed band number inside the
-# EXTRA GeoTIFF. The v2.0 disk layout and its 8 bands are fixed in
+# EXTRA GeoTIFF. The EXTRA disk layout and its 8 bands are fixed in
 # `data/data.md §9` (single source of truth); experiment configs choose subsets.
 channels:
   rgb: true         # always 3 bands (R, G, B) from PLANET-RGB/
@@ -79,7 +79,7 @@ splits:
 normalization:
   # RESERVED — currently unimplemented. compute_normalization_stats.py runs
   # Welford on raw values (no clipping). Keys retained so that adding
-  # percentile-clipping in v2.1 does not require a config-schema change.
+  # percentile-clipping in a later iteration does not require a config-schema change.
   # If real-data stats reveal saturation/zero-fill skew, implement clipping
   # in scripts/compute_normalization_stats.py and update data/data.md §4.1.
   # Per-group EXTRA normalization design intent lives in data/data.md §9.
@@ -153,7 +153,7 @@ loss:
   tversky_eps: 1.0
   # ── dice smoothing (also used inside compound):
   dice_eps: 1.0
-  boundary_handling: "none"     # none | ignore  (soft_labels deferred to v2.1)
+  boundary_handling: "none"     # none | ignore  (soft_labels deferred to a later iteration)
   boundary_ignore_width: 3
   soft_label_value: 0.05
 

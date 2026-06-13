@@ -3,7 +3,7 @@
 > **destroyed by an external bucket rewrite on 2026-06-12** and is unrecoverable. They do
 > **not** apply to the v1.0 standard dataset. Kept only as a historical record of the
 > preliminary calibration. The live re-baseline is in `docs/v1.0_rebaseline.md`; recover the
-> full pre-cleanup state from git tag `v2.0-preliminary-archive`.
+> full pre-cleanup state from git tag `v2-alpha-archive`.
 
 # Phase 0 — Baseline calibration (results)
 

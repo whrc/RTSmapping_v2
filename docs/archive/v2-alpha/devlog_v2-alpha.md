@@ -1,7 +1,7 @@
 # Dev-log archive — v2.0 / v0.x preliminary phase (2026-04 → 2026-06-12)
 
 Condensed history of the preliminary phase, kept for context. **Full verbatim entries are in git**
-at tag `v2.0-preliminary-archive` (`git show v2.0-preliminary-archive:current_working_status.md`).
+at tag `v2-alpha-archive` (`git show v2-alpha-archive:current_working_status.md`).
 All numbers below were on the v2.0/v0.2 dataset destroyed 2026-06-12 — superseded by v1.0.
 
 - **2026-04-22 → 04-23** — Living doc seeded; Phase 0 data pipeline (PR #8) merged; Phase 1 training

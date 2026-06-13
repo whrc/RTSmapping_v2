@@ -4,7 +4,7 @@
   "created_date": "2026-06-13",
   "validated_date": "2026-06-13",
   "gcs_root": "gs://rts-mapping-v2/training/v1.0",
-  "source_gcs_root": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA (data-production bucket; mirrored into our own bucket after the v2.0 in-place-rewrite loss — see computing/migrate_vm.md)",
+  "source_gcs_root": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA (data-production bucket; mirrored into our own bucket after the v2-alpha in-place-rewrite loss — see computing/migrate_vm.md)",
   "frozen_snapshot": "metadata.csv (cleaned, 22,259 tiles) + splits.yaml + normalization_stats.json, all under gcs_root. Gate (mu0/sigma0/G) being re-measured by the 3-seed Phase 0c baseline on this snapshot.",
   "imagery_source": "PlanetScope Quarterly Basemap 2024 (July-September), RGB, ~3m/px",
   "crs": "EPSG:3857",

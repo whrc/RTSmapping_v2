@@ -19,7 +19,7 @@ Two GCP projects are in play, and it is important not to confuse them:
   compute credit**, the Docker Artifact Registry, and the PDG bucket `rts-mapping-v2`. This is an
   **organization-managed** project (we do not control its IAM).
 - **`abruptthawmapping`** (proj# 801926669176) — the user's own (non-PDG) project. Its bucket
-  `abrupt_thaw` currently holds the v2.0 training data.
+  `abrupt_thaw` currently holds the v2-alpha training data.
 
 ```
 abruptthawmapping project (non-PDG)        pdg-project-406720 (PDG, org-managed)
@@ -80,7 +80,7 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 | Bucket | Project | Purpose | Notes |
 |--------|---------|---------|-------|
-| `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2.0 training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
+| `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2-alpha training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
 | `gs://rts-mapping-v2/` | PDG | **Recommended** home for all compute-adjacent data going forward (staged training data, outputs, artifacts, deployment packages, inference I/O) | Co-located with VMs → no cross-project egress. |
 
 **Region co-location:** VMs run in **us-west1**. Keep buckets in **us-west1** (or US multi-region)

@@ -1,6 +1,6 @@
 """Stage a frozen v1.0 training snapshot into our own bucket.
 
-One-off operational script (re-baseline after the v2.0 loss, 2026-06-13). Mirrors the
+One-off operational script (re-baseline after the v2-alpha loss, 2026-06-13). Mirrors the
 regenerated training data out of the data-production bucket (which was rewritten in place
 once already) into gs://rts-mapping-v2/training/v1.0/ so reproducibility cannot be destroyed
 by another external rewrite. See docs/v1.0_rebaseline.md and computing/migrate_vm.md.

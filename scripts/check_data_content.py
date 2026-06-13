@@ -1,4 +1,4 @@
-"""Content-level validation of the v2.0 dataset (raster values, shapes, CRS, semantics).
+"""Content-level validation of the training dataset (raster values, shapes, CRS, semantics).
 
 Per data/datacheck.md §2. Runs on a random 5% sample of tiles.
 

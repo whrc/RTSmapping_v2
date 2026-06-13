@@ -1,7 +1,7 @@
 > ⚠️ **SUPERSEDED — v2.0 preliminary results (archived 2026-06-13).** This data-scaling curve
 > (0.5361→0.5607) was measured on the v2.0/v0.2 dataset, destroyed 2026-06-12 and unrecoverable.
 > It does **not** apply to the v1.0 standard dataset and must be re-run there. Kept as a historical
-> record only. Recover the full pre-cleanup state from git tag `v2.0-preliminary-archive`.
+> record only. Recover the full pre-cleanup state from git tag `v2-alpha-archive`.
 
 # Phase 2 — Data scaling (results)
 

@@ -9,7 +9,7 @@ Living doc for the test suite. **Update this file whenever you add, remove, or m
 Two-tier verification:
 
 - **Tier 1 — `pytest tests/`**: runs on synthetic fixtures, no GCS, no GPU. Fast suite ~12 s, plus the end-to-end train-smoke at ~130 s. Guards code correctness and contracts. **Must be green before any real-data work.**
-- **Tier 2 — real-data scripts**: runs on the real v2.0 bucket on the L4 VM.
+- **Tier 2 — real-data scripts**: runs on the real v2-alpha bucket on the L4 VM.
     - Phase 0 data checks: `scripts/check_data_content.py` (bucket structure) + `scripts/check_data.py` (DataLoader preview).
     - Phase 1 training smoke: `python scripts/train.py --config configs/smoke.yaml` (2 epochs on a subset of real regions; inference.md §6.4 gate).
 
@@ -43,7 +43,7 @@ Defined in [conftest.py](conftest.py).
 
 | Fixture | What you get | Notes |
 |---|---|---|
-| `synthetic_dataset` | Temp dir laid out like `gs://.../training/v2.0/`: 4 regions × 3 tiles = 12 tiles (8 positive, 4 negative), 64×64 GeoTIFFs in `PLANET-RGB/`, `EXTRA/` (4-band), `labels/`, plus `metadata.csv` and `splits.yaml`. | Returns `{root, metadata_df, splits}`. 64×64 instead of 512×512 for speed. |
+| `synthetic_dataset` | Temp dir laid out like `gs://.../training/v2-alpha/`: 4 regions × 3 tiles = 12 tiles (8 positive, 4 negative), 64×64 GeoTIFFs in `PLANET-RGB/`, `EXTRA/` (4-band), `labels/`, plus `metadata.csv` and `splits.yaml`. | Returns `{root, metadata_df, splits}`. 64×64 instead of 512×512 for speed. |
 
 Fresh temp dir per test — no cross-test state leakage.
 
@@ -101,7 +101,7 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_parse_extra_spec_empty` | `None` and `[]` both → `[]` | shallow |
 | `test_parse_extra_spec_flexible_names` | Arbitrary names parsed, band indices preserved | real — flexible-EXTRA guarantee |
 | `test_parse_extra_spec_rejects_missing_keys` | Missing `name` or `band` → `ValueError` | real |
-| `test_dataset_rejects_soft_labels` | `boundary_handling="soft_labels"` raises `NotImplementedError` (deferred to v2.1, training.md §5.5) | real — guards a config option that isn't wired to code |
+| `test_dataset_rejects_soft_labels` | `boundary_handling="soft_labels"` raises `NotImplementedError` (deferred to a later iteration, training.md §5.5) | real — guards a config option that isn't wired to code |
 | `test_dataset_rejects_unknown_boundary_handling` | Unknown value (e.g. `"bogus"`) raises `ValueError` | real |
 | `test_dataset_rgb_only` | `(3, 64, 64) float32` image, `(64, 64) int64` label, str `tile_id`; negative tiles return synthetic all-zero label (no label file needed) | real — end-to-end plumbing |
 | `test_dataset_with_variable_extra` | Bands [0, 2] + arbitrary names → `(5, 64, 64)` | real — flexible-EXTRA end-to-end |

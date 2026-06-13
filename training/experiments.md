@@ -277,7 +277,7 @@ Run **after** §6.1 locks. The loss-winner config is held constant; only `loss.b
 | Configuration | Notes |
 |---|---|
 | `boundary_handling: none` (baseline) | Inherited from §6.1. |
-| `boundary_handling: ignore`, width ∈ {1, 2, 3} | 3 runs. Soft-label is deferred to v2.1 per `training.md §5.5`; `data/dataset.py` raises `NotImplementedError` if requested. |
+| `boundary_handling: ignore`, width ∈ {1, 2, 3} | 3 runs. Soft-label is deferred to a later iteration per `training.md §5.5`; `data/dataset.py` raises `NotImplementedError` if requested. |
 
 §1.4 gate. Operational tie-break: `none` beats `ignore` (less data prep, no dilation step at load time).
 
@@ -418,7 +418,7 @@ These knobs sit in `configs/baseline.yaml` and are technically tunable, but tuni
 | `lr_schedule.warmup_epochs`, `backbone_warmup_epochs` | 5, 3 | Defaults are within the literature normal range. Phase 0 LR range test makes them less critical. | Phase 0 multi-seed showing high-σ runs that originate from warmup-period instability. |
 | `optimizer.gradient_clip_norm` | 1.0 | Safe default. Loosening or removing risks NaN events under focal loss with extreme imbalance. | Repeated `train_nan_steps` > 0 across seeds. |
 | `augmentation.*` probabilities | as in `configs/baseline.yaml` | The aug pipeline was tuned in v1; per-aug ablations are diminishing-returns search. | §5.4 generalisation-gap > 0.4 (then a coarse "all aug p × 1.5" trial, not a per-aug grid). |
-| Soft-label boundary handling | not implemented | Deferred to v2.1; `data/dataset.py` raises if requested. | `boundary_handling: ignore` clearly fails to capture annotation noise. |
+| Soft-label boundary handling | not implemented | Deferred to a later iteration; `data/dataset.py` raises if requested. | `boundary_handling: ignore` clearly fails to capture annotation noise. |
 | Copy-paste augmentation | not implemented | Deferred. Adds implementation surface area for an effect of uncertain magnitude. | Phase 4 reveals positive recall is the bottleneck. |
 
 The trigger for revisiting any of these is **evidence**, not a calendar slot or a feeling that "we should also try X."
