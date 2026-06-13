@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,10 @@ def setup_mlflow(cfg: dict) -> mlflow.ActiveRun:
     a context manager upstream). The config YAML is logged as an artifact and
     its SHA256 goes into both params and tags.
     """
-    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
+    # MLFLOW_TRACKING_URI env overrides the YAML (experiments.md §2.1) — required for
+    # concurrency-safe per-run stores when several runs share the host (the file store is
+    # not concurrency-safe).
+    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI") or cfg["mlflow"]["tracking_uri"])
     mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
     run = mlflow.start_run(run_name=cfg["mlflow"].get("run_name"))
 

@@ -14,25 +14,25 @@ seed: 44
 deterministic: false   # set true only for final multi-seed lock run
 
 data:
-  version: "2.0"
-  data_root: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA"
+  version: "1.0"
+  data_root: "gs://rts-mapping-v2/training/v1.0"
   rgb_dir: "PLANET-RGB"
   extra_dir: "EXTRA"
   labels_dir: "labels"
-  metadata_csv: "metadata_phase0c.csv"   # frozen 15,528-tile snapshot (2026-06-04); bucket may grow with new negatives mid-experiment
-  splits_yaml: "splits_phase0c.yaml"      # frozen region assignment — keeps all 3 seeds on one immutable dataset
+  metadata_csv: "metadata.csv"   # cleaned v1.0 snapshot (22,259 tiles); see docs/v1.0_rebaseline.md
+  splits_yaml: "splits.yaml"
   splits_summary_json: "splits_summary.json"
   tile_size: 512
   crs: "EPSG:3857"
   label_ignore_index: 255
-  normalization_stats_path: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json"
+  normalization_stats_path: "gs://rts-mapping-v2/training/v1.0/normalization_stats.json"
 
 channels:
   rgb: true
   extra: []
 
 splits:
-  regions_geojson: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/circumpolar_subregions.geojson"
+  regions_geojson: "gs://rts-mapping-v2/training/v1.0/circumpolar_subregions.geojson"
   train_fraction: 0.80
   val_fraction: 0.10
   test_fraction: 0.10

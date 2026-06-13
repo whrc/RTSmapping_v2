@@ -649,7 +649,7 @@ def _print_artifact_summary(cfg: dict, out_dir: Path, run_id: str) -> None:
     this block so results and checkpoints are trivially findable without opening
     MLflow.
     """
-    tracking_uri = cfg["mlflow"]["tracking_uri"]
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI") or cfg["mlflow"]["tracking_uri"]
     exp_name = cfg["mlflow"]["experiment_name"]
     run_name = cfg["mlflow"].get("run_name", "unknown")
     ckpt_dir = out_dir / "checkpoints"

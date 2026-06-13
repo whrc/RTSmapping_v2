@@ -19,7 +19,7 @@
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2"
-ADC="$HOME/.config/gcloud/application_default_credentials.json"
+ADC="${ADC_PATH:-$HOME/.config/gcloud/application_default_credentials.json}"
 PATCH='sed -i "s/LayerId = cv2.dnn.DictValue/LayerId = object/" /usr/local/lib/python3.10/dist-packages/cv2/typing/__init__.py 2>/dev/null || true'
 
 GPU="${GPU:-0}"
@@ -41,6 +41,8 @@ for name in "$@"; do
       -v "${REPO}:/app" -v /mnt/outputs:/outputs \
       -v "${ADC}:/gcp_adc.json:ro" \
       -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
+      -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
+      -e MLFLOW_TRACKING_URI="file:///outputs/mlflow_${name}" \
       -e GDAL_HTTP_MAX_RETRY=3 -e GDAL_HTTP_RETRY_DELAY=1 \
       --entrypoint bash "$IMAGE" \
       -c "set -o pipefail; ${PATCH} && python scripts/train.py --config configs/${name}.yaml \

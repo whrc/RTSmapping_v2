@@ -12,8 +12,8 @@ seed: 42
 deterministic: false
 
 data:
-  version: "2.0"
-  data_root: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA"
+  version: "1.0"
+  data_root: "gs://rts-mapping-v2/training/v1.0"
   rgb_dir: "PLANET-RGB"
   extra_dir: "EXTRA"
   labels_dir: "labels"
@@ -31,7 +31,7 @@ channels:
   extra: []
 
 splits:
-  regions_geojson: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/circumpolar_subregions.geojson"
+  regions_geojson: "gs://rts-mapping-v2/training/v1.0/circumpolar_subregions.geojson"
   train_fraction: 0.80
   val_fraction: 0.10
   test_fraction: 0.10
