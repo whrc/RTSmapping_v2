@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "maturity": "temporary v1.0 anchor (user, 2026-06-13) — regenerated, bug-fixed, QC'd dataset replacing the externally-destroyed v2.0. A data/data.md update from the user will formalize version semantics. Gate is being re-measured (see docs/v1.0_rebaseline.md).",
+  "maturity": "STANDARD — first stable training dataset (declared 2026-06-13 after full fresh-from-rasters QC; see docs/v1.0_qc.md). Labels + structure flawless; positives pristine (batch2 full-frame bug fixed). Stable ground for the experiment program, with minor fixes/additions expected over time. Known issues (negatives only): 49 all-zero + 564 degraded-band tiles to drop at the next re-stage (gs://rts-mapping-v2/training/v1.0/qc/known_issues_v1.0.json). EXTRA stack absent → Phase 4 blocked.",
   "created_date": "2026-06-13",
   "validated_date": "2026-06-13",
   "gcs_root": "gs://rts-mapping-v2/training/v1.0",
@@ -29,8 +29,10 @@
   },
   "normalization_stats_gcs": "gs://rts-mapping-v2/training/v1.0/normalization_stats.json",
   "data_quality_notes": [
-    "QC pass (user, /mnt/outputs/inference/v21_qc): 1,757 positives all uint8/3-band/EPSG:3857/512²; labels valid {0,1}; 0 all-zero RGB tiles; only 9 with a band >50% zero (vs 335 in v2.0 — missing-band bug fixed).",
-    "28 empty-mask positives (positive class, 0 RTS pixels) — a label bug; dropped from training and flagged to the data team as relabel candidates (gcs_root/relabel_candidates.csv)."
+    "Authoritative full QC 2026-06-13 (scripts/qc_full_dataset.py, fresh from rasters over all 22,296 source tiles; see docs/v1.0_qc.md). Labels + structure flawless: 0 unreadable, all 512²/3-band/uint8/EPSG:3857; positive labels 0 missing / 0 invalid-values / 0 empty / 0 full-frame (batch2 bug fixed); 0 duplicate IDs/centroids.",
+    "Known issues (NEGATIVES only): 49 all-zero (black) + 564 degraded (a band >50% zero) tiles — drop at next re-stage; list in gs://rts-mapping-v2/training/v1.0/qc/known_issues_v1.0.json.",
+    "Snapshot-staging correction: stage_v1_snapshot.py dropped 37 positives using the STALE mid-drop QC; the fresh QC shows only 9 were genuinely degraded — the other 28 'empty-mask' positives are fine in the current data and were WRONGLY dropped. Restore those 28 at the next re-stage (target clean positives = 1746, not 1718). The running baseline uses 1718; impact negligible (1.6%).",
+    "567 positives at 74-76°N (just above the 60-74°N inference domain) — kept; benign."
   ],
   "not_in_v1": [
     "EXTRA stack (NDVI/NBR/SE-PCA/SE-Proto/Tasseled-Cap)",
