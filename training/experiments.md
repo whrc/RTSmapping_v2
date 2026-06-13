@@ -308,7 +308,7 @@ Backbone sizing (B3 / B7 vs B5) is **deferred to Phase 5**, not run inside Phase
 
 ### 7.1 Group definitions
 
-Group IDs and their band positions are fixed by `data/data.md §9` (single source of truth). Phase 4 ablates the five v2.0 groups:
+Group IDs and their band positions are fixed by `data/data.md §9` (single source of truth). **Phase 4 is currently blocked**: the v1.0 standard dataset ships **no EXTRA stack** (`EXTRA/` is empty), so this phase cannot run until the data team appends the EXTRA bands. When it does, Phase 4 ablates these groups:
 
 | Group ID | N bands | Band indices in EXTRA |
 |----------|---------|------------------------|

@@ -345,7 +345,11 @@ Run before training:
 
 ## 9. Channel Index Reference
 
-RGB band order is fixed. EXTRA is the **canonical 8-band stack for v2.0** — one multi-band GeoTIFF in `EXTRA/{tile_id}.tif` with the band order below. Per-experiment configs select which subset to load via `configs/*.yaml:channels.extra` (a list of `{name, band}` entries; see §3.3). Adding a new group in v2.1 = appending bands to the EXTRA GeoTIFF and adding a row here. This section is the single source of truth for EXTRA channel composition; other docs cross-reference rather than enumerate.
+> **v1.0 status:** the v1.0 standard dataset currently ships **RGB only — no EXTRA stack** (`EXTRA/`
+> is empty). The 8-band layout below is the *spec* for when the data team regenerates EXTRA; until
+> then, train RGB-only (omit the `channels.extra` block) and Phase 4 stays blocked (`experiments.md §7`).
+
+RGB band order is fixed. EXTRA is the **canonical 8-band stack** — one multi-band GeoTIFF in `EXTRA/{tile_id}.tif` with the band order below. Per-experiment configs select which subset to load via `configs/*.yaml:channels.extra` (a list of `{name, band}` entries; see §3.3). Adding a new group in v2.1 = appending bands to the EXTRA GeoTIFF and adding a row here. This section is the single source of truth for EXTRA channel composition; other docs cross-reference rather than enumerate.
 
 ### RGB (PLANET-RGB GeoTIFF, fixed)
 
