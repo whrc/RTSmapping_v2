@@ -1,3 +1,10 @@
+> ⚠️ **SUPERSEDED — v2.0 preliminary results (archived 2026-06-13).** These numbers
+> (μ₀=0.5683, σ₀=0.0125, gate G=0.025) were measured on the v2.0/v0.2 dataset that was
+> **destroyed by an external bucket rewrite on 2026-06-12** and is unrecoverable. They do
+> **not** apply to the v1.0 standard dataset. Kept only as a historical record of the
+> preliminary calibration. The live re-baseline is in `docs/v1.0_rebaseline.md`; recover the
+> full pre-cleanup state from git tag `v2.0-preliminary-archive`.
+
 # Phase 0 — Baseline calibration (results)
 
 Per `training/experiments.md §3` + §11.2. Records the locked baseline, the noise floor, and the gate
