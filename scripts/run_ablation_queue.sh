@@ -5,17 +5,22 @@
 # is provisioned — NOT the parallel orchestrator (deferred until the VM/GPU count
 # + MLflow backend are fixed).
 #
-# Args are config BASENAMES → configs/<name>.yaml, out-dir /outputs/<name>,
-# container name <name>, run log /outputs/<name>.log.
+# Args are config BASENAMES → configs/<name>.yaml. Outputs self-organize by
+# dataset VERSION so /mnt/outputs doesn't sprawl (see /mnt/outputs/README.md):
+#   run dir : /outputs/<VERSION>/runs/<name>
+#   mlflow  : /outputs/<VERSION>/mlflow/<name>
+#   run log : /outputs/<VERSION>/logs/<name>.log
+# Archived (superseded) outputs live under /outputs/_archive/<dataset>/.
 #
 # Usage (detach so it survives the session):
 #   WAIT_FOR=abl_loss_tversky nohup bash scripts/run_ablation_queue.sh \
-#       phase2_scale_25 phase2_scale_50 ... > /mnt/outputs/experiment_queue.log 2>&1 &
+#       phase2_scale_25 phase2_scale_50 ... > /mnt/outputs/v1.0/logs/queue.log 2>&1 &
 #
 # Resumable: skips any config whose out-dir already has a run_summary.md from a
 # completed run (a summary with `best_epoch | -1` is a crash artifact → rerun).
 # WAIT_FOR (optional env): wait for this container to finish before starting.
 # GPU (optional env, default 0): GPU index — run one queue per GPU in parallel.
+# VERSION (optional env, default v1.0): dataset version → output subtree.
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2"
@@ -23,6 +28,9 @@ ADC="${ADC_PATH:-$HOME/.config/gcloud/application_default_credentials.json}"
 PATCH='sed -i "s/LayerId = cv2.dnn.DictValue/LayerId = object/" /usr/local/lib/python3.10/dist-packages/cv2/typing/__init__.py 2>/dev/null || true'
 
 GPU="${GPU:-0}"
+VERSION="${VERSION:-v1.0}"
+OUTROOT="/mnt/outputs/${VERSION}"
+mkdir -p "${OUTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${OUTROOT}"/{runs,mlflow,logs}
 WAIT_FOR="${WAIT_FOR:-}"
 if [ -n "$WAIT_FOR" ] && sudo docker ps -q --filter name="$WAIT_FOR" | grep -q .; then
   echo "[queue] $(date) waiting for ${WAIT_FOR} (already running) ..."
@@ -30,7 +38,7 @@ if [ -n "$WAIT_FOR" ] && sudo docker ps -q --filter name="$WAIT_FOR" | grep -q .
 fi
 
 for name in "$@"; do
-  out="/mnt/outputs/${name}"
+  out="${OUTROOT}/runs/${name}"
   if [ -f "${out}/run_summary.md" ] && ! grep -q 'best_epoch | -1' "${out}/run_summary.md"; then
     echo "[queue] $(date) SKIP ${name} (run_summary.md exists)"; continue
   fi
@@ -45,11 +53,11 @@ for name in "$@"; do
       -v "${ADC}:/gcp_adc.json:ro" \
       -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
       -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
-      -e MLFLOW_TRACKING_URI="file:///outputs/mlflow_${name}" \
+      -e MLFLOW_TRACKING_URI="file:///outputs/${VERSION}/mlflow/${name}" \
       -e GDAL_HTTP_MAX_RETRY=3 -e GDAL_HTTP_RETRY_DELAY=1 \
       --entrypoint bash "$IMAGE" \
       -c "set -o pipefail; ${PATCH} && python scripts/train.py --config configs/${name}.yaml \
-            --out-dir /outputs/${name} 2>&1 | tee /outputs/${name}.log"
+            --out-dir /outputs/${VERSION}/runs/${name} 2>&1 | tee /outputs/${VERSION}/logs/${name}.log"
   echo "[queue] $(date) END ${name} (exit $?)"
 done
 echo "[queue] $(date) ALL DONE"
