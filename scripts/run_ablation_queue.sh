@@ -36,7 +36,10 @@ for name in "$@"; do
   fi
   echo "[queue] $(date) START ${name}"
   sudo docker rm "${name}" >/dev/null 2>&1 || true
-  sudo docker run --rm --gpus "\"device=${GPU}\"" --privileged --shm-size=16g \
+  # NOTE: --privileged exposes ALL GPUs regardless of `--gpus device=N`, so device
+  # pinning must go through CUDA_VISIBLE_DEVICES (otherwise every container defaults
+  # to cuda:0 and they pile onto one GPU → OOM). Fixed 2026-06-13.
+  sudo docker run --rm --gpus all -e CUDA_VISIBLE_DEVICES="${GPU}" --privileged --shm-size=16g \
       --name "${name}" \
       -v "${REPO}:/app" -v /mnt/outputs:/outputs \
       -v "${ADC}:/gcp_adc.json:ro" \
