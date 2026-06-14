@@ -465,13 +465,13 @@ def _section_artifacts(mlflow, experiment_name: str) -> str:
 # Project-wide sections (experiments.md program: Phase 0 → 5 → Final)
 # ---------------------------------------------------------------------------
 
-# ⚠ v2.0 constants (frozen 2026-06-07) — recompute after the v2.1 re-baseline
-# (docs/v21_staleness_audit.md #3). _section_phase0c computes the live values
-# from MLflow; these mirror them for the cross-section gate comparisons.
-MU0, SIGMA0 = 0.5683, 0.0125
-GATE_G = max(0.01, 2 * SIGMA0)        # 0.025 — experiments.md §1.4
+# v1.0 locked-baseline constants (docs/phase0_baseline.md, 2026-06-14). Locked for
+# the project; _section_phase0c also computes the live values from MLflow, these
+# mirror them for the cross-section gate comparisons.
+MU0, SIGMA0 = 0.791174, 0.005587
+GATE_G = max(0.01, 2 * SIGMA0)        # 0.0112 — experiments.md §1.4 (winner bar μ₀+G=0.8023)
 GATE_RATIOS = "[5, 10, 20]"
-PCT_TO_NPOS = {25: 475, 50: 950, 75: 1425, 100: 1900}
+PCT_TO_NPOS = {25: 328, 50: 656, 75: 983, 100: 1311}   # v1.0 train positives = 1311
 
 
 def _dedup_latest(runs):
