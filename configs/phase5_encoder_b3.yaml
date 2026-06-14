@@ -1,3 +1,6 @@
+# ⚠ STALE (v2.0): references the deleted frozen snapshot `metadata_phase0c.csv` — the v2.0 dataset
+# was replaced by v2.1 on 2026-06-12 (see computing/migrate_vm.md "Dataset transition").
+# DO NOT RUN as-is. v2.1 successors are planned via docs/v21_staleness_audit.md.
 # Phase 5 §8.2 — GATED (run only if §8.1 triggers; expected SKIP at ~1900 positives). NOT in the active queue.
 # Full 300-epoch run with locked normalization (Phase 0a winner) and LRs (Phase 0b winner).
 # Single-seed (42) candidate vs Phase 3/4 winner, IF Phase 5 triggers (experiments.md §8).

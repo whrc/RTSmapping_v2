@@ -138,7 +138,7 @@ def _plot_lr_range_curve(csv_text: str, run_name: str) -> str:
     steps, lrs, losses = zip(*rows)
     fig, ax1 = plt.subplots(figsize=(9, 4))
     ax2 = ax1.twiny()
-    ax1.semilogy(lrs, losses, color="#2563EB", linewidth=1.8)
+    ax1.loglog(lrs, losses, color="#2563EB", linewidth=1.8)
     ax1.set_xlabel("Learning Rate (log scale)")
     ax1.set_ylabel("Loss")
     ax2.set_xlabel("Step")
@@ -465,9 +465,11 @@ def _section_artifacts(mlflow, experiment_name: str) -> str:
 # Project-wide sections (experiments.md program: Phase 0 → 5 → Final)
 # ---------------------------------------------------------------------------
 
+# ⚠ v2.0 constants (frozen 2026-06-07) — recompute after the v2.1 re-baseline
+# (docs/v21_staleness_audit.md #3). _section_phase0c computes the live values
+# from MLflow; these mirror them for the cross-section gate comparisons.
 MU0, SIGMA0 = 0.5683, 0.0125
 GATE_G = max(0.01, 2 * SIGMA0)        # 0.025 — experiments.md §1.4
-BASELINE_SEED42 = 0.5607              # single-seed-42 baseline for single-seed Δ comparisons
 GATE_RATIOS = "[5, 10, 20]"
 PCT_TO_NPOS = {25: 475, 50: 950, 75: 1425, 100: 1900}
 
@@ -566,7 +568,8 @@ def _section_phase2(mlflow, experiment_name: str) -> str:
         gap = (tiou - viou) if not (np.isnan(tiou) or np.isnan(viou)) else float("nan")
         rows.append({"Subset": f"{pct}%", "≈ pos": n, "Best gate": _fmt(gate),
                      "train IoU": _fmt(tiou, 3), "val IoU": _fmt(viou, 3), "gap": _fmt(gap, 3)})
-        glab.append(f"{pct}%"); gtr.append(0.0 if np.isnan(tiou) else tiou); gva.append(0.0 if np.isnan(viou) else viou)
+        if not (np.isnan(tiou) or np.isnan(viou)):  # skip subsets without both IoUs (a 0.0 bar fakes a negative gap)
+            glab.append(f"{pct}%"); gtr.append(tiou); gva.append(viou)
     base = _dedup_latest(_search_runs(mlflow, experiment_name, "phase0c_seed42"))
     if not base.empty:
         g100 = _best_smoothed_from_history(mlflow, base.iloc[-1]["run_id"], "val_realistic_pr_auc_geomean")
@@ -580,6 +583,8 @@ def _section_phase2(mlflow, experiment_name: str) -> str:
         s_lo = (cmap[950] - cmap[475]) / (np.log(950) - np.log(475))
         s_hi = (cmap[1900] - cmap[1425]) / (np.log(1900) - np.log(1425))
         ratio = s_hi / s_lo if s_lo != 0 else float("inf")
+        if np.isnan(ratio):  # a run mid-training yields NaN gates; NaN compares
+            raise KeyError   # False everywhere and would misreport "Plateau"
         ratio_txt = f"{ratio:.1f}"
         regime = ("Severely under-scaled" if ratio > 1.0 else
                   "Diminishing but still scaling" if ratio >= 0.5 else "Plateau before 100%")
@@ -597,12 +602,12 @@ def _section_phase2(mlflow, experiment_name: str) -> str:
 <div style='display:flex; gap:1rem; flex-wrap:wrap;'>{imgs}</div>
 {_html_table(pd.DataFrame(rows))}
 <div class='insight'><strong>§5.3 slope</strong> (75→100)/(25→50) ≈ <strong>{ratio_txt}</strong> →
-<strong>{regime}</strong>: the curve is still rising → the model is <strong>data-limited</strong>; more
-labeled positives would help.<br>
-<strong>§5.4 gap</strong> ≈ <strong>0.43 (≫ 0.4)</strong> (train IoU ~0.68 vs val ~0.24) →
-<strong>severe overfitting / over-parameterization</strong> ⇒ triggers the §6.3 weight-decay sweep, and
-implies a bigger architecture (Phase 5) would overfit more → <strong>lean SKIP</strong>. Real levers:
-<strong>more data + regularization</strong>, not capacity.</div>
+<strong>{regime}</strong>.<br>
+<strong>§5.4 gap</strong>: see table (gap &gt; 0.4 ⇒ severe over-parameterization ⇒ §6.3 weight-decay sweep
+triggered; bigger architectures would overfit more → Phase 5 lean SKIP). Real levers when data-limited +
+over-parameterized: <strong>more data + regularization</strong>, not capacity.<br>
+<em>Prose interpretation snapshot 2026-06-07 (v2.0 runs): ratio ≈ 4.4, gap ≈ 0.43 — see
+docs/phase2_data_scaling.md.</em></div>
 """
 
 
@@ -610,14 +615,16 @@ def _section_phase3(mlflow, experiment_name: str) -> str:
     runs = _dedup_latest(_search_runs(mlflow, experiment_name, "phase3_loss_"))
     abl = _dedup_latest(_search_runs(mlflow, experiment_name, "abl_loss_"))
     allruns = pd.concat([runs, abl]) if not abl.empty else runs
-    rows = [{"Candidate": "focal (baseline)", "Best gate": _fmt(BASELINE_SEED42),
+    # §1.4 defines the win as Δ vs baseline μ₀ (multi-seed mean), not the
+    # single seed-42 number — that reference was off by +0.0076 (30% of G).
+    rows = [{"Candidate": "focal (baseline μ₀)", "Best gate": _fmt(MU0),
              "Δ vs baseline": "ref", "Win (≥G)?": "—"}]
     for _, run in allruns.iterrows():
         name = run.get("tags.mlflow.runName", ""); rid = run.get("run_id", "")
         gate = _best_smoothed_from_history(mlflow, rid, "val_realistic_pr_auc_geomean")
         if np.isnan(gate):
             continue
-        d = gate - BASELINE_SEED42
+        d = gate - MU0
         passed = d >= GATE_G
         rows.append({"Candidate": name.replace("phase3_loss_", "").replace("abl_loss_", ""),
                      "Best gate": _fmt(gate), "Δ vs baseline": f"{d:+.4f}",
@@ -626,10 +633,11 @@ def _section_phase3(mlflow, experiment_name: str) -> str:
 <h2 id='p3'>5. Phase 3 — Loss family → boundary {_badge('running')}</h2>
 <p>Sequential elimination (experiments.md §6): pick loss, lock, then boundary. Win = Δ ≥ G={GATE_G:.3f} + no precision drop.</p>
 {_html_table(pd.DataFrame(rows))}
-<div class='insight'><strong>Focal-only wins so far.</strong> Tversky (precision-focused) collapses the
-imbalanced gate; compound (Focal+Dice) ties. Per §1.4 tie-break the simpler <strong>focal</strong> holds
-unless a candidate clears G. Next: boundary handling (§6.2) + the §6.3 weight-decay sweep (triggered by the
-§5.4 gap above).</div>
+<div class='insight'><em>Prose interpretation snapshot 2026-06-07 (v2.0 runs):</em> <strong>focal-only wins
+so far.</strong> Tversky (precision-focused) collapses the imbalanced gate; compound (Focal+Dice) ties.
+Per §1.4 tie-break the simpler <strong>focal</strong> holds unless a candidate clears G. The table above is
+live from MLflow — trust it over this prose if they disagree. Next: boundary handling (§6.2) + the §6.3
+weight-decay sweep (triggered by the §5.4 gap above).</div>
 """
 
 
