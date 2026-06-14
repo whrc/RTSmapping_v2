@@ -1,0 +1,9 @@
+# Phase 3 loss family — compound (focal+dice), λ_focal:λ_dice = 1:1. experiments.md §6.1.
+# Inherits the locked v1.0 baseline (phase0c_seed42); only the loss differs.
+base: phase0c_seed42.yaml
+loss:
+  function: compound
+  lambda_focal: 1.0
+  lambda_dice: 1.0
+mlflow:
+  run_name: phase3_loss_compound_1to1

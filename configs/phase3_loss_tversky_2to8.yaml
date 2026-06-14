@@ -1,0 +1,9 @@
+# Phase 3 loss family — tversky (α=0.2, β=0.8; β>α precision-focused). experiments.md §6.1.
+# Inherits the locked v1.0 baseline (phase0c_seed42); only the loss differs.
+base: phase0c_seed42.yaml
+loss:
+  function: tversky
+  tversky_alpha: 0.2
+  tversky_beta: 0.8
+mlflow:
+  run_name: phase3_loss_tversky_2to8

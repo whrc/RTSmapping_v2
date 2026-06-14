@@ -1,0 +1,9 @@
+# Phase 2 data-scaling — 50% positive subset. experiments.md §5.
+# Inherits the locked v1.0 baseline (phase0c_seed42); only the positive-subset
+# knob differs. Compared vs locked baseline μ₀=0.7912 / gate G=0.0112 (single-seed
+# first pass, medium-noise band). Negatives are NOT subsetted.
+base: phase0c_seed42.yaml
+splits:
+  train_positive_subset_pct: 50
+mlflow:
+  run_name: phase2_scale_50
