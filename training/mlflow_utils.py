@@ -141,12 +141,20 @@ def log_run_summary(
     training_duration_s: float,
     nan_events: list[dict],
     tmp_dir: Path,
+    status: str = "completed",
 ) -> Path:
-    """Write a human-readable run_summary.md and log it as an MLflow artifact."""
+    """Write a human-readable run_summary.md and log it as an MLflow artifact.
+
+    Args:
+        status: "completed" for a normal training-loop exit, "crashed" when the
+            summary is written from the finally-block after an exception. The
+            ablation queue greps this to decide whether a run needs a rerun.
+    """
     path = tmp_dir / "run_summary.md"
     lines = [
         f"# Run summary — {cfg['mlflow'].get('run_name', 'unnamed')}",
         "",
+        f"- Status: **{status}**",
         f"- Experiment: `{cfg['mlflow']['experiment_name']}`",
         f"- Seed: {cfg.get('seed')}",
         f"- Precision: {cfg['training'].get('precision')}",

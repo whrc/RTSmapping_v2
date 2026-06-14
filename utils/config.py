@@ -28,7 +28,37 @@ def load_config(path: str | Path) -> dict[str, Any]:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
         raise ValueError(f"Config root must be a mapping, got {type(cfg).__name__}: {path}")
+
+    # Optional single-level inheritance: `base: baseline.yaml` (path relative
+    # to this file) pulls in the base config, with this file's keys deep-merged
+    # on top. Lets experiment configs hold only their 2-10 line delta instead
+    # of a full ~169-line copy (the v2.0 copy-paste configs drifted exactly
+    # this way). One level only: a base may not itself declare a base.
+    base_ref = cfg.pop("base", None)
+    if base_ref is not None:
+        base_path = (path.parent / base_ref).resolve()
+        if not base_path.exists():
+            raise FileNotFoundError(f"Base config not found: {base_path} (from {path})")
+        with base_path.open("r") as f:
+            base = yaml.safe_load(f)
+        if not isinstance(base, dict):
+            raise ValueError(f"Base config root must be a mapping: {base_path}")
+        if "base" in base:
+            raise ValueError(f"Chained bases are not supported: {base_path} "
+                             f"declares its own 'base'")
+        cfg = _deep_merge(base, cfg)
     return cfg
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge `override` onto `base` (override wins; lists replace)."""
+    merged = dict(base)
+    for key, val in override.items():
+        if isinstance(val, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], val)
+        else:
+            merged[key] = val
+    return merged
 
 
 def save_config(cfg: dict[str, Any], path: str | Path) -> None:

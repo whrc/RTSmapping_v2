@@ -2,8 +2,8 @@
 # Sequential single-GPU experiment runner (device 0). Runs each config to
 # completion, one at a time, then the next. This is the SLOW single-A100 path
 # for the experiment program in `training/experiments.md` while the multi-GPU VM
-# is provisioned — NOT the parallel orchestrator (deferred until the VM/GPU count
-# + MLflow backend are fixed).
+# is provisioned — NOT the parallel orchestrator. For the parallel multi-GPU path
+# that keeps all GPUs saturated, use scripts/run_gpu_pool.sh.
 #
 # Args are config BASENAMES → configs/<name>.yaml. Outputs self-organize by
 # dataset VERSION so /mnt/outputs doesn't sprawl (see /mnt/outputs/README.md):
@@ -17,8 +17,13 @@
 #       phase2_scale_25 phase2_scale_50 ... > /mnt/outputs/v1.0/logs/queue.log 2>&1 &
 #
 # Resumable: skips any config whose out-dir already has a run_summary.md from a
-# completed run (a summary with `best_epoch | -1` is a crash artifact → rerun).
+# completed run. Crash artifacts are rerun: a summary with `best_epoch | -1`
+# (no improvement before crash) or `Status: **crashed**` (train.py finally-block
+# wrote the summary after a mid-training exception).
 # WAIT_FOR (optional env): wait for this container to finish before starting.
+# One-shot: it only waits if the container exists when this script starts —
+# launch the awaited queue first and let its docker run start before launching
+# a WAIT_FOR queue.
 # GPU (optional env, default 0): GPU index — run one queue per GPU in parallel.
 # VERSION (optional env, default v1.0): dataset version → output subtree.
 set -u
@@ -32,14 +37,16 @@ VERSION="${VERSION:-v1.0}"
 OUTROOT="/mnt/outputs/${VERSION}"
 mkdir -p "${OUTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${OUTROOT}"/{runs,mlflow,logs}
 WAIT_FOR="${WAIT_FOR:-}"
-if [ -n "$WAIT_FOR" ] && sudo docker ps -q --filter name="$WAIT_FOR" | grep -q .; then
+if [ -n "$WAIT_FOR" ] && sudo docker ps -q --filter name="^/${WAIT_FOR}$" | grep -q .; then
   echo "[queue] $(date) waiting for ${WAIT_FOR} (already running) ..."
   sudo docker wait "$WAIT_FOR" || true
 fi
 
 for name in "$@"; do
   out="${OUTROOT}/runs/${name}"
-  if [ -f "${out}/run_summary.md" ] && ! grep -q 'best_epoch | -1' "${out}/run_summary.md"; then
+  if [ -f "${out}/run_summary.md" ] \
+     && ! grep -Eq 'best_epoch *\| *-1' "${out}/run_summary.md" \
+     && ! grep -q 'Status: \*\*crashed\*\*' "${out}/run_summary.md"; then
     echo "[queue] $(date) SKIP ${name} (run_summary.md exists)"; continue
   fi
   echo "[queue] $(date) START ${name}"

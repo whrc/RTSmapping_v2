@@ -485,5 +485,7 @@ The following decision points cannot be made autonomously and require explicit u
 | Late-fusion authorisation if §7.4 calls for it | Phase 4 §7.5 | User |
 | Architecture extension to `models/segmentation.py` for SegFormer / DINOv3 | Phase 5 (if triggered) | Engineer |
 | Re-running Phase 2 on full 3500 positives | Phase 3+ (if any decision flips on the 1900 result) | User |
+| **Multi-scale / context-expanded training** — the 2026-06-12 tiny-area experiment showed the single-GSD model does **not** transfer zero-shot to 2× GSD (0 blobs vs 9; `docs/inference_validation.md`), so wider-FOV coverage requires a training change (inference.md §6.4 "Phase-1.5" path: fetch 2× area, downsample to 512). Decide at the v2.1 re-baseline — it alters the data pipeline and must precede Phase-3 re-runs if adopted | v2.1 re-baseline | User |
+| Self-supervised encoder pretraining on unlabeled Arctic quads (proposal #4 in `docs/experiments_8gpu_proposals.md`) | optional, pre-fine-tune | User |
 
 Phases run sequentially when not externally blocked. When externally blocked, the next-runnable phase proceeds.

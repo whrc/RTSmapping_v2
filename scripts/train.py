@@ -770,6 +770,7 @@ def main() -> int:
 
     exposure_counter: dict[str, int] = {}
     nan_events: list[dict] = []
+    train_completed = False  # set True on normal loop exit; run_summary.md records the status
     t_start = time.time()
 
     # For lr_range_test, ramp LR per-step across the entire run.
@@ -898,6 +899,7 @@ def main() -> int:
 
             if es.should_stop(epoch):
                 break
+        train_completed = True
     finally:
         # LR-range-test: dump (step, lr, loss) curve as a CSV artifact for analysis.
         if lr_history is not None and lr_history:
@@ -927,6 +929,7 @@ def main() -> int:
             training_duration_s=duration,
             nan_events=nan_events,
             tmp_dir=out_dir,
+            status="completed" if train_completed else "crashed",
         )
         run_id = mlflow.active_run().info.run_id if mlflow.active_run() else "unknown"
         mlflow.end_run()

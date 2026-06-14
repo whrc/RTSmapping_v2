@@ -94,6 +94,17 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_filter_train_positive_subset_is_deterministic` | Two invocations with the same input give the same output (seed=42 hard-coded) | real — reproducibility |
 | `test_filter_train_positive_subset_full_pct_no_op` | subset_pct=100 keeps every tile | shallow — boundary case |
 
+### [test_config.py](test_config.py)
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_load_config_without_base_unchanged` | no `base:` key → behavior identical to before | shallow |
+| `test_base_merge_nested_override` | `base: baseline.yaml` inherits all keys; overrides win at any nesting depth; sibling keys preserved; `base` key consumed | real — config-inheritance contract |
+| `test_base_merge_lists_replace_not_concat` | lists replace wholesale (no concat surprises) | real |
+| `test_missing_base_raises` | dangling base path → FileNotFoundError naming both files | real |
+| `test_chained_base_rejected` | base-of-base → ValueError (one level only, by design) | real |
+| `test_deep_merge_does_not_mutate_inputs` | merge is pure | real |
+
 ### [test_dataset.py](test_dataset.py)
 
 | Test | Checks | Strictness |
