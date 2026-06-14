@@ -79,6 +79,8 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_save_load_roundtrip` | JSON write → read preserves values | shallow |
 | `test_stats_to_arrays_rgb_only` | `with_extra=False` returns RGB only | shallow |
 | `test_stats_to_arrays_with_extra` | Concatenation order: RGB first, then EXTRA in declared order | real |
+| `test_fill_nodata_inference_convention_chw_perpixel_float` | Shared `fill_nodata_with_mean` on the inference path (CHW float32, per-pixel mask broadcast across channels) fills exact (unrounded) mean; rest untouched — Rule-3 train/inference parity | real |
+| `test_fill_nodata_rounds_for_integer_raster` | uint8 raster → mean rounded to dtype (on-disk raw-value contract) | real |
 
 ### [test_sampler.py](test_sampler.py)
 

@@ -7,6 +7,7 @@ import numpy as np
 from data.normalization import (
     WelfordStats,
     build_stats_dict,
+    fill_nodata_with_mean,
     load_stats,
     save_stats,
     stats_to_arrays,
@@ -76,3 +77,29 @@ def test_stats_to_arrays_with_extra():
     mean, std = stats_to_arrays(d, with_extra=True)
     assert mean.tolist() == [1, 2, 3, 7, 8]
     assert std.tolist() == [4, 5, 6, 9, 10]
+
+
+def test_fill_nodata_inference_convention_chw_perpixel_float():
+    """Inference path: CHW float32, per-pixel mask broadcast across channels, no rounding.
+
+    Locks train/inference parity (Rule 3): a filled pixel sits exactly at the mean so it
+    z-scores to ~0, matching the training-side substitute_nodata fill.
+    """
+    rgb = np.full((3, 4, 4), 100.0, dtype=np.float32)
+    nodata = np.zeros((4, 4), dtype=bool)
+    nodata[0, 0] = True  # one NoData pixel, all channels
+    mask = np.broadcast_to(nodata, rgb.shape)  # per-pixel -> per-channel
+    means = np.array([50.4, 60.6, 30.2], dtype=np.float32)
+    out = fill_nodata_with_mean(rgb, mask, means, channel_axis=0)
+    # float raster: exact (unrounded) means at the NoData pixel
+    assert np.allclose(out[:, 0, 0], [50.4, 60.6, 30.2])
+    # everything else untouched
+    assert (out[:, 1:, :] == 100.0).all() and (out[:, 0, 1:] == 100.0).all()
+
+
+def test_fill_nodata_rounds_for_integer_raster():
+    """uint8 raster: mean rounded to dtype so the on-disk raw-value contract holds."""
+    rgb = np.zeros((1, 2, 1), dtype=np.uint8)  # HWC, single channel, both pixels NoData
+    mask = rgb == 0
+    out = fill_nodata_with_mean(rgb, mask, np.array([50.6]), channel_axis=-1)
+    assert out.dtype == np.uint8 and out.flatten().tolist() == [51, 51]

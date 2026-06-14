@@ -146,3 +146,39 @@ def stats_to_arrays(stats: dict, with_extra: bool) -> tuple[np.ndarray, np.ndarr
         mean.extend(stats["extra"]["mean"])
         std.extend(stats["extra"]["std"])
     return np.array(mean, dtype=np.float32), np.array(std, dtype=np.float32)
+
+
+def fill_nodata_with_mean(
+    rgb: np.ndarray,
+    mask: np.ndarray,
+    means: np.ndarray,
+    channel_axis: int,
+) -> np.ndarray:
+    """Substitute the per-channel mean at NoData pixels, in place (§4.4 / inference §5.3).
+
+    The single shared NoData-fill used by both training (``data/dataset.py``, HWC uint8,
+    per-band zero mask for band dropout) and inference (``inference/tiles.py``, CHW float32,
+    per-pixel alpha mask broadcast across channels), so both neutralise NoData identically
+    (CLAUDE Rule 3): a filled pixel sits at ~0 after z-scoring instead of injecting a hard
+    zero edge. For integer rasters the mean is rounded to ``rgb``'s dtype so the on-disk
+    raw-value contract holds (a ≤0.5/σ residual after z-score is inherent to uint8 storage).
+
+    Args:
+        rgb: image array; channel axis given by ``channel_axis``.
+        mask: boolean NoData mask, same shape as ``rgb`` (per-channel). Callers with a
+            per-pixel mask broadcast it across channels first.
+        means: per-channel means in raw units; first ``n_channels`` are used.
+        channel_axis: which axis of ``rgb`` is the channel axis (-1 for HWC, 0 for CHW).
+
+    Returns:
+        ``rgb`` (mutated in place).
+    """
+    n_ch = rgb.shape[channel_axis]
+    fill = np.asarray(means)[:n_ch]
+    if rgb.dtype.kind in "iu":
+        fill = np.rint(fill).astype(rgb.dtype)
+    band = np.moveaxis(rgb, channel_axis, 0)
+    band_mask = np.moveaxis(mask, channel_axis, 0)
+    for c in range(n_ch):
+        band[c][band_mask[c]] = fill[c]
+    return rgb

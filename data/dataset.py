@@ -25,7 +25,7 @@ import rasterio
 import torch
 from torch.utils.data import Dataset
 
-from data.normalization import load_stats, stats_to_arrays
+from data.normalization import fill_nodata_with_mean, load_stats, stats_to_arrays
 from data.transforms import dilate_label_boundary
 
 logger = logging.getLogger(__name__)
@@ -103,10 +103,9 @@ def substitute_nodata(
     nodata = (rgb == 0).all(axis=-1)            # (H, W) — all bands zero
     label = label.copy()
     label[nodata] = ignore_index
-    rgb = rgb.copy()
-    mean_u8 = np.rint(rgb_mean[:rgb.shape[-1]]).astype(rgb.dtype)
-    for c in range(rgb.shape[-1]):
-        rgb[..., c][rgb[..., c] == 0] = mean_u8[c]
+    # Per-band fill (band dropout): substitute each zero band with its mean via the
+    # shared helper so training/inference neutralise NoData identically (Rule 3).
+    rgb = fill_nodata_with_mean(rgb.copy(), rgb == 0, rgb_mean, channel_axis=-1)
     return rgb, label
 
 
