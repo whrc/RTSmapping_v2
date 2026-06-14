@@ -23,7 +23,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
-## Status — 2026-06-13
+## Status — 2026-06-13 (runs updated 2026-06-14)
 
 **Dataset: v1.0 is the STANDARD training dataset** (declared 2026-06-13 after a full fresh-from-rasters QC — `docs/v1.0_qc.md`). The previous v2-alpha/v0.x dataset was destroyed 2026-06-12 and is gone; **all v2-alpha numbers are invalid and archived** (`docs/archive/v2-alpha/`).
 
@@ -31,11 +31,11 @@ Specs are the source of truth. Always read the relevant md before implementing (
 - **QC verdict**: labels + structure flawless (0 unreadable, 0 invalid labels, 0 empty, **0 full-frame** — batch2 rasterization bug fixed). Known issues (next re-stage, negatives only): **49 black + 564 degraded** negatives to drop; also **restore 28 positives** wrongly dropped by the stale-QC staging (target clean pos = 1,746). List: `…/v1.0/qc/known_issues_v1.0.json`.
 - **EXTRA absent** → **Phase 4 blocked** until the data team appends the stack. **TESTING/** set (3,000 tiles, spatially entangled with train) — final-lock decision still open (`docs/v1.0_rebaseline.md`).
 
-**Experiment program: Phase-0 re-baseline RUNNING** on v1.0 across all 8 A100s (BS 32, each its own MLflow store):
-- `phase0c_seed{42,43,44}` → new μ₀/σ₀/gate G — running (~epoch 33; PR-AUC 0.790/0.791/0.790 @ e30, σ≈0.0017 — tight).
-- `phase0a_arm_{a,b,c}` → re-confirm the per-dataset-z-score lock — running (~epoch 33; PR-AUC 0.51/0.45/0.47 @ e30, trailing the seed baseline by ~0.28–0.34 — watch as curriculum ramps).
-- `phase0b_lr_{frozen,unfrozen}` → LR re-confirm — **both complete**. Frozen clean (trustworthy). Unfrozen diverged to NaN then crashed in the forced final val (fixed below); rerun exits clean but its curve is flat/uninformative under focal loss → **no contraindication for `base_lr=1e-4`**, not a positive pick.
-- All prior locks (Arm A, frozen_lr=3e-3/base_lr=1e-3, gate ratios [5,10,20]) are being re-verified on v1.0; nothing is assumed.
+**Experiment program: Phase-0 re-baseline COMPLETE** on v1.0 (all 6 runs early-stopped cleanly 2026-06-14; full writeup `docs/phase0_baseline.md`). **Paused here for review before the next phase.**
+- `phase0c_seed{42,43,44}` (3-seed baseline) → best smoothed PR-AUC **0.7899 / 0.7863 / 0.7973** → **μ₀=0.7912, σ₀=0.00559, gate G=max(2σ₀,0.01)=0.0112**. Winner bar = **≥0.8023**.
+- `phase0a_arm_{a,b,c}` (RGB norm arm-out, seed42, old-LR/short schedule — comparable only among A/B/C): A per-dataset-z **0.6666**, B x255+ImageNet 0.6261, C x255-only 0.6697. C beats A by only +0.003 (<0.01) → **Lock Arm A** (per-dataset z-score). NOTE: arm absolutes are NOT comparable to the seed baseline (arms used the pre-0b LR 1e-3/1e-4 + max_epochs 100).
+- `phase0b_lr_{frozen,unfrozen}` → frozen curve clean (informs frozen_lr≈3e-3); unfrozen curve flat/uninformative (no contraindication for base_lr=1e-3). LRs (3e-3/1e-3) baked into the seed config; healthy μ₀ validates them.
+- **All locks confirmed on v1.0**: Arm A norm, frozen_lr=3e-3/base_lr=1e-3, gate ratios [5,10,20], metric `val_realistic_pr_auc_geomean`.
 
 **Repo cleanup (2026-06-13)**: tag `v2-alpha-archive` preserves everything; archived the 2 stale results docs + condensed dev-log to `docs/archive/v2-alpha/`; removed 18 dead pre-made configs (recreated on-demand per `experiments.md §11.1`); re-pointed `baseline`/`smoke` to v1.0; fixed stale EXTRA/bucket refs. `configs/` is now 8 active phase0 + `baseline`/`deployment`/`smoke`/`preview_tiles`.
 
@@ -43,10 +43,11 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 **Compute**: $70k GCP credit (compute-only), **expires Sep 2026** — must be substantially spent. Stop VMs when idle.
 
-**Next steps**:
-1. Runs finish → compute new **μ₀/σ₀/gate** + σ-band; confirm/replace the 0a/0b locks; fill `docs/phase0_baseline.md` (v1.0); **pause for user review**.
-2. After review → resume the ablation program (Phase 2 data-scaling, Phase 3 loss/boundary/wd) — configs recreated on-demand from the v1.0 baseline winner.
+**Next steps** (⏸ PAUSED FOR REVIEW — Phase 0 done):
+1. **Review the v1.0 baseline** (`docs/phase0_baseline.md`): μ₀=0.7912, gate G=0.0112, Arm A locked. ← you are here.
+2. After review → resume the ablation program (Phase 2 data-scaling, Phase 3 loss/boundary/wd) against the gate — configs recreated on-demand; runs now land in `/mnt/outputs/v1.0/runs/` (versioned convention).
 3. Branch consolidation (fold inference-pipeline + docs-eval-interim into the mainline; retire feature branches); regenerate `preview_tiles.yaml` from the v1.0 val split.
+4. Idle 8×A100 box — stop or repurpose between phases (credit burn).
 
 ---
 
@@ -84,5 +85,6 @@ Append entries below with date prefix `YYYY-MM-DD — <summary>`. When a decisio
 
 ### Log
 
+- **2026-06-14** — **Phase-0 v1.0 re-baseline complete → gate locked.** All 6 runs early-stopped cleanly. 3-seed baseline → **μ₀=0.7912, σ₀=0.00559, G=max(2σ₀,0.01)=0.0112** (winner bar ≥0.8023). RGB norm arm-out → **Lock Arm A** (per-dataset z-score; B/C don't clear the 0.01 floor). LRs 3e-3/1e-3 carried from 0b. Full writeup `docs/phase0_baseline.md`. **Correction to prior status notes:** the phase0a arms ran on the old LR (1e-3/1e-4) + max_epochs 100, so their ~0.65 scores are an internal A/B/C comparison only — NOT a 0.13 deficit vs the seed baseline (that earlier framing was an apples-to-oranges error). Outputs moved to `/mnt/outputs/v1.0/runs/` (Wave 2). **Paused for review** before the next ablation phase.
 - **2026-06-13** — **`lr_range_test` no longer crashes on divergence.** The unfrozen LR-range test (`phase0b_lr_unfrozen`) ramps LR to 1e-1 over one epoch; the full backbone diverges to NaN weights, and the **forced final-epoch validation** then fed NaN logits to `average_precision_score` / figure rendering → crash. Fixed at the source in `scripts/train.py`: gate the validation block on the existing `is_range_test` flag so range tests skip validation entirely (deliverable is the per-step `lr_range_test.csv`, dumped in `finally`, not val metrics on a blown-up model). First attempt — a NaN guard in `metrics.py` — was whack-a-mole (NaN just resurfaced downstream) and was reverted. Rerun now exits 0; all 8 Phase-0 runs accounted for. The unfrozen curve is flat/uninformative (focal loss stays small even at high LR) → treat as no-contraindication for `base_lr=1e-4`; the frozen test is the reliable one.
 - **2026-06-13** — **v1.0 re-baseline + standard-dataset declaration + repo cleanup.** Staged the regenerated data into `gs://rts-mapping-v2/training/v1.0/` (`scripts/stage_v1_snapshot.py`), regenerated splits + normalization stats, re-pointed the 8 phase0 configs, fixed an MLflow env-override bug + a `--privileged`/`--gpus` GPU-pinning bug (`run_ablation_queue.sh`), and launched the parallel Phase-0 calibration on 8 A100s at BS 32. Ran a full fresh QC (`scripts/qc_full_dataset.py`) → declared **v1.0 the standard dataset** (`docs/v1.0_qc.md`). Cleanup: tagged `v2-alpha-archive`, archived stale v2-alpha results + dev-log, removed 18 dead configs, fixed stale refs. Decisions: BS=32, no-DDP (above). Pending: compute the new gate when runs finish (pause for review), then branch consolidation.
