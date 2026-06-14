@@ -1,18 +1,28 @@
 # Fixed preview tiles for cross-experiment visual comparison.
 #
-# Explicit tile UIDs (the .tif filenames in PLANET-RGB) drawn from the frozen
-# phase0c val_realistic split. Pinning these means every experiment and every
-# seed renders the SAME tiles, so preview grids are directly comparable across
-# runs (fix the input, vary the model) — instead of each seed picking its own.
+# Explicit tile UIDs (the .tif filenames in PLANET-RGB) drawn from the v1.0
+# val_realistic split (1,495 tiles: 267 pos / 1,228 neg). Pinning these means
+# every experiment and every seed renders the SAME tiles, so preview grids are
+# directly comparable across runs (fix the input, vary the model).
+#
+# Regenerated 2026-06-14 from the v1.0 split via
+# training/visualizations.py:pick_preview_tiles_pass1 (seed 42, 3 pos + 3 neg).
+# The previous set pointed at the DESTROYED v2-alpha split, so stale UIDs were
+# silently skipped → only 2 negatives rendered.
+#
+# Selection: negatives = 25-75th pctile of distance-to-nearest-positive centroid
+# (ambiguous tundra near RTS), via centroid_lat/lon. Positives: v1.0 metadata has
+# no Pos_frac column, so they fall back to deterministic selection (not the
+# pos-pixel-fraction band the spec prefers) — refine in pass-2 if needed.
 #
 # Edit freely to swap in any val UIDs you find more diagnostic. Tiles not present
 # in a given run's val split are skipped with a warning; if none match, the run
-# falls back to the seeded pass-1 heuristic (training/visualizations.py).
+# falls back to the seeded pass-1 heuristic.
 positive:
-  - bkhfu0xuzvxy   # replaced zkc2768j80b5 (degraded: R/B bands ~empty, 91% blue=0) on 2026-06-05
-  - bs0dmb0h0hb2
-  - vjpt938j8h8q
+  - ckup2c208101
+  - ckgu8f8pb02k
+  - ckupt6852p0p
 negative:
-  - bkj940b41426
-  - ze0wnzpq9yrb
-  - zedz82218h8h
+  - c7yj9fnpzbxs
+  - c6fh1ksxn18n
+  - c6ycxq0kfcpf

@@ -94,8 +94,46 @@ Baseline config: `configs/baseline.yaml` (= Phase-0c seed config with the locks 
 
 ---
 
+## Baseline & re-baseline policy
+
+**μ₀, σ₀, G and the normalization stats are LOCKED for the project** and the **val/test split is
+frozen**, so every ablation across the program is scored on the same yardstick (the conventional
+"freeze the eval set, vary one thing" rule). The gate floor G is the noise floor; you do not
+re-derive it per experiment. Most data work is "add tiles to **train only** and keep training" — no
+recompute. Only the cases below recompute "key things":
+
+| Change | Re-anchor μ₀ | Recompute norm stats | Re-run 3-seed baseline |
+|--------|:---:|:---:|:---:|
+| Small same-type **train-only** add (e.g. 564 degraded negs, 28 restored pos) | no | no | no |
+| **Large** train growth / new-domain batch (diff geography/sensor/processing) | yes | maybe | yes |
+| **Label-semantics** change (relabeling) | yes | no | yes |
+| **Val/test split** change | yes (re-score baseline) | no | no |
+| **Radiometric-domain** change (new sensor/processing) | yes | **yes** | yes |
+| **Architecture** or **EXTRA-channel** change | yes | no | yes |
+
+The next re-stage (keep 564 degraded via §4.4 NoData handling, restore 28 positives → 1,746, drop
+49 black) is a small train-only change → **the baseline and norm stats stay locked.**
+
+---
+
+## Lessons learned (alpha 0.568 → v1.0 0.791, +39%)
+
+- **Data quality and scale dominated (~50–70% of the gain).** Alpha was poisoned by a batch2
+  rasterization bug (full-frame labels) and 335 missing-band tiles; v1.0 fixed both (→0 full-frame,
+  →9 degraded) and added ~50% more negatives. **Label bugs masqueraded as a model problem** — the
+  biggest lever was the data, not the architecture or loss.
+- **LR was undertuned in alpha (~20–30%).** Alpha's LR range test ran on a 4.5k-tile smoke set;
+  re-running on full v1.0 raised frozen_lr ×3 (1e-3→3e-3) and base_lr ×10 (1e-4→1e-3).
+- **Cleaner data tightened the noise floor** (σ₀ 0.0125→0.0056), so the gate is now ~2× more
+  sensitive — we can detect smaller real wins.
+- **Process:** always QC fresh from rasters (a stale QC csv produced two false alarms — phantom
+  "231 batch2 full-frame" and 28 "empty" positives that were fine); never compare across mismatched
+  configs (the Phase-0a arms ran at the old LR + short schedule, so their ~0.65 was NOT a deficit vs
+  the 0.79 seed baseline — an apples-to-oranges trap).
+
+---
+
 ## Open items (deferred, see `current_working_status.md`)
 - 1:200/500/1000 deployment-prevalence PR-AUC → **Test-Realistic** (gate can't honestly evaluate
   them at the ~16–20k negative ceiling).
-- Next data re-stage (49 black + 564 degraded negatives out, 28 positives restored) will require a
-  re-baseline of μ₀/σ₀/G on the updated dataset.
+- Next data re-stage is a small train-only change → baseline/norm stay locked (see policy above).
