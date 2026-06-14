@@ -157,6 +157,38 @@ def test_boundary_dilation_adds_ignore():
 
 
 # ---------------------------------------------------------------------------
+# §4.4 NoData handling: all-band-zero -> ignore label + per-band zero -> mean.
+# ---------------------------------------------------------------------------
+def test_substitute_nodata_all_band_zero_becomes_ignore_and_mean():
+    from data.dataset import substitute_nodata
+    rgb = np.full((4, 4, 3), 100, dtype=np.uint8)
+    rgb[0, 0, :] = 0            # all-band zero -> true NoData pixel
+    rgb[1, 1, 2] = 0            # blue-only dropout -> substitute, NOT ignore
+    label = np.zeros((4, 4), dtype=np.uint8)
+    label[0, 0] = 1            # even a labelled NoData pixel must become ignore
+    mean = np.array([50.4, 60.6, 30.2], dtype=np.float32)
+    out_rgb, out_label = substitute_nodata(rgb, label, mean, ignore_index=255)
+    # all-band-zero -> ignore; single-band dropout stays a valid (0) label
+    assert out_label[0, 0] == 255
+    assert out_label[1, 1] == 0
+    # all bands of the NoData pixel substituted with rounded per-channel means
+    assert out_rgb[0, 0].tolist() == [50, 61, 30]
+    # blue dropout substituted; red/green of that pixel untouched
+    assert out_rgb[1, 1, 2] == 30 and out_rgb[1, 1, 0] == 100 and out_rgb[1, 1, 1] == 100
+    # ordinary non-zero pixel untouched
+    assert out_rgb[2, 2].tolist() == [100, 100, 100]
+
+
+def test_substitute_nodata_noop_when_no_zeros():
+    from data.dataset import substitute_nodata
+    rgb = np.full((4, 4, 3), 100, dtype=np.uint8)
+    label = np.zeros((4, 4), dtype=np.uint8)
+    out_rgb, out_label = substitute_nodata(rgb, label, np.array([50, 60, 30], dtype=np.float32))
+    assert (out_rgb == 100).all()
+    assert (out_label == 0).all()
+
+
+# ---------------------------------------------------------------------------
 # C1 (2026-05-02 review): channel-name binding asserted at training load.
 # training.md §4.5 mandates these checks; they were missing on the training side.
 # ---------------------------------------------------------------------------

@@ -255,6 +255,7 @@ def _setup_data(cfg: dict) -> dict:
             label_ignore_index=ignore_idx,
             boundary_handling=boundary,
             boundary_ignore_width=boundary_w,
+            nodata_handling=cfg["data"].get("nodata_handling", False),
         )
 
     train_ds = _make_ds(train_ids, tr_aug)

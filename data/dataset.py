@@ -74,6 +74,42 @@ def parse_extra_spec(extra_cfg: list[dict[str, Any]] | None) -> list[ExtraChanne
     return out
 
 
+def substitute_nodata(
+    rgb: np.ndarray,
+    label: np.ndarray,
+    rgb_mean: np.ndarray,
+    ignore_index: int = 255,
+) -> tuple[np.ndarray, np.ndarray]:
+    """§4.4 NoData handling for RGB tiles (training side).
+
+    Zero is the NoData sentinel in the PlanetScope RGB tiles. Two cases:
+      * **all-band-zero pixel** (true NoData — no coverage): set its label to
+        `ignore_index` so loss skips it (no signal to learn from), and
+      * **any zero band** (incl. band dropout, e.g. a missing blue channel):
+        substitute that band with its raw per-channel mean, so after z-score the
+        pixel sits at ~0 (neutral) instead of injecting a hard zero edge or
+        distorting the input — while the valid bands of a partially-degraded
+        tile keep carrying their signal.
+
+    Computed pre-augmentation so the ignore label rides the same geometric
+    transform as the rest of the mask. Returns new (rgb, label) arrays.
+
+    Args:
+        rgb: (H, W, 3) uint8 raw RGB.
+        label: (H, W) uint8 label.
+        rgb_mean: (3,) raw per-channel means (z-score stats, raw units).
+        ignore_index: label value for ignored pixels.
+    """
+    nodata = (rgb == 0).all(axis=-1)            # (H, W) — all bands zero
+    label = label.copy()
+    label[nodata] = ignore_index
+    rgb = rgb.copy()
+    mean_u8 = np.rint(rgb_mean[:rgb.shape[-1]]).astype(rgb.dtype)
+    for c in range(rgb.shape[-1]):
+        rgb[..., c][rgb[..., c] == 0] = mean_u8[c]
+    return rgb, label
+
+
 class RTSDataset(Dataset):
     """Return dict: {'image': (C, H, W) float32 tensor, 'label': (H, W) int64 tensor, 'tile_id': str}.
 
@@ -95,6 +131,7 @@ class RTSDataset(Dataset):
         label_ignore_index: int = 255,
         boundary_handling: str = "none",   # none | ignore (soft_labels deferred to a later iteration)
         boundary_ignore_width: int = 3,
+        nodata_handling: bool = False,      # §4.4: zero→mean input + 255 label for all-band-zero
     ):
         if boundary_handling == "soft_labels":
             raise NotImplementedError(
@@ -117,6 +154,7 @@ class RTSDataset(Dataset):
         self.label_ignore_index = label_ignore_index
         self.boundary_handling = boundary_handling
         self.boundary_ignore_width = boundary_ignore_width
+        self.nodata_handling = nodata_handling
 
         if norm_stats_path is not None:
             stats = load_stats(norm_stats_path)
@@ -184,6 +222,9 @@ class RTSDataset(Dataset):
         tid = self.tile_ids[idx]
         rgb = self._read_rgb(tid)                             # (H, W, 3) uint8
         label = self._read_label(tid)                         # (H, W) uint8
+
+        if self.nodata_handling:                              # §4.4 (before boundary/aug)
+            rgb, label = substitute_nodata(rgb, label, self.mean, self.label_ignore_index)
 
         if self.boundary_handling == "ignore":
             label = dilate_label_boundary(label, self.boundary_ignore_width,
