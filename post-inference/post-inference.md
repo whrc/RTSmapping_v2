@@ -1,73 +1,143 @@
+# RTS Segmentation Model v2: Post-Inference Processing
 
+## 1. Objective
 
-Working in progress
+Turn the per-region probability rasters produced by the inference stage into the
+final RTS product — a clean, vectorized, geodesically-measured polygon layer — and
+quality-control it. Post-inference is everything **after** the inference stage has
+written per-region probability COGs; it owns scale fusion, thresholding,
+vectorization, geometric measurement, QC, and (offline) evaluation.
 
+## 2. Inputs (from the inference stage)
 
+| Input | Source | Spec |
+|-------|--------|------|
+| Probability raster(s) | `scripts/inference.py` + `scripts/merge_predictions.py` | `inference.md §9.1` — Float32 COG, NoData `-1.0`, EPSG:3857, 4.77 m |
+| Run manifest | `inference_log.json` | `inference.md §9.4` — carries `scales_used`, `fusion_method`, `threshold`, `temperature`, `overlap_aggregation` |
 
-# Post inference processing
+The output **format** SSoT for the binary mask and vector layer lives in
+`inference.md §9.2`/`§9.3`; this document is the SSoT for the **algorithms** that
+produce them.
 
+## 3. Stage ownership (resolves the overlap-vs-merge ambiguity)
 
-## Vectorization:
+There are three distinct "merge" operations; keep them separate:
 
-Feedback: rasterio.features.shapes or gdal_polygonize produces "stair-step" polygons. Apply a simplification algorithm (e.g., Douglas-Peucker) during vectorization to reduce file size and make the map look cleaner.
+| Operation | Owner | Method | Status |
+|-----------|-------|--------|--------|
+| **Tile-overlap stitching** (adjacent 33%-overlapping tiles within one scale) | **inference** (`inference.md §4.3`, `merge_predictions.py`) | Gaussian distance-from-center **weighted mean** (σ = `fusion_sigma_px` = 128) | implemented |
+| **Scale fusion** (combine per-scale rasters) | **post-inference** (§4) | pixel-wise **max** | spec only — single-scale today (`scales=[1.0]`, gated by `inference.md §6.4`) |
+| **Region mosaicking** (assemble chunked regions into a product) | **post-inference** (§7) | adjacency only; regions are chunked to be non-overlapping | spec only |
 
+> **Decision (resolved):** tile-overlap stitching is **Gaussian weighted mean**, not
+> pixel-wise max. The earlier "max for overlapping tiles" note is superseded — the
+> tiny-area validation (`docs/inference_validation.md`, 2026-06-12) showed the plain
+> radial Gaussian left a discontinuous on/off contribution at tile edges (seam
+> probability gradients 6.9× background); the edge-zeroed Gaussian fixed it (1.7×).
+> Pixel-wise **max** is reserved for **scale fusion** (a detection-union across FOVs),
+> where there is no seam-continuity requirement.
 
-## Merging strategy: Maximum
+## 4. Scale Fusion (multi-scale only)
 
-For pixels covered by multiple tiles, take the maximum probability:
+When `scales_used` has more than one entry, combine the per-scale probability
+rasters pixel-wise:
+
 ```
-P_merged(x, y) = max(P_tile1(x, y), P_tile2(x, y), ...)
+P_final(x, y) = max(P_1.0(x, y), P_0.5(x, y))   # over valid (non-NoData) scales
 ```
 
-**Rationale**: Consistent with the detection philosophy—if any tile view detects RTS, include it.
+**Rationale:** if any scale confidently detects RTS, keep it (detection-union);
+per-scale thresholds control precision. NoData (`-1.0`) contributes nothing — a
+pixel is NoData in the fused output only if NoData in every scale.
 
+> **Not active yet:** the v1.0/v2.0 model does **not** transfer zero-shot to 2× GSD
+> (`docs/inference_validation.md` scale-0.5 experiment: 9 → 0 blobs). Multi-scale at
+> inference is gated by `inference.md §6.4`; until that gate passes, `scales=[1.0]`
+> and this section is a no-op.
 
+## 5. Thresholding → Binary Mask
 
-## Scale Fusion
-
-Combine predictions across scales using **pixel-wise maximum**:
+Apply the **calibrated** threshold (`deployment_config.yaml.threshold`, from
+training.md §12 calibration on val) to the (fused) probability raster:
 
 ```
-P_final = max(P_1.0, P_0.5)
+mask = (P_final >= threshold).astype(uint8)   # 0/1
+mask[P_final < 0] = 255                        # NoData propagates (inference.md §9.2)
 ```
 
-**Rationale**: If any scale confidently detects RTS, include it. Maximum operation is conservative toward detection while individual scale thresholds control precision.
+Output per `inference.md §9.2` (UInt8 COG, NoData 255).
 
+## 6. Vectorization
 
-## Prediction Merging
+Polygonize `mask == 1` and attach the `inference.md §9.3` attribute schema.
 
-### Overlap Handling
+- **Polygonize:** `rasterio.features.shapes` (or `gdal_polygonize`) on the binary
+  mask, EPSG:3857. Implemented in `scripts/vectorize_predictions.py` (inference
+  branch / PR #19).
+- **Simplify:** raw polygonization is stair-stepped (one vertex per pixel edge).
+  Apply Douglas–Peucker (`shapely.simplify(tolerance, preserve_topology=True)`) to
+  cut vertex count and de-pixelate the boundary.
+  - **Decision to make:** simplify `tolerance`. Start at **~1 pixel (≈4.77 m)** and
+    tune against QC (§8) — too high erodes small/narrow slumps, too low keeps the
+    stair-steps. Record the chosen value in the run manifest.
+- **Filter:** drop blobs smaller than `min_blob_size_px` (= 10 px, shared with
+  `configs/baseline.yaml metrics.min_blob_size_px`) before writing.
 
-Adjacent (4-neighbours) tiles overlap by 50%. The overlapping regions have multiple predictions that must be merged.
-- can adjust to 25% overlap if computation resource is limited (estimate total tile numbers and gpu-hour for both 25% and 50%)
+## 7. Geometric Measurement (geodesic — mandatory)
 
+EPSG:3857 inflates area ~13× at 74°N. **Never** compute area/perimeter from 3857
+coordinates. Reproject each polygon to WGS84 and measure on the ellipsoid:
 
-### Merging Procedure
+```python
+from pyproj import Geod
+geom_wgs = gpd.GeoSeries([geom], crs="EPSG:3857").to_crs("EPSG:4326").iloc[0]
+area, perim = Geod(ellps="WGS84").geometry_area_perimeter(geom_wgs)
+area_m2, perimeter_m = abs(area), perim
+```
 
-**Option A: On-the-fly merging (memory-efficient)**
-1. Create output raster for region with NoData fill
-2. For each tile prediction:
-   - Read overlapping region from output
-   - Compute pixel-wise maximum with new prediction
-   - Write merged result back
-3. Advantage: Low memory; Disadvantage: Many I/O operations
+(`area_m2`, `perimeter_m`, `centroid_lat/lon` per `inference.md §9.3`.) This matches
+`vectorize_predictions.py` on PR #19.
 
-**Option B: Batch merging (faster)**
-1. Accumulate all tile predictions in memory (or memory-mapped file)
-2. Apply reduction (maximum) across overlapping tiles
-3. Write final merged raster
-4. Advantage: Faster; Disadvantage: High memory for large regions
+## 8. Quality Control
 
-**Recommendation**: Use Option B for manageable regions (e.g., per Arctic subregion), Option A for full pan-arctic if memory-constrained.
+Deployment imagery (2025) has **no ground truth**, so QC here is distributional and
+qualitative — quantitative scoring is §9.
 
-### Area and Perimeter Calculation
+| Check | What it catches |
+|-------|-----------------|
+| NoData propagation | `mask==255 ⇔ P<0`; no spurious polygons over NoData |
+| Seam artifacts | polygon density / probability gradient spikes on tile-stitch lines (regression of the §3 fix) |
+| Area distribution | implausible giant or sub-`min_blob_size` polygons; compare the area histogram against the v2.1 training-positive distribution |
+| Edge effects | the 1-px zero-weight ring at unchunked AOI boundaries (`docs/inference_validation.md`) — must vanish once regions overlap-chunk |
+| Geodesic sanity | spot-check a few `area_m2` vs a manual equal-area reprojection |
+| Visual overlay | the `validate_inference_tiny.py` overlay (RGB + tile outlines + probability + threshold contours + seam zoom) on a sample region |
 
-EPSG:3857 distorts areas at high latitudes (~13x inflation at 74°N). All area and perimeter measurements must use **geodesic calculations** (e.g., `pyproj.Geod.geometry_area_perimeter`) or reproject to a local equal-area CRS — never compute directly from EPSG:3857 coordinates.
+## 9. Evaluation (offline, on the held-out test split)
 
-### Output Chunking
+The deployment map cannot be scored directly. Quantitative evaluation uses the
+**frozen v1.0 test split** (`scripts/evaluate_test.py`, training.md §12) — the same
+pipeline scored on labelled tiles:
 
-For pan-arctic scale, produce merged outputs per region rather than single global raster:
-- Easier to manage and distribute
-- Enables parallel processing
-- Allows region-specific quality control
+- **Object-level:** match predicted blobs to label blobs at IoU ≥
+  `object_iou_threshold` (= 0.3), with `min_blob_size_px` (= 10) filtering; report
+  precision/recall/F1.
+- **Pixel/region-level:** PR-AUC at the realistic neg:pos ratios `[5, 10, 20]`
+  (`metrics.pr_auc_ratios`) — the same `val_realistic_pr_auc_geomean` vocabulary as
+  the locked Phase-0 gate (`docs/phase0_baseline.md`), so test scores are
+  interpretable against μ₀ = 0.7912.
 
+> Evaluation runs the **calibrated** package (threshold/temperature from §12) so the
+> reported precision matches what the deployment threshold produces.
+
+## 10. Outputs & Chunking
+
+Produce the product **per region** (not a single pan-arctic raster):
+
+- `gs://<bucket>/inference/<basemap>/<region>/probability.tif` (Float32 COG)
+- `…/<region>/mask.tif` (UInt8 COG)
+- `…/<region>/rts.gpkg` (polygons, §6–§7 schema)
+- `…/<region>/inference_log.json` (provenance, `inference.md §9.4`)
+
+Per-region chunking eases distribution, enables parallelism, and allows
+region-specific QC. Regions are chunked with overlap so the §3 edge ring is interior
+to a neighbour and discarded at mosaic time.
