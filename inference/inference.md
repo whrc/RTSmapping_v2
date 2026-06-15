@@ -24,17 +24,25 @@ The data and model operation in inference should exactly match those in training
 
 ### 2.1 Compute Environment
 
+Decided 2026-06-15 (`computing/infrastructure.md`). Everything inference-side is **co-located in
+`us-west1`** with the input imagery — `pdg-planet-data` is single-region **US-WEST1** (verified), so a
+us-west1 fleet reads the ~3.4M Planet quads (TBs) **egress-free**; a us-central1 VM (where training runs)
+would pay cross-region egress + latency on every read.
+
 | Resource | Specification |
 |----------|---------------|
-| Cloud | Google Cloud Platform |
-| VM Type | GPU-enabled VM (specific type TBD with PDG team) |
-| Storage | Google Cloud Storage bucket: `abruptthawmapping` |
+| Cloud | Google Cloud Platform (`pdg-project-406720`) |
+| Region | **us-west1** (co-located with `pdg-planet-data`) |
+| VM fleet | **2× `g2-standard-96`** = **16× NVIDIA L4** (forward-only bf16 is GCS-I/O-bound; no A100 needed). Spot for the bulk pass, on-demand for final re-runs. **Stop when idle** (L4 = low stockout). |
+| Throughput / wallclock | ~15–43 tiles/s/L4 co-located → **~3–9 h** for the ~7.5M tile-inferences on 16 L4 (benchmark one subregion to pin it; the measured 10.5 t/s was cross-region read-bound, which co-location removes). |
+| Storage | `gs://woodwell-rts-inference-arts-south` (single-region **us-west1**) — outputs, 2025 EXTRA tiles, deployment package |
+| Orchestration | Global tile list → 16 region-shards; one `scripts/inference.py` per GPU (1-per-GPU pin, `run_gpu_pool.sh` pattern) across the 2 VMs; resumable via `inference_log.json` (§8.3) so Spot preemption/stragglers just resume. |
 | Collaboration | PDG workflow optimization team (Luigi/Todd) |
 
 ### 2.2 Storage Structure
 
 ```
-gs://abruptthawmapping/
+gs://woodwell-rts-inference-arts-south/   # single-region us-west1 (co-located with pdg-planet-data)
 ├── models/
 │   └── rts-v2-seed42/                   # one deployment package per seed
 │       ├── weights.pth                  # EMA weights only (see training.md §4.3)
