@@ -28,6 +28,9 @@ mlflow[gcs]>=2.10,<3.0  # 3.x ties model registry to tracking URI; GCS not a sup
 google-cloud-storage>=2.14
 gcsfs>=2025.0
 
+# EXTRA-channel generation (data/extra_channels.py; Earth Engine — Sentinel-2 + Satellite Embedding)
+earthengine-api>=1.0
+
 # Config / utils
 pyyaml>=6.0
 tqdm>=4.66
