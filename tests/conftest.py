@@ -1,4 +1,4 @@
-"""Synthetic fixtures that mimic the v2.0 GCS layout on disk.
+"""Synthetic fixtures that mimic the v1.0 GCS layout on disk.
 
 A few small tiles + metadata.csv + splits.yaml laid out exactly like the real
 bucket, but with 64x64 rasters (not 512x512) for speed. Tests that care about
@@ -64,11 +64,11 @@ def _write_label(path: Path, with_positive: bool) -> None:
 
 @pytest.fixture
 def synthetic_dataset(tmp_path: Path) -> dict:
-    """Lay out a minimal v2.0-style dataset under tmp_path.
+    """Lay out a minimal v1.0-style dataset under tmp_path.
 
     Returns dict with keys: root, metadata_df, splits, tile_ids_by_split.
     """
-    root = tmp_path / "v2.0"
+    root = tmp_path / "v1.0"
     (root / "PLANET-RGB").mkdir(parents=True)
     (root / "EXTRA").mkdir()
     (root / "labels").mkdir()

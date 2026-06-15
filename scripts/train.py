@@ -649,7 +649,7 @@ def _print_artifact_summary(cfg: dict, out_dir: Path, run_id: str) -> None:
     this block so results and checkpoints are trivially findable without opening
     MLflow.
     """
-    tracking_uri = cfg["mlflow"]["tracking_uri"]
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI") or cfg["mlflow"]["tracking_uri"]
     exp_name = cfg["mlflow"]["experiment_name"]
     run_name = cfg["mlflow"].get("run_name", "unknown")
     ckpt_dir = out_dir / "checkpoints"
@@ -770,6 +770,7 @@ def main() -> int:
 
     exposure_counter: dict[str, int] = {}
     nan_events: list[dict] = []
+    train_completed = False  # set True on normal loop exit; run_summary.md records the status
     t_start = time.time()
 
     # For lr_range_test, ramp LR per-step across the entire run.
@@ -830,8 +831,12 @@ def main() -> int:
             if train_metrics.get("train_nan_steps", 0) > 0:
                 nan_events.append({"epoch": epoch, "nan_steps": int(train_metrics["train_nan_steps"])})
 
-            # Validation cadence.
-            if epoch % val_frequency != 0 and epoch != max_epochs:
+            # Validation cadence. An lr_range_test deliberately ramps LR to
+            # divergence; its deliverable is the per-step loss-vs-LR curve, not val
+            # metrics on a (NaN) blown-up model — so skip validation entirely (the
+            # forced final-epoch pass would otherwise feed NaN logits to PR-AUC /
+            # figure rendering and crash).
+            if is_range_test or (epoch % val_frequency != 0 and epoch != max_epochs):
                 continue
 
             # Swap EMA in for validation (if EMA exists — post-unfreeze).
@@ -894,6 +899,7 @@ def main() -> int:
 
             if es.should_stop(epoch):
                 break
+        train_completed = True
     finally:
         # LR-range-test: dump (step, lr, loss) curve as a CSV artifact for analysis.
         if lr_history is not None and lr_history:
@@ -923,6 +929,7 @@ def main() -> int:
             training_duration_s=duration,
             nan_events=nan_events,
             tmp_dir=out_dir,
+            status="completed" if train_completed else "crashed",
         )
         run_id = mlflow.active_run().info.run_id if mlflow.active_run() else "unknown"
         mlflow.end_run()

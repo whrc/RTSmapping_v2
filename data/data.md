@@ -33,7 +33,7 @@
 | Sentinel-2 | 10 m | Vegetation / burn / spectral indices (NDVI, NBR, Tasselled Cap pair) |
 | Google Satellite Embedding | varies | Pretrained feature representation (PCA axes + RTS-prototype cosine similarity) |
 
-The full v2.0 EXTRA channel layout — group IDs, band indices, total band count — lives in §9 (single source of truth). Other auxiliary sources (ArcticDEM derivatives, NDMI, SAR backscatter, etc.) were considered but not included in v2.0; see §9 for the deferred-to-v2.1 list.
+The full EXTRA channel layout — group IDs, band indices, total band count — lives in §9 (single source of truth). Other auxiliary sources (ArcticDEM derivatives, NDMI, SAR backscatter, etc.) were considered but not included; see §9 for the deferred-to-a-later-iteration list.
 
 ### 1.3 Secondary Training Data (Optional)
 
@@ -175,10 +175,10 @@ Label: (512, 512, 1) — uint8, values {0, 1， 255}
 
 **EXTRA: derived from other sources, resolution resampled to match the RGB**
 ```
-Image: (512, 512, 8) — multi-band GeoTIFF; v2.0 layout fixed by §9
+Image: (512, 512, 8) — multi-band GeoTIFF; layout fixed by §9
 Label: (512, 512, 1) — uint8, values {0, 1, 255}
 ```
-The v2.0 EXTRA disk layout and its 8 channels (NDVI, NBR, SE_PCA×3, SE_PROTO, TC×2) are fixed by §9; experiment configs select which subset to load.
+The EXTRA disk layout and its 8 channels (NDVI, NBR, SE_PCA×3, SE_PROTO, TC×2) are fixed by §9; experiment configs select which subset to load.
 
 **Channel selection at training time**: Specified in the YAML config (see `configs/baseline.yaml:channels.extra`) as a list of `{name, band}` entries. `name` is an arbitrary label used in `normalization_stats.json` and logs; `band` is the 0-indexed position inside the EXTRA GeoTIFF (band positions per §9). Example loading the NDVI group only:
 ```yaml
@@ -186,7 +186,7 @@ channels:
   extra:
     - {name: ndvi, band: 0}
 ```
-Changing which channels load at training time = edit the experiment YAML. The disk layout itself does not change; that's a v2.1 concern.
+Changing which channels load at training time = edit the experiment YAML. The disk layout itself does not change; that's a later-iteration concern.
 
 **Build order**: Generate planet_rgb first for positive and negative samples, then derive EXTRA by extracting auxiliary channels with the planet_rgb extent (footprint).
 
@@ -248,7 +248,7 @@ models/
 | rgb.channel_names | Fixed: `["R", "G", "B"]` |
 | rgb.mean | List of 3 values, order matches `rgb.channel_names` |
 | rgb.std | List of 3 values, order matches `rgb.channel_names` |
-| extra.channel_names | List of N names declared in the experiment config's `channels.extra` (e.g. `["ndvi", "nbr", "se_pca_1", "se_pca_2", "se_pca_3", "se_proto", "tc_1", "tc_2"]` for the full v2.0 stack per §9). Omit the whole `extra` block when training RGB-only. |
+| extra.channel_names | List of N names declared in the experiment config's `channels.extra` (e.g. `["ndvi", "nbr", "se_pca_1", "se_pca_2", "se_pca_3", "se_proto", "tc_1", "tc_2"]` for the full EXTRA stack per §9). Omit the whole `extra` block when training RGB-only. |
 | extra.mean | List of N values, order matches `extra.channel_names` |
 | extra.std | List of N values, order matches `extra.channel_names` |
 
@@ -345,7 +345,11 @@ Run before training:
 
 ## 9. Channel Index Reference
 
-RGB band order is fixed. EXTRA is the **canonical 8-band stack for v2.0** — one multi-band GeoTIFF in `EXTRA/{tile_id}.tif` with the band order below. Per-experiment configs select which subset to load via `configs/*.yaml:channels.extra` (a list of `{name, band}` entries; see §3.3). Adding a new group in v2.1 = appending bands to the EXTRA GeoTIFF and adding a row here. This section is the single source of truth for EXTRA channel composition; other docs cross-reference rather than enumerate.
+> **v1.0 status:** the v1.0 standard dataset currently ships **RGB only — no EXTRA stack** (`EXTRA/`
+> is empty). The 8-band layout below is the *spec* for when the data team regenerates EXTRA; until
+> then, train RGB-only (omit the `channels.extra` block) and Phase 4 stays blocked (`experiments.md §7`).
+
+RGB band order is fixed. EXTRA is the **canonical 8-band stack** — one multi-band GeoTIFF in `EXTRA/{tile_id}.tif` with the band order below. Per-experiment configs select which subset to load via `configs/*.yaml:channels.extra` (a list of `{name, band}` entries; see §3.3). Adding a new group later = appending bands to the EXTRA GeoTIFF and adding a row here. This section is the single source of truth for EXTRA channel composition; other docs cross-reference rather than enumerate.
 
 ### RGB (PLANET-RGB GeoTIFF, fixed)
 
@@ -355,7 +359,7 @@ RGB band order is fixed. EXTRA is the **canonical 8-band stack for v2.0** — on
 | 1 | Green |
 | 2 | Blue |
 
-### EXTRA (v2.0 stack — 8 bands; selection rationale and per-channel diagnostics in `./plots/extra_channel_vis/`)
+### EXTRA (8-band stack — 8 bands; selection rationale and per-channel diagnostics in `./plots/extra_channel_vis/`)
 
 Each row is one **group** — a semantic unit treated together by the Phase 4 ablation (see `training/experiments.md §7`). Single-band groups occupy one index; multi-band groups span a contiguous range. Group IDs are the names referenced from experiment configs and from Phase 4 results docs.
 
@@ -369,9 +373,9 @@ Each row is one **group** — a semantic unit treated together by the Phase 4 ab
 
 Total EXTRA band count: **8**.
 
-> **Implementation status (2026-05-02):** the per-band z-score column reflects what `data/normalization.py:WelfordStats` already computes (each EXTRA channel gets its own μ, σ — see [data/normalization.py:74-75](../data/normalization.py#L74-L75)). The `[0.1, 99.9]` percentile clipping and the `SE_PROTO` per-channel-mode bypass are **not yet implemented**; `scripts/compute_normalization_stats.py` runs Welford on raw values, and `RTSDataset.__getitem__` applies z-score uniformly to every channel. The treatments above are the **design intent** for when Phase 4 EXTRA experiments fire — see `training/experiments.md §7`. Implementing them requires (a) clipping in `compute_normalization_stats.py` and (b) a per-channel `normalization_mode` schema entry in `normalization_stats.json` plus a dispatch in the loader. Both are deferred to v2.1.
+> **Implementation status (2026-05-02):** the per-band z-score column reflects what `data/normalization.py:WelfordStats` already computes (each EXTRA channel gets its own μ, σ — see [data/normalization.py:74-75](../data/normalization.py#L74-L75)). The `[0.1, 99.9]` percentile clipping and the `SE_PROTO` per-channel-mode bypass are **not yet implemented**; `scripts/compute_normalization_stats.py` runs Welford on raw values, and `RTSDataset.__getitem__` applies z-score uniformly to every channel. The treatments above are the **design intent** for when Phase 4 EXTRA experiments fire — see `training/experiments.md §7`. Implementing them requires (a) clipping in `compute_normalization_stats.py` and (b) a per-channel `normalization_mode` schema entry in `normalization_stats.json` plus a dispatch in the loader. Both are deferred to a later iteration.
 
-Channels considered but **not** included in v2.0: NIR (Sentinel-2), Relative Elevation / Shaded Relief / slope / aspect (ArcticDEM), NDMI, SAR backscatter. These remain available for v2.1 if Phase 4 results or post-inference analysis flags a gap that the included groups cannot fill.
+Channels considered but **not** included: NIR (Sentinel-2), Relative Elevation / Shaded Relief / slope / aspect (ArcticDEM), NDMI, SAR backscatter. These remain available for a later iteration if Phase 4 results or post-inference analysis flags a gap that the included groups cannot fill.
 
 ### Label File (labels GeoTIFF, fixed)
 

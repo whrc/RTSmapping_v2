@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,10 @@ def setup_mlflow(cfg: dict) -> mlflow.ActiveRun:
     a context manager upstream). The config YAML is logged as an artifact and
     its SHA256 goes into both params and tags.
     """
-    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
+    # MLFLOW_TRACKING_URI env overrides the YAML (experiments.md §2.1) — required for
+    # concurrency-safe per-run stores when several runs share the host (the file store is
+    # not concurrency-safe).
+    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI") or cfg["mlflow"]["tracking_uri"])
     mlflow.set_experiment(cfg["mlflow"]["experiment_name"])
     run = mlflow.start_run(run_name=cfg["mlflow"].get("run_name"))
 
@@ -137,12 +141,20 @@ def log_run_summary(
     training_duration_s: float,
     nan_events: list[dict],
     tmp_dir: Path,
+    status: str = "completed",
 ) -> Path:
-    """Write a human-readable run_summary.md and log it as an MLflow artifact."""
+    """Write a human-readable run_summary.md and log it as an MLflow artifact.
+
+    Args:
+        status: "completed" for a normal training-loop exit, "crashed" when the
+            summary is written from the finally-block after an exception. The
+            ablation queue greps this to decide whether a run needs a rerun.
+    """
     path = tmp_dir / "run_summary.md"
     lines = [
         f"# Run summary — {cfg['mlflow'].get('run_name', 'unnamed')}",
         "",
+        f"- Status: **{status}**",
         f"- Experiment: `{cfg['mlflow']['experiment_name']}`",
         f"- Seed: {cfg.get('seed')}",
         f"- Precision: {cfg['training'].get('precision')}",

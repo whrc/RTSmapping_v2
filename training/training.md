@@ -222,7 +222,7 @@ Both approaches will be implemented and selected via YAML config for ablation. K
 - Applied on-the-fly in the DataLoader using scipy binary dilation on label mask
 - Simple, proven in medical imaging segmentation
 
-**Approach 2: Soft Labels** (`boundary_handling: soft_labels`) — **deferred to v2.1**
+**Approach 2: Soft Labels** (`boundary_handling: soft_labels`) — **deferred to a later iteration**
 - Near-boundary pixels get softened labels: background → `soft_label_value`, RTS → `1 - soft_label_value`
 - Options: constant soft values (0.05/0.95) or distance-based softening
 - Requires using BCE with soft targets (not cross-entropy with integer labels)

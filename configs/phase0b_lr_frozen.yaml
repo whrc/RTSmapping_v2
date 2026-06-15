@@ -18,8 +18,8 @@ seed: 42
 deterministic: false
 
 data:
-  version: "2.0"
-  data_root: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA"
+  version: "1.0"
+  data_root: "gs://rts-mapping-v2/training/v1.0"
   rgb_dir: "PLANET-RGB"
   extra_dir: "EXTRA"
   labels_dir: "labels"
@@ -29,14 +29,14 @@ data:
   tile_size: 512
   crs: "EPSG:3857"
   label_ignore_index: 255
-  normalization_stats_path: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/normalization_stats.json"
+  normalization_stats_path: "gs://rts-mapping-v2/training/v1.0/normalization_stats.json"
 
 channels:
   rgb: true
   extra: []
 
 splits:
-  regions_geojson: "gs://abrupt_thaw/RTS_MODEL_V2/DATA/circumpolar_subregions.geojson"
+  regions_geojson: "gs://rts-mapping-v2/training/v1.0/circumpolar_subregions.geojson"
   train_fraction: 0.80
   val_fraction: 0.10
   test_fraction: 0.10

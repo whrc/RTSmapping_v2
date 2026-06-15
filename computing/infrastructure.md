@@ -19,7 +19,7 @@ Two GCP projects are in play, and it is important not to confuse them:
   compute credit**, the Docker Artifact Registry, and the PDG bucket `rts-mapping-v2`. This is an
   **organization-managed** project (we do not control its IAM).
 - **`abruptthawmapping`** (proj# 801926669176) — the user's own (non-PDG) project. Its bucket
-  `abrupt_thaw` currently holds the v2.0 training data.
+  `abrupt_thaw` currently holds the v2-alpha training data.
 
 ```
 abruptthawmapping project (non-PDG)        pdg-project-406720 (PDG, org-managed)
@@ -83,7 +83,7 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 | Bucket | Project | Purpose | Notes |
 |--------|---------|---------|-------|
-| `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2.0 training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
+| `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2-alpha training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
 | `gs://rts-mapping-v2/` | PDG | Compute-adjacent **training** data, outputs, artifacts, deployment packages | Region **US (multi-region)** — verified 2026-06-15. |
 | `gs://pdg-planet-data/` | PDG | **2025 Planet basemap quads** (pan-arctic inference input) | Region **US-WEST1 (single)** — verified 2026-06-15. Drives the inference region. |
 | `gs://woodwell-rts-inference-arts-south/` | PDG | **Inference I/O** (probability COGs, masks, vectors, logs) + 2025 EXTRA tiles + deployment-package copy | **us-west1 (single region)** — co-located with `pdg-planet-data` + the inference fleet → egress-free. (To be created.) |

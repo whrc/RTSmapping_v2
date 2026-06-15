@@ -277,7 +277,7 @@ Run **after** §6.1 locks. The loss-winner config is held constant; only `loss.b
 | Configuration | Notes |
 |---|---|
 | `boundary_handling: none` (baseline) | Inherited from §6.1. |
-| `boundary_handling: ignore`, width ∈ {1, 2, 3} | 3 runs. Soft-label is deferred to v2.1 per `training.md §5.5`; `data/dataset.py` raises `NotImplementedError` if requested. |
+| `boundary_handling: ignore`, width ∈ {1, 2, 3} | 3 runs. Soft-label is deferred to a later iteration per `training.md §5.5`; `data/dataset.py` raises `NotImplementedError` if requested. |
 
 §1.4 gate. Operational tie-break: `none` beats `ignore` (less data prep, no dilation step at load time).
 
@@ -308,7 +308,7 @@ Backbone sizing (B3 / B7 vs B5) is **deferred to Phase 5**, not run inside Phase
 
 ### 7.1 Group definitions
 
-Group IDs and their band positions are fixed by `data/data.md §9` (single source of truth). Phase 4 ablates the five v2.0 groups:
+Group IDs and their band positions are fixed by `data/data.md §9` (single source of truth). **Phase 4 is currently blocked**: the v1.0 standard dataset ships **no EXTRA stack** (`EXTRA/` is empty), so this phase cannot run until the data team appends the EXTRA bands. When it does, Phase 4 ablates these groups:
 
 | Group ID | N bands | Band indices in EXTRA |
 |----------|---------|------------------------|
@@ -418,7 +418,7 @@ These knobs sit in `configs/baseline.yaml` and are technically tunable, but tuni
 | `lr_schedule.warmup_epochs`, `backbone_warmup_epochs` | 5, 3 | Defaults are within the literature normal range. Phase 0 LR range test makes them less critical. | Phase 0 multi-seed showing high-σ runs that originate from warmup-period instability. |
 | `optimizer.gradient_clip_norm` | 1.0 | Safe default. Loosening or removing risks NaN events under focal loss with extreme imbalance. | Repeated `train_nan_steps` > 0 across seeds. |
 | `augmentation.*` probabilities | as in `configs/baseline.yaml` | The aug pipeline was tuned in v1; per-aug ablations are diminishing-returns search. | §5.4 generalisation-gap > 0.4 (then a coarse "all aug p × 1.5" trial, not a per-aug grid). |
-| Soft-label boundary handling | not implemented | Deferred to v2.1; `data/dataset.py` raises if requested. | `boundary_handling: ignore` clearly fails to capture annotation noise. |
+| Soft-label boundary handling | not implemented | Deferred to a later iteration; `data/dataset.py` raises if requested. | `boundary_handling: ignore` clearly fails to capture annotation noise. |
 | Copy-paste augmentation | not implemented | Deferred. Adds implementation surface area for an effect of uncertain magnitude. | Phase 4 reveals positive recall is the bottleneck. |
 
 The trigger for revisiting any of these is **evidence**, not a calendar slot or a feeling that "we should also try X."
@@ -485,5 +485,7 @@ The following decision points cannot be made autonomously and require explicit u
 | Late-fusion authorisation if §7.4 calls for it | Phase 4 §7.5 | User |
 | Architecture extension to `models/segmentation.py` for SegFormer / DINOv3 | Phase 5 (if triggered) | Engineer |
 | Re-running Phase 2 on full 3500 positives | Phase 3+ (if any decision flips on the 1900 result) | User |
+| **Multi-scale / context-expanded training** — the 2026-06-12 tiny-area experiment showed the single-GSD model does **not** transfer zero-shot to 2× GSD (0 blobs vs 9; `docs/inference_validation.md`), so wider-FOV coverage requires a training change (inference.md §6.4 "Phase-1.5" path: fetch 2× area, downsample to 512). Decide at the v2.1 re-baseline — it alters the data pipeline and must precede Phase-3 re-runs if adopted | v2.1 re-baseline | User |
+| Self-supervised encoder pretraining on unlabeled Arctic quads (proposal #4 in `docs/experiments_8gpu_proposals.md`) | optional, pre-fine-tune | User |
 
 Phases run sequentially when not externally blocked. When externally blocked, the next-runnable phase proceeds.

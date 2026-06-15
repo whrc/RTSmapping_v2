@@ -47,22 +47,22 @@ GPU=1 nohup bash scripts/run_ablation_queue.sh <configB> >> /mnt/outputs/queue_g
 - Win gate: Δ(`val_realistic_pr_auc_geomean`) ≥ G=0.025 over μ₀=0.5683 + no precision regression
   (`training/experiments.md §1.4`).
 
-## ⚠️ BLOCKER: v2.0 training data deleted from the bucket (2026-06-12)
+## ⚠️ BLOCKER: v2-alpha training data deleted from the bucket (2026-06-12)
 
 The entire `gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA/` prefix was **rewritten in place
 ~04:30–05:45 UTC on 2026-06-12** (not by us — the bucket belongs to the data-production project):
 - Deleted: `metadata_phase0c.csv`, `splits_phase0c.yaml`, `normalization_stats.json`, `EXTRA/`,
-  and all v2.0 tiles. Bucket versioning is **Suspended** → old objects unrecoverable from GCS.
+  and all v2-alpha tiles. Bucket versioning is **Suspended** → old objects unrecoverable from GCS.
 - Now present: new `metadata.csv` (schema gains `Version` col, value `batch1`) with only **1,757
-  tiles**, and rewritten `PLANET-RGB/` + `labels/` — this looks like an in-progress v2.1/batch
+  tiles**, and rewritten `PLANET-RGB/` + `labels/` — this looks like an in-progress v2.1-alpha/batch
   drop, NOT a complete dataset.
 - Yesterday's 04:10 UTC "transient" 404 crashes (boundary_w2/w3, wd_5e2, aug_strong) were the
   leading edge of this rewrite.
 
 **Consequence: the whole experiment backlog below is blocked** — configs reference the deleted
-frozen snapshot, and the v2.0 tiles themselves are gone. All Phase-0c-comparable numbers
-(μ₀/σ₀/G and every result so far) are tied to v2.0; new-batch data is NOT comparable. Before any
-new run: talk to the data team (restore v2.0 somewhere? when is the new drop complete?), then
+frozen snapshot, and the v2-alpha tiles themselves are gone. All Phase-0c-comparable numbers
+(μ₀/σ₀/G and every result so far) are tied to v2-alpha; new-batch data is NOT comparable. Before any
+new run: talk to the data team (restore v2-alpha somewhere? when is the new drop complete?), then
 decide whether to re-baseline. Going forward, **stage frozen training snapshots into
 `gs://rts-mapping-v2/training/<version>/`** (our project) per `infrastructure.md` so external
 rewrites can't destroy reproducibility again.
@@ -71,7 +71,7 @@ rewrites can't destroy reproducibility again.
 
 | Run | Status |
 |---|---|
-| `phase3_boundary_ignore_w2` | ☐ blocked (crashed on the bucket rewrite; rerun needs v2.0 data) |
+| `phase3_boundary_ignore_w2` | ☐ blocked (crashed on the bucket rewrite; rerun needs v2-alpha data) |
 | `phase3_boundary_ignore_w3` | ☐ blocked (same) |
 | `phase3_wd_5e2` | ☐ blocked (same) |
 | `phase3_aug_strong` | ☐ blocked (same) |
