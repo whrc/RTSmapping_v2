@@ -24,6 +24,31 @@ If multiple candidates pass, the winner is the one with the largest Δ PR-AUC. T
 
 The gate floor of 0.01 prevents an unrealistically tight σ from generating spurious "winners" on differences smaller than reasonable run-to-run drift across machines and library versions. The 2σ multiplier prevents declaring winners on noise.
 
+### 1.5 Compute posture (8×A100) — saturate, don't stop
+
+This program was originally written under single-GPU scarcity (single-seed first passes, one-point
+conditional probes, strict sequential elimination). The node is now **8× A100-80GB** with an abundant
+$70k credit (~$5–15k earmarked for ablations; everything proposed ≈ $2–4k). **Compute is not the
+constraint — labeled data is.** Two consequences govern execution (full scheduling SSoT in §13):
+
+- **Keep all 8 GPUs busy, within and across phases.** Pad under-full waves and backfill idle slots
+  with *independent* runs (the §8 architecture sweep, the §10 curriculum sweep, pre-registered seeds);
+  use gated-speculative dispatch for dependency-blocked runs (§13). Saturate utilization *per run* by
+  reading data from local disk, not per-epoch from GCS (§13).
+- **Do not stop this scarce 8×A100 to save the trivial idle cost** — restart risks GPU stockout
+  (`vm_instruction.md` zone-fallback). Stop only for genuinely long idle blocks, after backing up
+  keepers to GCS (`infrastructure.md`).
+
+### 1.6 Expectations — incremental vs step-change
+
+Be honest about ceilings. On the **v1.0 data plateau** (§5.3) the model is data-constrained yet
+*not* over-parameterised (train/val IoU gap ≈ 0.05 at best epoch, §5.4) — well-matched to its data.
+So the cheap hyperparameter levers (loss/boundary §6, regularization §6.3, curriculum §10, decoder
+swaps §8) are expected to yield **incremental** gains (~around the gate G = 0.011), and bigger or
+more-regularised models are *not* indicated. The **step-changes** live in representation: EXTRA
+channels (Phase 4), foundation-encoder architectures (§8), and the user-gated arms (§12). Plan and
+report accordingly — do not oversell hyperparameter tuning on a plateaued, well-fit model.
+
 ## 2. Tracking infrastructure
 
 This section is the single source of truth for what each training run emits to MLflow. On-disk checkpoints are spec'd in `training.md §4.3`; the post-calibration deployment package in `inference.md §2.2`; the multi-seed reporting format in `training.md §13`.
@@ -199,9 +224,14 @@ Relative Δ is used because absolute thresholds (e.g. ≤ 0.05) read very differ
 | 10–20 % | Modest drift | Run `scripts/check_inference_normalization.py` (`inference.md §5.4`) on a larger 2025 sample. If radiometric drift drives most of the gap, consider per-region calibration during deployment (`training.md §6.4`). Continue Phase 2/3 in parallel. |
 | > 20 % | Material drift | Halt. Investigate radiometric drift first. If real, the project either retrains with 2025 data included (requires labeling effort) or restricts scope to the 2024 distribution. Phases 2–5 are not invalidated but their winners may not generalise. |
 
-### 4.3 Status
+### 4.3 Status — OPTIONAL (not a gate)
 
-Blocked on the 2025 micro-set definition: tile count, region selection, labeling plan. **TBD** for the user. The Phase 1 inference is one GPU-hour once the micro-set exists.
+**Downgraded to optional (2026-06-15).** A visual review of the 2025 basemap preview showed no
+alarming domain shift, and Phase 1 is externally blocked on the micro-set definition anyway (tile
+count, region selection, labeling plan — **TBD** for the user). Phases 2–5 proceed regardless; Phase 1
+is **not** a gate. Keep it available as a cheap (~1 GPU-hour) sanity check to run opportunistically
+once the micro-set exists, and re-confirm at the v2.1 re-baseline. If run and Δ_relative > 20% (§4.2),
+re-open it as a blocker at that point.
 
 ---
 
@@ -238,6 +268,15 @@ Fit a line to `PR-AUC vs log(n_positives)`. Compare the slope between the 75 →
 | 0.5 – 1.0 | **Diminishing but still scaling** | Continued returns. Phase 3 backbone-sizing is worth running if loss-family results suggest underfit. Phase 5 stays in scope. |
 | > 1.0 (slope flat / increasing) | **Severely under-scaled** | Even 25 % is enough to start; the model has plenty of capacity left. Phase 5 stays in scope; backbone-up testing in Phase 3 is high-priority. |
 
+**v1.0 result (2026-06-15) — PLATEAU.** `best_smoothed` at 25/50/75/100% positives (n≈328/656/983/1311)
+= 0.7636 / 0.7720 / 0.7916 / 0.7912. Slope ratio (75→100)/(25→50) = **−0.12 < 0.5 → plateau before
+100%** (75→100 flat within σ₀). Implications per the matrix: the model has **saturated on available
+positives**, Phase-5 architecture is **likely skipped** (its §8.1 slope trigger fails), and acquiring
+more RGB labels above ~1300 has **weak expected return** at this architecture. Leverage therefore
+pivots to representation (Phase 4 EXTRA, foundation encoders §8). See `docs/phase2_data_scaling.md`.
+*(Caveat: contrast with v2.0-alpha's "severely under-scaled, slope 4.4" — the cleaner v1.0 data
+changed the regime.)*
+
 ### 5.4 Generalisation-gap monitoring
 
 For each subset, track the gap between `train_iou_rts` and `val_realistic_iou_rts` at the final epoch. Indicators:
@@ -249,15 +288,29 @@ For each subset, track the gap between `train_iou_rts` and `val_realistic_iou_rt
 
 The gap-vs-data-size signal also informs whether Phase 5's "did Phase 3+4 close the gap?" gate has a chance.
 
+**v1.0 result (2026-06-15).** At 100% data (baseline `phase0c_seed42`, from MLflow `train_iou` vs val
+`pixel_iou`): gap = **0.05 at the best epoch (55)**, **0.17 at the final epoch (105)** — both **< 0.4**.
+→ "Gap < 0.2 → data variance constrains capacity; wd/aug defaults are fine." **v1.0 is NOT
+over-parameterised** (contrast alpha's 0.43). So the §6.3 conditional weight-decay trigger **does not
+fire** for v1.0; the §6.3 regularization grid is therefore run as a **low-expected-value exploratory
+wave** (user-elected to confirm, not because the trigger demands it). Combined with the §5.3 plateau,
+this says the model is *well-matched* to its data — neither more capacity nor more regularization is
+indicated; the binding constraint is the data/representation.
+
 ---
 
 ## 6. Phase 3 — Loss family → boundary handling
 
 *Objective: tune the penalty landscape to suppress false positives without sacrificing recall.*
 
-Sequential elimination: pick the loss family first, lock it, then test boundary handling against the locked loss winner. Conditional weight-decay sweep only if Phase 2 shows the over-parameterisation signal.
+**Factorial, not pure sequential (revised 2026-06-15 for 8×A100).** Pure sequential elimination
+assumes the best boundary handling is loss-independent; with compute abundant we test the interaction
+instead. The loss-family **first pass** (§6.1, Wave-1) ranks the families at `boundary: none`; the
+**boundary factorial** (§6.2) then runs the top-2 loss families × boundary settings in parallel, so the
+boundary choice is made with any loss×boundary interaction visible. The §6.3 regularization grid is run
+as an exploratory wave (the v1.0 over-parameterisation trigger did **not** fire — §5.4).
 
-### 6.1 Loss family
+### 6.1 Loss family — first pass
 
 Compared on the Phase 0 baseline (locked LR, BS, augmentation). Each candidate is a single training run unless Phase 0's σ₀ band requires a second seed.
 
@@ -268,33 +321,62 @@ Compared on the Phase 0 baseline (locked LR, BS, augmentation). Each candidate i
 | Tversky (precision-focused) | (α, β) ∈ { (0.3, 0.7), (0.2, 0.8) } — 2 runs | β > α only, per `training.md §5.2`. |
 | Focal grid (only if all of the above plateau at gate G) | γ ∈ {1, 2, 3} × α ∈ {0.25, 0.5} \ {(2, 0.25)} — 5 cells | Tuning ranges from `training.md §5.1`. |
 
-**Loss winner selection**: §1.4 gate. Tie-breaking by operational simplicity: focal < compound < tversky.
+**Loss family ranking**: §1.4 gate. Tie-breaking by operational simplicity: focal < compound < tversky.
+Take the **top-2** families forward into the §6.2 factorial (in the medium-noise regime, candidates
+within 1σ get a seed-43 tie-break run, §3.4). *Wave-1 status (2026-06-15): compound family clearly
+leads; tversky weak — so top-2 ≈ {compound-best-ratio, focal-or-compound-runner-up}.*
 
-### 6.2 Boundary handling
+### 6.2 Boundary handling — loss×boundary factorial
 
-Run **after** §6.1 locks. The loss-winner config is held constant; only `loss.boundary_handling` and `loss.boundary_ignore_width` change.
+Replaces the old "run after §6.1 locks, boundary-on-winner only." Run the **top-2 loss families ×
+boundary settings** in parallel (the `none` cells already exist from §6.1 / Wave-1; run the missing
+`ignore` cells), padded to 8 GPUs with seeds (§13):
 
-| Configuration | Notes |
+| Axis | Levels |
 |---|---|
-| `boundary_handling: none` (baseline) | Inherited from §6.1. |
-| `boundary_handling: ignore`, width ∈ {1, 2, 3} | 3 runs. Soft-label is deferred to a later iteration per `training.md §5.5`; `data/dataset.py` raises `NotImplementedError` if requested. |
+| Loss family | top-2 from §6.1 |
+| Boundary | `none` (have), `ignore` width ∈ {1, 2, 3} |
 
-§1.4 gate. Operational tie-break: `none` beats `ignore` (less data prep, no dilation step at load time).
+= 2 × 4 cells (≈6 new `ignore` runs). Soft-label boundary is deferred (`training.md §5.5`;
+`data/dataset.py` raises `NotImplementedError`). Each cell holds its loss config constant and changes
+only `loss.boundary_handling` / `loss.boundary_ignore_width`. **Decision**: §1.4 gate on the best cell;
+if the boundary effect is consistent across both losses → loss-independent (pick the simpler boundary);
+if it flips → report the interaction and pick per the winning loss. Operational tie-break: `none` beats
+`ignore`. Across-stage scheduling (gated speculative on the loss leader) per §13.
 
-### 6.3 Conditional weight-decay sweep
+### 6.3 Regularization grid (wd × aug)
 
-Run only if Phase 2's §5.4 gap is > 0.4 at 100 % data. Otherwise skip — defaults are fine.
+Replaces the old conditional single-point wd probe (proposal #6). **v1.0 trigger status: the §5.4 gap
+is 0.05/0.17 < 0.4 → over-parameterisation trigger did NOT fire**, so this grid is an **exploratory,
+low-expected-value wave** the user elected to run for completeness (compute is free), not a
+trigger-mandated sweep. Run the 2×2 grid in parallel against the §6.2 winner:
 
-| Candidate | `optimizer.weight_decay` |
+| Axis | Levels |
 |---|---|
-| Baseline | 1e-2 |
-| Stronger | 5e-2 |
+| `optimizer.weight_decay` | 1e-2 (baseline), 5e-2 (stronger) |
+| Augmentation strength | base (`configs/baseline.yaml:augmentation`), strong (all aug p × ~1.5, `training.md §10.5`) |
 
-Single-pass against the §6.2 locked config. If 5e-2 passes the §1.4 gate **and** does not destroy precision, lock it. Otherwise revert.
+= 4 cells. Lock a cell only if it passes the §1.4 gate **and** does not destroy precision; otherwise
+revert to baseline (the expected outcome on a well-fit model). This supersedes the §10 "don't tune aug"
+default for this one coarse grid only.
 
-The "raise augmentation probabilities" remedy mentioned in `training.md §10.5` is intentionally not run as a sweep here. Augmentation probabilities sit in `configs/baseline.yaml:augmentation` and remain at their defaults until evidence forces revisiting (§10).
+### 6.4 Multi-scale training arm (#3) — POST-INFERENCE GATED
 
-### 6.4 Phase 3 deliverable
+**Do not run now.** Trigger = pan-arctic inference is complete **and** a review of the deployed map
+shows a large-RTS / wide-FOV coverage gap (motivated by the 2026-06-12 finding that the single-GSD
+model collapses at 2× GSD — 0 vs 9 blobs, `docs/inference_validation.md`). If triggered: add a training
+arm on 2×-area-downsampled tiles (`inference.md §6.4` "Phase-1.5" path), ~1 day of data-fetch/downsample
+pipeline work, evaluated via the `inference.md §6.4` gate. Listed in §11.3 as a user-gated decision.
+
+### 6.5 Bounded interaction check
+
+Sequential elimination assumes separable knobs. Now affordable: one small factorial on the
+most-coupled triple — **loss-winner family × wd {1e-2, 5e-2} × curriculum {base, precision-tilted}**
+(≈8 runs, parallel) — to confirm no interaction flips the per-axis winners from §6.2/§6.3/§10. Keep
+sequential elimination as the backbone; this is a guard, not a full joint search. If an interaction
+flips a winner, re-lock at the joint optimum and note it in `docs/phase3_loss_boundary.md`.
+
+### 6.6 Phase 3 deliverable
 
 A single locked configuration {loss family + parameters, boundary handling, weight decay if changed}. This is the new baseline for Phase 4.
 
@@ -305,6 +387,12 @@ Backbone sizing (B3 / B7 vs B5) is **deferred to Phase 5**, not run inside Phase
 ## 7. Phase 4 — EXTRA channel groups
 
 *Objective: determine whether multi-modal physical context improves the final map, and if so which combination to deploy.*
+
+> **Priority (2026-06-15): this is the primary plateau-breaker.** Given v1.0's data plateau (§5.3) and
+> well-fit gap (§5.4), more RGB data / capacity / regularization are low-leverage; **adding physical
+> context (EXTRA) is the most direct way to raise the ceiling**. It is blocked only on data generation
+> — pushing the data team to produce the EXTRA stack is the highest-value unblock in the program
+> (§11.3).
 
 ### 7.1 Group definitions
 
@@ -354,36 +442,55 @@ A locked `channels.extra` list (possibly empty if §7.3 failed). This is the inp
 
 ---
 
-## 8. Phase 5 — Architecture (gated)
+## 8. Phase 5 — Architecture (run-now sweep)
 
 *Objective: test if a more expressive feature extractor yields meaningful gains over UNet++ + EfficientNet-B5.*
 
-### 8.1 Trigger conditions
+### 8.1 Gating — skip-trigger overridden as a compute-filler (2026-06-15)
 
-Phase 5 runs only when **both** are true:
+The original trigger (run only if §5.3 slope ratio ≥ 0.5 **and** the gap stayed open) would **skip**
+Phase 5 on v1.0 (plateau, ratio −0.12; gap 0.05 < 0.3). **User decision: run the architecture sweep
+now anyway**, to use the otherwise-idle 8×A100 — it is the largest *independent* backlog and the prime
+backfill for the never-idle scheduler (§13). **Honest expectation:** decoder swaps are **incremental**
+on a plateaued, well-fit model; the one candidate with step-change potential is a **foundation encoder**
+(external prior knowledge directly attacks the data-limit). Record results in `docs/phase5_arch.md`.
 
-1. Phase 2 §5.3 designated the regime as **diminishing but still scaling** or **severely under-scaled** (slope ratio ≥ 0.5). Architecture matters when data is plentiful enough to feed it.
-2. The Phase 3 + Phase 4 winners have not closed the train-val IoU gap below ~0.3 at 100 % data. If the gap is small, the model is already using its capacity; bigger architectures will overfit.
+### 8.2 Comparison set
 
-Both conditions failing → **skip Phase 5**. Document the skip with the slope ratio and gap value as evidence in `docs/phase5_skip.md`. The honest expectation in this regime (≈ 1900 positives) is that Phase 5 gets skipped, and that is an acceptable, principled outcome.
+Per `training.md §3.2` priority order, widened (2026-06-15):
 
-### 8.2 Comparison set (only if §8.1 triggers)
+| Candidate | Type | Notes |
+|---|---|---|
+| UNet++ + EfficientNet-B5 (Phase 3/4 winner) | reference | Reference. |
+| UNet++ + EfficientNet-B3 | backbone (smaller) | Plateau-appropriate regularizer (down, not up); cheap. |
+| UNet++ + EfficientNet-B7 | backbone (larger) | Low priority on a plateau (overfit risk); run only as a bound. |
+| **DeepLabV3+ / FPN / PSPNet / MA-Net** (EffB5 encoder) | decoder swap | smp drop-ins (one `build_model` elif each); **DeepLabV3+ leads** (ASPP multi-scale context). Decoder-only → reuse frozen HPs (adjust batch, §8.2a). |
+| SegFormer (mit_b5) | architecture | transformer; `models/segmentation.py` already supports it. Needs §8.2a re-tune. |
+| **DINOv3 encoder + dense head** | foundation encoder | highest step-change potential; needs encoder integration + §8.2a. Confirm model version at impl. |
+| **SAM3 encoder + dense head** | foundation encoder | SAM3 now released (2026); confirm exact model/version at impl. Needs §8.2a. |
+| UNet3+ | decoder (conditional) | **not in smp** → custom impl; run only if the smp decoder sweep shows the decoder family moves the gate. |
+| ~~YOLO / instance-seg (YOLOv8-seg, Mask R-CNN)~~ | detection | **Rejected (paradigm mismatch):** detection produces coarse, proposal-anchored masks unfit for pixel-accurate geodesic polygons. Reconsider only if RTS is reframed as instance detection or detection-recall becomes the bottleneck. |
 
-Per `training.md §3.2` priority order:
+### 8.2a Per-architecture-family HP adaptation (fairness requirement)
 
-| Candidate | Notes |
-|---|---|
-| UNet++ + EfficientNet-B5 (Phase 3/4 winner) | Reference. |
-| UNet++ + EfficientNet-B3 | Cheaper backbone — runs only if Phase 2 indicates "plateau before 100%" but Phase 3+4 didn't close the gap (capacity maybe overshot). |
-| UNet++ + EfficientNet-B7 | Larger backbone — runs only if Phase 2 indicates "severely under-scaled". |
-| SegFormer-B5 | Architectural change; needs `models/segmentation.py` extension. |
-| DINOv3 encoder + dense head | Architectural change; confirm DINOv3 model version at implementation time. |
+Comparing every candidate on the **frozen Phase-0 CNN HPs** would bias toward UNet++/EffB5 — candidates
+could fail from mis-tuning, not from being worse. So:
+
+- **Decoder-only swaps** (same EffB5 encoder): reuse the frozen LR/schedule; only **adjust batch size**
+  to the decoder's memory footprint.
+- **Encoder / paradigm changes** (SegFormer, DINOv3, SAM3): run a **quick per-family re-tune before the
+  gated run** — a short LR range test (Phase-0 §3.2 style) + per-family **warmup, batch (memory-fit),
+  and fine-tuning schedule**: layer-wise LR decay (LLRD), encoder-LR ≪ head-LR, optionally
+  linear-probe-then-finetune; wd/betas as the family expects (ViTs often wd≈0.05). BN-comparability
+  relaxes when the arch uses LayerNorm. Each candidate is gated at **its own fair HPs**, recorded in
+  `docs/phase5_arch.md`, so the comparison measures architecture, not tuning.
+- **Code dependency:** this requires `scripts/train.py` to support **LLRD + a configurable
+  freeze/linear-probe schedule** (currently only `freeze_backbone_epochs` + a flat
+  `backbone_lr_multiplier`) — engineer task, §11.3. These probe runs add to the saturation backlog (§13).
 
 ### 8.3 Winner criteria
 
-§1.4 gate **plus** the new architecture must pass `scripts/inference_feasibility.py` (re-run with the candidate). A model that wins on PR-AUC but breaks the inference budget for the §3.2 pan-arctic tile count (`inference.md §3.2`; ~7.5M at default stride 344) is not a winner.
-
-Calibration parity (`training.md §4.6`) requires the calibrated threshold + temperature to be re-derived for any architecture change; the locked Phase 4 calibration does not transfer.
+§1.4 gate **plus** the new architecture must pass `scripts/inference_feasibility.py` (re-run with the candidate). A model that wins on PR-AUC but breaks the inference budget for the §3.2 pan-arctic tile count (`inference.md §3.2`; ~7.5M at default stride 344) is not a winner. Calibration parity (`training.md §4.6`) requires the calibrated threshold + temperature to be re-derived for any architecture change; the locked Phase 4 calibration does not transfer.
 
 ---
 
@@ -402,13 +509,45 @@ After the last winning phase (Phase 3, 4, or 5 depending on what triggered), ret
 | Build deployment package via `scripts/package_model.py` | `inference.md §2.2` |
 | Report mean ± std on Test-Realistic at all three ratios | `training.md §13.2` |
 
+**Pre-approved Final-phase options (2026-06-15, decide at this step):** (a) **5-seed lock** instead of 3
+(proposal #7 — one wallclock unit on 8 GPUs); (b) **ensemble deployment** (proposal #5) — average the
+seed members' probabilities at inference for a classic +1–2% PR-AUC via variance reduction, aligned
+with the precision-over-recall priority (inference cost ×k members — benchmark before committing).
+
 Test-Realistic is touched **once**, at this step. Re-running Test-Realistic for any reason after this is a project-discipline failure, not a permitted iteration.
 
 ---
 
-## 10. What we deliberately don't tune
+## 10. Hyperparameter surface — what we tune, freeze, or gate
 
-These knobs sit in `configs/baseline.yaml` and are technically tunable, but tuning them gives near-zero expected information per GPU-hour at this project's regime. They stay at their defaults unless evidence forces revisiting.
+**Full tunable surface (2026-06-15)**, so nothing important is silently omitted:
+
+| Knob | Status | Where / why |
+|---|---|---|
+| Loss family + params (focal γ×α, compound λ, tversky α/β) | **Tuned (full grids)** | §6.1 first pass — run full grids, compute is free |
+| Boundary handling + width | **Tuned** | §6.2 loss×boundary factorial |
+| Weight decay × augmentation strength | **Tuned (exploratory)** | §6.3 grid — v1.0 trigger did not fire (§5.4) |
+| Curriculum schedule + `sampling.positive_fraction` | **Tuned (new, §10.1)** | top untested precision lever |
+| Backbone size (B3) | **In §8** | B3-as-regularizer (plateau ⇒ smaller, not B7) |
+| Architecture / decoder + encoder | **Tuned now (§8)** | run-now sweep (decoders, foundation encoders); YOLO rejected |
+| EXTRA channels | **Gated (data)** | Phase 4 — primary plateau-breaker |
+| Multi-scale / input context | **Gated (post-inference)** | §6.4 — only after map review |
+| Pretraining (ImageNet→MAE) | **User-gated** | §12 |
+| LR / schedule / warmup / optimizer / EMA / betas / grad-clip | **Frozen (reference arch); re-opened per architecture family** | §10 table below — Phase-0-locked *within UNet++/EffB5*; encoder/paradigm changes re-tune (§8.2a) |
+| Batch size | **Frozen (reference); per-arch by memory** | §3.1; transformers/foundation encoders force smaller (§8.2a) |
+| Threshold / temperature / TTA | **Calibration, not training** | `training.md §12 / §10.4` |
+
+### 10.1 Curriculum & sampling-balance sweep (new — precision lever)
+
+The neg:pos curriculum ramp (`sampling.curriculum_schedule`, 1:1→1:20) and `sampling.positive_fraction`
+(0.5) directly trade precision↔recall yet were never tuned. For a precision-first project on a
+plateaued model this is the **highest-value untested knob**. Small sweep against the §6 winner: final
+curriculum ratio {20, 30} × `positive_fraction` {0.5, 0.33} (≈4 cells, parallel), §1.4 gate with the
+precision-@-recall guard. Lock only on a precision-positive pass.
+
+### 10.2 What we deliberately don't tune
+
+These knobs sit in `configs/baseline.yaml` and are technically tunable, but tuning them gives near-zero expected information per GPU-hour at this project's regime. They stay at their defaults unless evidence forces revisiting. **Note:** the LR/schedule/optimizer freezes below hold **within the reference UNet++/EffB5 architecture**; architecture/encoder changes re-open them per family (§8.2a).
 
 | Knob | Default | Why we don't tune | What would force revisiting |
 |---|---|---|---|
@@ -480,12 +619,58 @@ The following decision points cannot be made autonomously and require explicit u
 
 | Decision | Phase blocked | Owner |
 |---|---|---|
-| 2025 micro-set scope (tile count, region selection, labeling plan) | Phase 1 | User + Heidi Rodenhizer |
+| 2025 micro-set scope (tile count, region selection, labeling plan) | **Phase 1 (OPTIONAL — not a gate, §4.3)** | User + Heidi Rodenhizer |
 | `splits.train_positive_subset_pct` config-key implementation | Phase 2 (mechanism) | Engineer |
+| EXTRA-stack data generation (highest-value unblock, §7) | Phase 4 | User + data team |
 | Late-fusion authorisation if §7.4 calls for it | Phase 4 §7.5 | User |
-| Architecture extension to `models/segmentation.py` for SegFormer / DINOv3 | Phase 5 (if triggered) | Engineer |
+| Architecture extension to `models/segmentation.py` for SegFormer / DINOv3 / **SAM3**, **plus LLRD + configurable freeze/linear-probe schedule** for foundation-encoder fine-tuning (§8.2a) | Phase 5 (run-now) | Engineer |
 | Re-running Phase 2 on full 3500 positives | Phase 3+ (if any decision flips on the 1900 result) | User |
-| **Multi-scale / context-expanded training** — the 2026-06-12 tiny-area experiment showed the single-GSD model does **not** transfer zero-shot to 2× GSD (0 blobs vs 9; `docs/inference_validation.md`), so wider-FOV coverage requires a training change (inference.md §6.4 "Phase-1.5" path: fetch 2× area, downsample to 512). Decide at the v2.1 re-baseline — it alters the data pipeline and must precede Phase-3 re-runs if adopted | v2.1 re-baseline | User |
-| Self-supervised encoder pretraining on unlabeled Arctic quads (proposal #4 in `docs/experiments_8gpu_proposals.md`) | optional, pre-fine-tune | User |
+| **Multi-scale / context-expanded training (§6.4)** — single-GSD model does **not** transfer to 2× GSD (0 vs 9 blobs; `docs/inference_validation.md`). **Trigger: pan-arctic inference done AND map review shows a large-RTS/wide-FOV gap** (inference.md §6.4 "Phase-1.5"); ~1 day pipeline work | Post-inference (map review) | User |
+| Self-supervised / MAE encoder pretraining (§12.1, proposal #4) | Optional, user-gated | User |
+| Hard-negative mining (§12.2) | Optional, user-gated | User |
 
 Phases run sequentially when not externally blocked. When externally blocked, the next-runnable phase proceeds.
+
+---
+
+## 12. Optional high-leverage arms (user-gated)
+
+Documented and ready, but **run only on explicit user go** (not part of the default queue):
+
+### 12.1 Self-supervised / MAE encoder pretraining (proposal #4)
+MAE-style pretraining on **unlabeled** Arctic PlanetScope quads (2025 quads already on GCS; no labels
+needed), then fine-tune on v1.0. Directly attacks the diagnosed data-limit, and the only arm that can
+productively use idle GPUs *before* more labels exist. Cost ≈ 200–550 GPU-h + 1–2 days coding. Pairs
+with the §8 foundation-encoder candidates (an alternative source of external prior knowledge).
+**Trigger:** explicit user go (deferred 2026-06-12).
+
+### 12.2 Hard-negative mining (precision lever)
+Mine false-positives from the negative pool (run the current model over negatives, collect
+high-probability tiles), then oversample them in training. Directly serves the precision-over-recall
+priority (`training.md §1`) — the most targeted precision lever, currently absent from the program.
+**Trigger:** explicit user go, or precision becomes the binding constraint at the §1.4 gate.
+
+---
+
+## 13. Compute saturation (execution-scheduling SSoT)
+
+Keep all 8 GPUs busy, within and across phases (rationale in §1.5).
+
+1. **Within-run — local data staging.** Tiles are read per-epoch from GCS via rasterio `/vsigs/` (no
+   gcsfuse mount → the `training.gcsfuse` cache is inert), causing 0%-util troughs. Stage
+   `gs://rts-mapping-v2/training/v1.0/{PLANET-RGB,labels}` to local SSD (`/mnt/outputs/v1.0/data_local`,
+   ~10–30 GB; tmpfs `/dev/shm` if SSD still bottlenecks) and point `data.data_root` there via a shared
+   base-config override. Integrity: local tile count == metadata rows + sample checksums vs GCS.
+2. **Within-wave — size every wave to 8.** Pad under-full waves (e.g. reg-grid's 4 cells) with
+   independent runs so no GPU idles.
+3. **Across-wave — never-idle scheduler.** Drive `scripts/run_gpu_pool.sh` (keeps NGPU in flight) from
+   a priority queue. **Independent backlog backfills idle slots anytime:** the §8 architecture sweep
+   (largest), the §10.1 curriculum sweep, and pre-registered seeds (43/44). **Dependency-blocked runs**
+   (boundary on the loss winner) use **gated-speculative** dispatch — once the loss leader is >1σ ahead,
+   launch on it; worst case redo ≤N cells if the leader flips. Density stays **1 run/GPU** (each uses
+   ~39/80 GB; 2/GPU OOMs and shrinking batch breaks BN comparability). Multi-scale (§6.4) is **not** in
+   the backfill pool — it is post-inference gated.
+4. **Idle policy.** Do **not** stop this scarce 8×A100 for short idles — restart risks GPU stockout
+   (`vm_instruction.md` zone-fallback) and the ~$30/h saving is trivial against the $70k credit. Stop
+   only for genuinely long blocks (days), after backing up keepers to GCS (`/mnt/outputs` is on the
+   boot disk; see `infrastructure.md`). Never manufacture runs just to light up GPUs.

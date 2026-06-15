@@ -83,9 +83,12 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 | `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2-alpha training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
 | `gs://rts-mapping-v2/` | PDG | **Recommended** home for all compute-adjacent data going forward (staged training data, outputs, artifacts, deployment packages, inference I/O) | Co-located with VMs → no cross-project egress. |
 
-**Region co-location:** VMs run in **us-west1**. Keep buckets in **us-west1** (or US multi-region)
-to avoid cross-region egress. *Verify the current region of both buckets* — this was not
-confirmable during authoring (no bucket-list permission on the authoring credential).
+**Region co-location:** the **active production node `a100-8x-train` is in `us-central1-a`** (corrected
+2026-06-15; the stopped/deprecated `ml-training-vm` + `gpu-vm-l4` were us-west1). Keep buckets in
+**us-central1** (or US multi-region) to avoid cross-region egress. *Verify the current region of
+`rts-mapping-v2`* — if it is us-west1, every per-epoch `/vsigs/` tile read from the us-central1 node
+crosses regions and bills egress, which is **another reason to stage training data to local disk**
+(`experiments.md §13`). Bucket-region was not confirmable during authoring (no bucket-list permission).
 
 ### On-VM storage tiers
 
@@ -151,9 +154,12 @@ All VMs are in the **PDG project**. Daily start/stop/SSH workflow:
 
 ### Zones & GPU availability
 
-us-west1 is primary. GPU capacity varies by zone — if a start fails, fall back per
+The active production node is in **us-central1-a** (`a100-8x-train`); us-west1 hosted the now-stopped
+single-A100 / L4 dev VMs. GPU capacity varies by zone — if a start fails, fall back per
 [vm_instruction.md Appendix A.1](vm_instruction.md) (us-west1-c, us-west2-a/b, us-central1-a).
 Large multi-GPU and H100 machines need explicit quota and may only be available in specific zones.
+**Stopping `a100-8x-train` risks losing the stockout-won 8×A100 capacity** — prefer keeping it busy
+over stopping for short idles (`experiments.md §13`).
 
 ---
 
