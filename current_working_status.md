@@ -53,7 +53,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 **Branch state** (PR #18 v1.0-lock is now merged to `main`; consolidation continuing):
 - `main` = v1.0 baseline locked (PR #18 merged).
-- `inference-pipeline` (PR #19, **MERGEABLE/CLEAN** after merging main 2026-06-15) — Phase-2 inference pipeline + the us-west1 inference-infra decision. 2 of 4 pre-merge checklist items still open: NoData shared helper + post-inference merge-ownership disambiguation both live on `v1.0-restage`/`phase4-extra` (commits `f26dca5`/`0d2f3dc`) and must reach `main` first; deployed-checkpoint norm-stats check is blocked on a winner lock.
+- `inference-pipeline` (PR #19, **MERGEABLE/CLEAN** after merging main 2026-06-15) — Phase-2 inference pipeline + the us-west1 inference-infra decision. 3 of 4 pre-merge checklist items done: rebase-onto-main, the shared NoData helper (cherry-picked `f26dca5` + `tiles.py` swap `38f7909`), and the post-inference merge-ownership doc fix (`ae1dd7a`). Only the deployed-checkpoint norm-stats check remains, blocked on a winner lock.
 - `phase4-extra` = EXTRA generation pipeline (S2 bands done; SE path pending).
 - Also unmerged: `v1.0-restage`, `phase3-ablations`, `docs-eval-interim` — fold the shared helper + post-inference doc fix into `main` during consolidation.
 
@@ -63,7 +63,7 @@ Specs are the source of truth. Always read the relevant md before implementing (
 1. **Finish the running wave** → read Phase-3 boundary factorial (6 `phase3_bd_*` + `compound_1to2_seed43`) + Phase-5 `arch_deeplabv3plus` against the gate (≥0.8023); pick the boundary winner and queue the rest of the §8 architecture sweep on the freed GPUs.
 2. **EXTRA (`phase4-extra`)**: implement the deferred norm features ([0.1,99.9] clip + per-channel mode, SE_PROTO bypass) → recompute S2-inclusive norm stats → build the SE path (global PCA(3) + contrastive prototype, fill bands 2–5) → run the Phase-4 ablation waves (S2 groups, then SE + full stack).
 3. **EXTRA handoff doc** (`docs/extra_channels_handoff.md`): final channel list + `generate_extra_tiles.py --year 2025` for the data team → writes 2025 EXTRA to `gs://woodwell-rts-inference-arts-south` (us-west1).
-4. **Branch consolidation**: land the NoData shared helper (`f26dca5`) + post-inference merge-ownership fix (`0d2f3dc`) on `main`, then close out PR #19's remaining checklist; fold `v1.0-restage`/`phase3-ablations`/`docs-eval-interim`; regenerate `preview_tiles.yaml` from the v1.0 val split.
+4. **Branch consolidation**: merge PR #19 (only the winner-blocked norm-stats check remains); fold `v1.0-restage`/`phase3-ablations`/`phase4-extra`/`docs-eval-interim` into `main` (the NoData helper + post-inference fix are now also on `inference-pipeline`, so those merges are clean); regenerate `preview_tiles.yaml` from the v1.0 val split.
 5. **Inference provisioning** (user/PDG admin): request `NVIDIA_L4_GPUS=16` in us-west1, create `gs://woodwell-rts-inference-arts-south`, benchmark one subregion to pin co-located tiles/s.
 6. Stop the 8× A100 box when the wave drains and no follow-on is queued (credit burn; stockout risk on restart — user call).
 
