@@ -1,0 +1,10 @@
+# §6.2 boundary factorial — focal (baseline loss) × boundary ignore width 2.
+# Inherits locked v1.0 baseline; changes only boundary handling. Local-staged data (§13).
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+mlflow:
+  run_name: phase3_bd_focal_ignore_w2

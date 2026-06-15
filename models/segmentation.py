@@ -24,6 +24,17 @@ import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
+# smp decoder drop-ins for the Phase-5 architecture sweep (experiments.md §8.2).
+# All share UnetPlusPlus's constructor signature and expose `.segmentation_head[0]`
+# (a Conv2d with bias), so _init_output_bias works unchanged. DeepLabV3+ leads
+# (ASPP multi-scale context). Decoder-only swaps reuse the EffB5 encoder + frozen HPs.
+_SMP_DECODERS = {
+    "deeplabv3plus": smp.DeepLabV3Plus,
+    "fpn": smp.FPN,
+    "pspnet": smp.PSPNet,
+    "manet": smp.MAnet,
+}
+
 
 def _derive_in_channels(cfg: dict) -> int:
     """Return 3 (RGB) + number of EXTRA channels declared in config."""
@@ -100,11 +111,21 @@ def build_model(cfg: dict) -> nn.Module:
             classes=1,
             activation=None,  # logits (training.md §4.2)
         )
+    elif arch in _SMP_DECODERS:
+        # smp decoder swap on the same encoder backbone (experiments.md §8.2).
+        model = _SMP_DECODERS[arch](
+            encoder_name=backbone,
+            encoder_weights=encoder_weights,
+            in_channels=in_channels,
+            classes=1,
+            activation=None,  # logits (training.md §4.2)
+        )
     else:
         raise ValueError(
             f"Unsupported model.architecture: {arch!r}. "
-            f"Supported: 'unetplusplus', 'segformer'. Add an elif branch in "
-            f"build_model for new architectures (e.g. DINOv3; see training.md §3.2)."
+            f"Supported: 'unetplusplus', 'segformer', {sorted(_SMP_DECODERS)}. "
+            f"Add an elif branch in build_model for new architectures "
+            f"(e.g. DINOv3/SAM3 foundation encoders; see training.md §3.2 / experiments.md §8.2a)."
         )
 
     _init_output_bias(model, prior)

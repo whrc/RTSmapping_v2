@@ -110,6 +110,22 @@ def test_build_model_segformer_output_shape_and_bias():
     assert math.isclose(bias, -math.log((1.0 - 0.01) / 0.01), abs_tol=1e-5)
 
 
+@pytest.mark.parametrize("arch", ["deeplabv3plus", "fpn", "pspnet", "manet"])
+def test_build_model_smp_decoder_sweep(arch):
+    """§8.2 architecture sweep: each smp decoder drop-in builds on EffB5, returns
+    (B, 1, H, W) logits at input resolution, and shares the .segmentation_head[0]
+    bias path so the rare-class prior is applied identically (fair comparison)."""
+    cfg = _base_cfg(architecture=arch, backbone="efficientnet-b5",
+                    output_bias_prior=0.01)
+    model = build_model(cfg).eval()
+    x = torch.zeros(1, 3, 256, 256)
+    with torch.no_grad():
+        y = model(x)
+    assert y.shape == (1, 1, 256, 256)
+    bias = model.segmentation_head[0].bias.detach().item()
+    assert math.isclose(bias, -math.log((1.0 - 0.01) / 0.01), abs_tol=1e-5)
+
+
 def test_unknown_architecture_rejected():
     """Unsupported architecture is a clear error, not a silent smp traceback.
 

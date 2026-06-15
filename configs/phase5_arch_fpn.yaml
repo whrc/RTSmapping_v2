@@ -1,0 +1,8 @@
+# §8.2 architecture sweep — fpn decoder on EffB5 (decoder-only swap → frozen HPs, §8.2a).
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+model:
+  architecture: fpn
+mlflow:
+  run_name: phase5_arch_fpn
