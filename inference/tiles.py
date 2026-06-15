@@ -21,6 +21,8 @@ import rasterio
 from rasterio.windows import from_bounds
 from torch.utils.data import Dataset
 
+from data.normalization import fill_nodata_with_mean
+
 logger = logging.getLogger(__name__)
 
 TILE_SIZE_PX = 512  # CLAUDE.md technical constraint; matches training tiles
@@ -159,9 +161,11 @@ class InferenceTileDataset(Dataset):
                                 scale=self.scale)
         all_nodata = bool(nodata.all())
         if not all_nodata:
-            # Mean-substitute NoData before z-scoring (training.md §4.4 parity);
-            # those pixels are masked to -1.0 in the output afterwards (§5.3).
-            rgb[:, nodata] = self.mean[:, None]
+            # Mean-substitute NoData before z-scoring via the shared helper so
+            # training and inference neutralise NoData identically (Rule 3,
+            # training.md §4.4); those pixels are masked to -1.0 afterwards (§5.3).
+            rgb = fill_nodata_with_mean(rgb, np.broadcast_to(nodata, rgb.shape),
+                                        self.mean, channel_axis=0)
             rgb = (rgb - self.mean[:, None, None]) / self.std[:, None, None]
         return {
             "tile_id": row["tile_id"],
