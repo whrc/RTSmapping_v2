@@ -1,0 +1,16 @@
+# Phase 4 EXTRA channel ablation (experiments.md §7). Single group: TC (Tasseled-Cap bands 6,7).
+# Inherits the loss-locked v1.0 baseline (focal); differs ONLY in channels.extra.
+# Corrected leakage-free split (data_local/splits.yaml) + 8-band EXTRA norm stats,
+# so EXTRA vs RGB is measured on one internally-consistent split. Boundary held at
+# baseline (none) pending the Phase-3 boundary factorial lock.
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels:
+  rgb: true
+  extra:
+    - {name: tc_1, band: 6}
+    - {name: tc_2, band: 7}
+mlflow:
+  run_name: phase4_extra_tc
