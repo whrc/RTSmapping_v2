@@ -1,0 +1,17 @@
+# Recompute v1.0 normalization stats over the full 8-band EXTRA stack,
+# on the CORRECTED (region-hotfixed, leakage-free) local split.
+# Not an experiment config — used only by scripts/compute_normalization_stats.py.
+base: baseline.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+channels:
+  rgb: [0, 1, 2]
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: nbr,      band: 1}
+    - {name: se_pca_1, band: 2}
+    - {name: se_pca_2, band: 3}
+    - {name: se_pca_3, band: 4}
+    - {name: se_proto, band: 5}
+    - {name: tc_1,     band: 6}
+    - {name: tc_2,     band: 7}

@@ -87,7 +87,14 @@ def plot_tile(tid, rgb_dir, extra_dir, labels_dir, out_path, positive):
     for i, (b, (title, spec)) in enumerate(BAND_DISPLAY.items(), start=1):
         a = extra[b]
         if spec == "proto":
-            axes[i].imshow(a, cmap="RdBu_r", vmin=-1, vmax=1)
+            # Cosine-to-RTS-prototype is positive-dominated (~0.5-0.99), so a fixed
+            # [-1,1] diverging scale washes out. Center on the tile median and stretch
+            # to ±max|p2,p98 - median| so above/below-typical (slump vs intact) reads.
+            v = a[np.isfinite(a)]
+            med = float(np.median(v)) if v.size else 0.0
+            lim = max(abs(np.percentile(v, 2) - med), abs(np.percentile(v, 98) - med)) if v.size else 1.0
+            lim = lim or 1.0
+            axes[i].imshow(a, cmap="RdBu_r", vmin=med - lim, vmax=med + lim)
         elif spec in ("RdYlGn", "RdYlBu"):
             v = a[np.isfinite(a)]
             lim = np.percentile(np.abs(v), 98) if v.size else 1.0
