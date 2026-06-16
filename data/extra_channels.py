@@ -42,6 +42,29 @@ TC_WETNESS = [0.1825, 0.1763, 0.1615, 0.0486, -0.7020, -0.6424]
 
 # Satellite Embedding (matches plots/extra_channel_vis/se_sar_plot.py).
 SE_COLLECTION = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
+SE_N_BANDS = 64
+# A full 64-band 512² tile (~67 MB) exceeds GEE computePixels' ~50 MB limit, so
+# fetch_se_raw splits into <=32-band requests (matches se_sar_plot.fetch_se_tile).
+SE_MAX_BANDS_PER_FETCH = 32
+
+# Normalization treatment per group (data/data.md §9), the SSoT consumed by
+# scripts/compute_normalization_stats.py and data/dataset.py:
+#   zscore       -> [clip to CLIP_PERCENTILES] then per-band (x-μ)/σ
+#   fixed_scale  -> x / SE_PROTO_SCALE (no z-score; keeps the meaningful zero)
+GROUP_NORM_MODE: dict[str, str] = {
+    "NDVI": "zscore", "NBR": "zscore", "SE_PCA": "zscore", "TC": "zscore",
+    "SE_PROTO": "fixed_scale",
+}
+SE_PROTO_SCALE = 0.5
+CLIP_PERCENTILES = (0.1, 99.9)
+
+
+def band_norm_mode(band: int) -> str:
+    """Normalization mode for an EXTRA band index (data.md §9), via GROUP_BANDS."""
+    for group, bands in GROUP_BANDS.items():
+        if band in bands:
+            return GROUP_NORM_MODE[group]
+    raise ValueError(f"band {band} is not in any EXTRA group (0-{N_EXTRA_BANDS - 1})")
 
 
 def init_ee(project: str = "pdg-project-406720") -> None:
@@ -109,3 +132,65 @@ def s2_bands(bounds, grid: dict, year: int) -> dict[int, np.ndarray]:
     """Return {band_index: array} for the Sentinel-2 groups (0,1,6,7)."""
     px = _fetch(s2_image(bounds, year), grid, ["ndvi", "nbr", "tcb", "tcw"])
     return {0: px["ndvi"], 1: px["nbr"], 6: px["tcb"], 7: px["tcw"]}
+
+
+# --- Satellite Embedding (SE) → SE_PCA (2,3,4) + SE_PROTO (5) -----------------
+# Self-contained (numpy + ee only) so the data-team inference handoff needs no
+# plots/ deps. The global-PCA basis + RTS prototype are built once by
+# scripts/build_se_artifacts.py and passed in via load_se_artifacts().
+
+def se_image(bounds, year: int):
+    """ee.Image: 64-band Satellite-Embedding annual mosaic over the tile bbox."""
+    import ee
+    bbox = _bbox(bounds)
+    return (ee.ImageCollection(SE_COLLECTION)
+            .filterDate(f"{year}-01-01", f"{year}-12-31")
+            .filterBounds(bbox)
+            .mosaic()
+            .toFloat())
+
+
+def fetch_se_raw(bounds, grid: dict, year: int) -> np.ndarray:
+    """Full 64-band SE stack on the co-registered grid → (64, H, W) float32.
+
+    Bands in sorted name order (A00..A63); fetched in <=SE_MAX_BANDS_PER_FETCH
+    requests to stay under the computePixels payload limit.
+    """
+    img = se_image(bounds, year)
+    names = sorted(img.bandNames().getInfo())
+    out: list[np.ndarray] = []
+    for i in range(0, len(names), SE_MAX_BANDS_PER_FETCH):
+        chunk = names[i:i + SE_MAX_BANDS_PER_FETCH]
+        px = _fetch(img.select(chunk), grid, chunk)
+        out.extend(px[b] for b in chunk)
+    return np.stack(out, axis=0).astype("float32")
+
+
+def load_se_artifacts(path) -> dict:
+    """Load global-PCA basis + RTS prototype (scripts/build_se_artifacts.py)."""
+    d = np.load(path)
+    return {"pca_components": d["pca_components"],   # (3, 64)
+            "pca_mean": d["pca_mean"],               # (64,)
+            "prototype": d["prototype"]}             # (64,) unit
+
+
+def se_bands(bounds, grid: dict, year: int, artifacts: dict) -> dict[int, np.ndarray]:
+    """Return {2,3,4,5}: SE_PCA(3) via global-PCA projection + SE_PROTO cosine.
+
+    SE_PCA = (se - pca_mean) @ pca_components.T  (first 3 global axes).
+    SE_PROTO = cosine similarity of each pixel's unit SE vector to the unit RTS
+    prototype, ∈ [-1, 1]. NaN where SE has no coverage (propagates like S2).
+    """
+    se = fetch_se_raw(bounds, grid, year)        # (64, H, W)
+    n, h, w = se.shape
+    flat = se.reshape(n, -1).T                    # (H*W, 64)
+    comps = np.asarray(artifacts["pca_components"], dtype="float32")  # (3, 64)
+    mean = np.asarray(artifacts["pca_mean"], dtype="float32")        # (64,)
+    proto = np.asarray(artifacts["prototype"], dtype="float32")      # (64,)
+    proto = proto / (np.linalg.norm(proto) + 1e-12)                  # ensure unit
+
+    pca = ((flat - mean) @ comps.T).T.reshape(3, h, w).astype("float32")
+    norm = np.linalg.norm(flat, axis=1, keepdims=True)               # (H*W, 1)
+    unit = flat / np.where(norm < 1e-12, np.nan, norm)
+    cos = (unit @ proto).reshape(h, w).astype("float32")             # SE_PROTO
+    return {2: pca[0], 3: pca[1], 4: pca[2], 5: cos}

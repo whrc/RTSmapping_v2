@@ -86,12 +86,21 @@ def build_stats_dict(
     extra: WelfordStats | None,
     dataset_version: str,
     n_tiles_used: int,
+    extra_modes: list[str] | None = None,
+    extra_clips: list[list[float] | None] | None = None,
+    extra_scales: list[float | None] | None = None,
 ) -> dict:
     """Assemble the normalization_stats.json schema.
 
     RGB block is always present; EXTRA block only if requested. EXTRA uses
     the channel names the user chose (e.g., ndvi, nir, re, sr, or anything else)
     — not a fixed registry.
+
+    Per-EXTRA-channel normalization treatment (data/data.md §9), parallel lists
+    aligned with the EXTRA channel order; all optional (default = plain z-score):
+      * ``extra_modes``  — "zscore" | "fixed_scale"
+      * ``extra_clips``  — [lo, hi] raw-value clip bounds, or None (zscore channels)
+      * ``extra_scales`` — divisor for "fixed_scale" channels (e.g. SE_PROTO → 0.5)
     """
     out: dict = {
         "dataset_version": dataset_version,
@@ -104,11 +113,18 @@ def build_stats_dict(
         },
     }
     if extra is not None and len(extra.channel_names) > 0:
-        out["extra"] = {
+        block: dict = {
             "channel_names": extra.channel_names,
             "mean": extra.means(),
             "std": extra.stds(),
         }
+        if extra_modes is not None:
+            block["mode"] = extra_modes
+        if extra_clips is not None:
+            block["clip"] = extra_clips
+        if extra_scales is not None:
+            block["scale"] = extra_scales
+        out["extra"] = block
     return out
 
 
@@ -146,6 +162,59 @@ def stats_to_arrays(stats: dict, with_extra: bool) -> tuple[np.ndarray, np.ndarr
         mean.extend(stats["extra"]["mean"])
         std.extend(stats["extra"]["std"])
     return np.array(mean, dtype=np.float32), np.array(std, dtype=np.float32)
+
+
+def build_norm_arrays(stats: dict, with_extra: bool) -> dict[str, np.ndarray]:
+    """Per-channel normalization parameters as aligned arrays (RGB then EXTRA).
+
+    The single source for how each channel is normalized (data/data.md §9), used by
+    both training (``data/dataset.py``) and inference (``inference/tiles.py``) via
+    ``apply_norm`` so the two are identical (CLAUDE Rule 3). RGB is always plain
+    z-score (no clip); EXTRA honours the per-channel ``mode``/``clip``/``scale``
+    recorded in the stats file (absent ⇒ plain z-score, backward-compatible).
+    """
+    mean, std = stats_to_arrays(stats, with_extra)
+    c = len(mean)
+    clip_lo = np.full(c, np.nan, dtype=np.float32)
+    clip_hi = np.full(c, np.nan, dtype=np.float32)
+    is_fixed = np.zeros(c, dtype=bool)
+    scale = np.ones(c, dtype=np.float32)
+    if with_extra and "extra" in stats:
+        e = stats["extra"]
+        n_rgb = len(stats["rgb"]["mean"])
+        n_e = len(e["mean"])
+        modes = e.get("mode", ["zscore"] * n_e)
+        clips = e.get("clip", [None] * n_e)
+        scales = e.get("scale", [None] * n_e)
+        for i in range(n_e):
+            ch = n_rgb + i
+            if modes[i] == "fixed_scale":
+                is_fixed[ch] = True
+                scale[ch] = float(scales[i]) if scales[i] else 1.0
+            elif clips[i] is not None:
+                clip_lo[ch], clip_hi[ch] = float(clips[i][0]), float(clips[i][1])
+    return {"mean": mean, "std": std, "clip_lo": clip_lo, "clip_hi": clip_hi,
+            "is_fixed": is_fixed, "scale": scale}
+
+
+def apply_norm(img: np.ndarray, params: dict[str, np.ndarray]) -> np.ndarray:
+    """Normalize a (C, H, W) raw float image per ``build_norm_arrays`` params.
+
+    zscore channels: optional clip to [lo, hi] then (x - μ) / σ.
+    fixed_scale channels: x / scale (no z-score; preserves the meaningful zero).
+    """
+    out = img.astype(np.float32, copy=True)
+    lo, hi = params["clip_lo"], params["clip_hi"]
+    clipped = np.isfinite(lo)
+    for ch in np.nonzero(clipped)[0]:
+        out[ch] = np.clip(out[ch], lo[ch], hi[ch])
+    zs = ~params["is_fixed"]
+    mean, std = params["mean"], params["std"]
+    out[zs] = (out[zs] - mean[zs, None, None]) / std[zs, None, None]
+    fx = params["is_fixed"]
+    if fx.any():
+        out[fx] = img[fx] / params["scale"][fx, None, None]
+    return out
 
 
 def fill_nodata_with_mean(

@@ -27,6 +27,7 @@ if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from data.extra_channels import CLIP_PERCENTILES, SE_PROTO_SCALE, band_norm_mode  # noqa: E402
 from data.normalization import WelfordStats, build_stats_dict, save_stats  # noqa: E402
 from data.splits import get_tile_ids, load_metadata, load_splits_yaml  # noqa: E402
 from utils.config import load_config  # noqa: E402
@@ -87,23 +88,63 @@ def main() -> int:
     extra_cfg = cfg["channels"]["extra"] or []
     extra_names = [c["name"] for c in extra_cfg]
     extra_bands = [int(c["band"]) for c in extra_cfg]
-    extra_stats = WelfordStats(channel_names=extra_names) if extra_names else None
+    # Per-channel normalization treatment (data/data.md §9; SSoT data.extra_channels).
+    extra_modes = [band_norm_mode(b) for b in extra_bands]
 
     rgb_dir = cfg["data"]["rgb_dir"]
     extra_dir = cfg["data"]["extra_dir"]
 
-    for tid in tqdm(train_ids, desc="Welford pass"):
+    # EXTRA stats from a finite subsample (NaN-safe — SE bands can be NaN where the
+    # source has no coverage; a full Welford would corrupt μ/σ). ~3M px/channel total.
+    n_extra = len(extra_bands)
+    per_tile = max(200, 3_000_000 // max(1, len(train_ids))) if n_extra else 0
+    rng = np.random.default_rng(cfg.get("seed", 42))
+    samples: list[list[np.ndarray]] = [[] for _ in range(n_extra)]
+
+    for tid in tqdm(train_ids, desc="rgb welford + extra subsample"):
         rgb_arr = _read_rgb(_tile_path(data_root, rgb_dir, tid))
         rgb_stats.update(rgb_arr)
-        if extra_stats is not None:
+        if n_extra:
             extra_arr = _read_extra(_tile_path(data_root, extra_dir, tid), extra_bands)
-            extra_stats.update(extra_arr)
+            for i in range(n_extra):
+                v = extra_arr[i].ravel()
+                v = v[np.isfinite(v)]
+                if v.size:
+                    samples[i].append(rng.choice(v, min(per_tile, v.size), replace=False))
+
+    # Resolve per-channel mean/std (z-score channels on CLIPPED values) + clip/scale.
+    extra_mean: list[float] = []
+    extra_std: list[float] = []
+    extra_clips: list[list[float] | None] = []
+    extra_scales: list[float | None] = []
+    lo_pct, hi_pct = CLIP_PERCENTILES
+    for i in range(n_extra):
+        vals = np.concatenate(samples[i]) if samples[i] else np.array([0.0, 1.0], dtype=np.float32)
+        if extra_modes[i] == "fixed_scale":
+            extra_mean.append(float(vals.mean())); extra_std.append(float(vals.std()) or 1.0)
+            extra_clips.append(None); extra_scales.append(float(SE_PROTO_SCALE))
+        else:  # zscore + [lo, hi] percentile clip
+            lo, hi = float(np.percentile(vals, lo_pct)), float(np.percentile(vals, hi_pct))
+            clipped = np.clip(vals, lo, hi)
+            extra_mean.append(float(clipped.mean())); extra_std.append(float(clipped.std()) or 1.0)
+            extra_clips.append([lo, hi]); extra_scales.append(None)
+
+    extra_stats = None
+    if n_extra:
+        class _FixedExtra:  # minimal stand-in for build_stats_dict's extra accessor
+            channel_names = extra_names
+            def means(self_inner): return extra_mean
+            def stds(self_inner): return extra_std
+        extra_stats = _FixedExtra()
 
     stats = build_stats_dict(
         rgb=rgb_stats,
         extra=extra_stats,
         dataset_version=cfg["data"]["version"],
         n_tiles_used=len(train_ids),
+        extra_modes=extra_modes if n_extra else None,
+        extra_clips=extra_clips if n_extra else None,
+        extra_scales=extra_scales if n_extra else None,
     )
     out_path = args.out or Path(cfg["data"]["normalization_stats_path"])
 

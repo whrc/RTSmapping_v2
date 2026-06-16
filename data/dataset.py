@@ -25,7 +25,9 @@ import rasterio
 import torch
 from torch.utils.data import Dataset
 
-from data.normalization import fill_nodata_with_mean, load_stats, stats_to_arrays
+from data.normalization import (
+    apply_norm, build_norm_arrays, fill_nodata_with_mean, load_stats, stats_to_arrays,
+)
 from data.transforms import dilate_label_boundary
 
 logger = logging.getLogger(__name__)
@@ -177,12 +179,19 @@ class RTSDataset(Dataset):
                         f"does not match config order {expected_extra!r}"
                     )
             self.mean, self.std = stats_to_arrays(stats, with_extra=bool(extra_channels))
+            # Per-channel normalization params (z-score+clip vs fixed_scale, data.md §9).
+            self._norm = build_norm_arrays(stats, with_extra=bool(extra_channels))
         else:
             # Permitted for smoke tests; real runs must supply stats.
             logger.warning("RTSDataset created without normalization stats; output will be unnormalized")
             n_channels = 3 + len(extra_channels)
             self.mean = np.zeros(n_channels, dtype=np.float32)
             self.std = np.ones(n_channels, dtype=np.float32)
+            self._norm = {"mean": self.mean, "std": self.std,
+                          "clip_lo": np.full(n_channels, np.nan, dtype=np.float32),
+                          "clip_hi": np.full(n_channels, np.nan, dtype=np.float32),
+                          "is_fixed": np.zeros(n_channels, dtype=bool),
+                          "scale": np.ones(n_channels, dtype=np.float32)}
 
     def __len__(self) -> int:
         return len(self.tile_ids)
@@ -240,7 +249,7 @@ class RTSDataset(Dataset):
         label_out = aug["mask"]
 
         img = stacked.astype(np.float32).transpose(2, 0, 1)                   # (C, H, W)
-        img = (img - self.mean[:, None, None]) / self.std[:, None, None]
+        img = apply_norm(img, self._norm)   # per-channel z-score+clip / fixed_scale (data.md §9)
 
         return {
             "image": torch.from_numpy(img),

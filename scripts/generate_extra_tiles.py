@@ -36,7 +36,8 @@ import rasterio
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for `data.*`
 
 from data.extra_channels import (  # noqa: E402
-    N_EXTRA_BANDS, S2_BAND_IDX, SE_BAND_IDX, init_ee, s2_bands, tile_grid,
+    N_EXTRA_BANDS, S2_BAND_IDX, SE_BAND_IDX, init_ee, load_se_artifacts,
+    s2_bands, se_bands, tile_grid,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -84,12 +85,18 @@ def main() -> int:
     ap.add_argument("--rgb-dir", required=True, type=Path)
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--project", default="pdg-project-406720")
+    ap.add_argument("--se-artifacts", type=Path, default=None,
+                    help="se_artifacts.npz (required for --groups se/all); from build_se_artifacts.py")
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--limit", type=int, default=0, help="cap tiles (smoke)")
     args = ap.parse_args()
 
+    se_art = None
     if args.groups in ("se", "all"):
-        raise SystemExit("SE path not implemented yet — run --groups s2 first (plan §1/§7).")
+        if not args.se_artifacts or not args.se_artifacts.exists():
+            raise SystemExit("--se-artifacts <se_artifacts.npz> is required for groups se/all "
+                             "(build it with scripts/build_se_artifacts.py)")
+        se_art = load_se_artifacts(args.se_artifacts)
 
     init_ee(args.project)
     ids = pd.read_csv(args.metadata, dtype={"Tile_ID": str})["Tile_ID"].tolist()
@@ -106,7 +113,11 @@ def main() -> int:
         with rasterio.open(rgb) as src:
             bounds = tuple(src.bounds)
         grid = tile_grid(bounds)
-        bands = s2_bands(bounds, grid, args.year)  # {0,1,6,7}
+        bands: dict[int, np.ndarray] = {}
+        if args.groups in ("s2", "all"):
+            bands.update(s2_bands(bounds, grid, args.year))         # {0,1,6,7}
+        if args.groups in ("se", "all"):
+            bands.update(se_bands(bounds, grid, args.year, se_art))  # {2,3,4,5}
         _write_bands(args.out_dir / f"{tid}.tif", rgb, bands)
         return "ok"
 
