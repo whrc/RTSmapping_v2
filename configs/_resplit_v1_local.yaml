@@ -1,0 +1,8 @@
+# Local re-split of v1.0 from the region-hotfixed metadata (leakage fix).
+# Inherits baseline; points create_splits.py at the local staged data + geojson.
+# Not an experiment config — used only by scripts/create_splits.py.
+base: baseline.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+splits:
+  regions_geojson: /outputs/v1.0/data_local/circumpolar_subregions.geojson

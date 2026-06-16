@@ -50,10 +50,13 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 ## 3. Cost & quota (read this first)
 
-- **$70,000 GCP credit, compute-only, in the PDG project, expiring September 2026.** It must be
-  **substantially spent** before expiry.
-- **Compute-only caveat:** the credit does **not** cover storage or network egress. Watch
-  Filestore, bucket storage, and cross-project/cross-region egress separately.
+- **~$70,000 GCP credit in the PDG project, expiring September 2026** (must be substantially spent),
+  **plus ~$100k borrowable from other teams (~$170k total) — budget is not the binding constraint**
+  (per user, 2026-06-15). Size compute for *wallclock*, not cost.
+- **Credit scope — confirm:** earlier notes said the credit is *compute-only* (storage + egress billed
+  separately); the user now states it *covers everything*. **TODO: confirm with the PDG admin.** Either
+  way, **co-location is the right default** — running inference in us-west1 keeps the TB-scale Planet
+  reads egress-free (and cuts latency), so the question is moot for the dominant flow.
 - **Spend plan** (from `current_working_status.md`):
   - Ablation program — **short bursts, ~$5–15k** on a multi-GPU node.
   - Bulk of budget — **pan-arctic inference + EXTRA-channel generation + multi-year/ensemble runs,
@@ -81,14 +84,16 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 | Bucket | Project | Purpose | Notes |
 |--------|---------|---------|-------|
 | `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2-alpha training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
-| `gs://rts-mapping-v2/` | PDG | **Recommended** home for all compute-adjacent data going forward (staged training data, outputs, artifacts, deployment packages, inference I/O) | Co-located with VMs → no cross-project egress. |
+| `gs://rts-mapping-v2/` | PDG | Compute-adjacent **training** data, outputs, artifacts, deployment packages | Region **US (multi-region)** — verified 2026-06-15. |
+| `gs://pdg-planet-data/` | PDG | **2025 Planet basemap quads** (pan-arctic inference input) | Region **US-WEST1 (single)** — verified 2026-06-15. Drives the inference region. |
+| `gs://woodwell-rts-inference-arts-south/` | PDG | **Inference I/O** (probability COGs, masks, vectors, logs) + 2025 EXTRA tiles + deployment-package copy | **us-west1 (single region)** — co-located with `pdg-planet-data` + the inference fleet → egress-free. (To be created.) |
 
-**Region co-location:** the **active production node `a100-8x-train` is in `us-central1-a`** (corrected
-2026-06-15; the stopped/deprecated `ml-training-vm` + `gpu-vm-l4` were us-west1). Keep buckets in
-**us-central1** (or US multi-region) to avoid cross-region egress. *Verify the current region of
-`rts-mapping-v2`* — if it is us-west1, every per-epoch `/vsigs/` tile read from the us-central1 node
-crosses regions and bills egress, which is **another reason to stage training data to local disk**
-(`experiments.md §13`). Bucket-region was not confirmable during authoring (no bucket-list permission).
+**Region co-location (verified 2026-06-15):** bucket regions — `pdg-planet-data` = **us-west1**,
+`rts-mapping-v2` = **US multi-region**, `abrupt_thaw` = **US multi-region**. **Training** runs in
+**us-central1-a** (`a100-8x-train`). **Inference** runs in **us-west1** to co-locate with
+`pdg-planet-data` (the TB-scale Planet read): a us-central1 inference VM would pay cross-region egress +
+latency on the ~3.4M-quad read. Keep the inference output bucket single-region us-west1 to guarantee
+egress-free reads/writes.
 
 ### On-VM storage tiers
 
@@ -115,8 +120,8 @@ a **recommendation to confirm** — once authoritative, mirror any path code rea
 | **Training outputs** | checkpoints, train/val logs | `/mnt/outputs/<run>/` on host VM | keep hot on `/mnt/outputs`, **sync finals** to `gs://rts-mapping-v2/runs/<run>/` | Host disk is not durable long-term; archive keepers to GCS. |
 | **Experiment artifacts** | MLflow runs + artifacts, in-container `requirements_frozen`, preview visualizations, phase reports (e.g. `report.html`) | `/mnt/outputs/mlflow` (per-VM, local file store) | shared concurrency-safe backend + artifact bucket for the multi-node phase (see §7) | Per-VM store does not aggregate across parallel nodes. |
 | **Deployment packages** | model weights + `normalization_stats.json` bundle (`scripts/package_model.py`) | examples currently point at stale `gs://abruptthawmapping/models/...` | `gs://rts-mapping-v2/models/<model-id>/` | Script default paths are example strings (see §10 backlog). |
-| **Inference images (input)** | 2025 PlanetScope basemap, pan-arctic | **TBD** | a defined `gs://rts-mapping-v2/inference/inputs/` prefix, co-located with inference compute | Pan-arctic ≈ 7.5M tiles at default stride (inference.md §3.2). |
-| **Inference outputs** | per-tile probability rasters, merged regional COGs, vectorized polygons | "GCS" (unspecified in inference.md) | `gs://rts-mapping-v2/inference/{probs,cogs,vectors}/` with a fixed prefix convention | Per-tile probs persist first, then a merge pass (inference.md §). |
+| **Inference images (input)** | 2025 PlanetScope basemap, pan-arctic | `gs://pdg-planet-data/` (**us-west1**, verified) | leave in place; run inference in us-west1 to read egress-free | Pan-arctic ≈ 7.5M tile-inferences at default stride (inference.md §3.2). |
+| **Inference outputs + 2025 EXTRA** | per-tile probability COGs, merged regional COGs, vectors, 2025 EXTRA tiles | n/a (new) | `gs://woodwell-rts-inference-arts-south/` (**us-west1**, single region) — co-located with input + fleet | Egress-free; per-tile probs persist first, then merge/vectorize (post-inference §). |
 | **Scratch / cache** | gcsfuse file cache, intermediate tiles | `/mnt/argo_filestore` or local scratch | same | Ephemeral; not a system of record. |
 
 ---
@@ -136,6 +141,12 @@ All VMs are in the **PDG project**. Daily start/stop/SSH workflow:
 
 ### Planned
 
+- **Inference fleet `rts-infer-usw1` — 2× `g2-standard-96` = 16× NVIDIA L4, us-west1** (decided
+  2026-06-15, `inference.md §2.1`). Pan-arctic inference (forward-only bf16, GCS-I/O-bound → no A100
+  needed); co-located with `pdg-planet-data` (us-west1). ~$15/hr on-demand (~$5/hr Spot); a full
+  ~7.5M-tile pass ≈ 3–9 h ≈ **$30–90**. Spot for the bulk pass (resume via `inference_log.json`),
+  on-demand for finals; **stop when idle** (L4 low-stockout). Quota ask: `NVIDIA_L4_GPUS=16` + g2 vCPU,
+  us-west1. Outputs → `gs://woodwell-rts-inference-arts-south`.
 - **8×H100 upgrade (`a3-highgpu-8g`) when quota lands** — the 2×H100 (`a3-highgpu-2g`) spin-retry
   was stopped 2026-06-12 after the 8×A100 node landed.
   - Still required for multi-node scale-out: a parallel-experiment orchestrator and a

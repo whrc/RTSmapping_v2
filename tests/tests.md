@@ -12,6 +12,7 @@ Two-tier verification:
 - **Tier 2 — real-data scripts**: runs on the real v2-alpha bucket on the L4 VM.
     - Phase 0 data checks: `scripts/check_data_content.py` (bucket structure) + `scripts/check_data.py` (DataLoader preview).
     - Phase 1 training smoke: `python scripts/train.py --config configs/smoke.yaml` (2 epochs on a subset of real regions; inference.md §6.4 gate).
+    - Inference validation: `scripts/validate_inference_tiny.py` (real 2025 quads + GPU; 11 PASS/FAIL checks on overlap/stitching/fusion/NoData/resume — results in `docs/inference_validation.md`).
 
 **Green pytest ≠ "this works on real imagery"** — it means the plumbing doesn't crash and the invariants hold on canned input. Real-data surprises (CRS mismatches, radiometric drift, missing EXTRA bands, OOM on real tile sizes) are caught by Tier 2, not here.
 
@@ -287,6 +288,42 @@ EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine 
 > The training smoke test does not call `package_model.main()`. Close this gap
 > when packaging misbehaves on a real run, or by feeding the smoke test's
 > synthetic MLflow run into `package_model()` end-to-end.
+
+### [test_inference_pipeline.py](test_inference_pipeline.py)
+
+Inference pipeline (`inference/` + grid/merge entry scripts), GPU-free. Fixture: synthetic 512px RGBA quads written on the **real zoom-15 mosaic grid** (production grid constants, small rasters), so quad-bounds math is exercised against an observed Planet quad coordinate.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_quad_bounds_match_observed_planet_quad` | grid math reproduces real quad 0-1515's GCS bounds | real — grid anchor |
+| `test_grid_constants_consistent` | GRID_N × QUAD_SIZE_M = world extent; resolution derivation | shallow |
+| `test_load_quad_index_validates_columns` | missing index columns → ValueError | shallow |
+| `test_read_tile_interior` | full-quad window read, no NoData | real |
+| `test_read_tile_straddles_quads` | tile spanning 2 quads mosaics correctly; alpha=0 → NoData | real — §4.1 quad-straddling |
+| `test_read_tile_outside_coverage_is_all_nodata` | no indexed quad → all-NoData | real — §5.3 |
+| `test_dataset_normalizes_and_mean_substitutes` | NoData pixels mean-substituted pre-z-score (normalize to 0); valid pixels z-scored | real — §5.3/§4.4 parity |
+| `test_dataset_flags_all_nodata` | all-NoData tile flagged for skip+manifest | real |
+| `test_dataset_rejects_missing_columns` | tile-list schema guard | shallow |
+| `test_tile_grid_counts_and_determinism` | deterministic ids, unique, every tile intersects a quad, tile = 512 px | real — §4.4 |
+| `test_tile_grid_aoi_filter` | AOI subset preserves global grid alignment | real |
+| `test_tta_inverse_correctness` | flip/rot-equivariant model ⇒ TTA mean == identity pass (exposes wrong inverse) | real — §7.2 |
+| `test_temperature_applied_to_logits_before_sigmoid` | sigmoid(logit/T), not T on probabilities | real — §7.3 |
+| `test_tta_pass_counts` | none/minimal/standard/full = 1/2/4/8 passes | shallow |
+| `test_predict_probs_rejects_unknown_tta` | bad tta config → ValueError | shallow |
+| `test_runtime_package_mismatch_aborts` | runtime vs package precision/tta mismatch aborts; null defers | real — §14 calibration-mismatch guard |
+| `test_probability_tile_roundtrip` | float32, NoData −1.0, EPSG:3857 roundtrip | real — §9.1 |
+| `test_binary_mask_roundtrip` | uint8, NoData 255 roundtrip | real — §9.2 |
+| `test_manifest_resume_skips_completed` | restart resumes from inference_log.json; skip reasons + counts kept | real — §8.3 |
+| `test_gaussian_weights_peak_center_symmetric` | σ=128 weight grid peaks center, symmetric | shallow |
+| `test_merge_weighted_average_and_nodata` | equal-weight overlap → exact mean; NoData strip falls back to valid tile | real — §4.3 |
+| `test_merge_ignores_missing_tiles` | absent (skipped) tile rasters don't break the merge | real |
+| `test_read_tile_scale05_expands_fov` | scale=0.5 decimated read: 2× ground bbox → same px dims, values survive bilinear | real — §6.2 scale path |
+| `test_read_tile_scale05_nodata_stays_crisp` | alpha resampled nearest: NoData boundary exact under decimation | real |
+
+> Not covered (deliberate): `scripts/inference.py` main loop and
+> `vectorize_predictions.py` are exercised by the Tier-2 real-data smoke
+> (see inference.md §13 pre-inference checklist), not unit tests — they are
+> thin glue over the tested modules.
 
 ### [test_train_smoke.py](test_train_smoke.py)
 
