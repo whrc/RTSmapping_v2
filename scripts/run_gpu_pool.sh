@@ -51,7 +51,9 @@ run_one() {  # $1=name  $2=gpu  — one container to completion (blocking; calle
 }
 
 queue=("$@")
-free_gpus=(); for ((g=0; g<NGPU; g++)); do free_gpus+=("$g"); done
+# GPUS (optional): explicit space-separated GPU indices to use (e.g. "0 1 2 3 4 6"
+# to skip GPUs already busy with non-pool runs). Falls back to 0..NGPU-1.
+if [ -n "${GPUS:-}" ]; then free_gpus=(${GPUS}); else free_gpus=(); for ((g=0; g<NGPU; g++)); do free_gpus+=("$g"); done; fi
 declare -A pid_gpu pid_name   # pid -> gpu, pid -> name
 i=0
 
