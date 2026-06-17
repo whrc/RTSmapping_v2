@@ -84,6 +84,7 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_fill_nodata_rounds_for_integer_raster` | uint8 raster → mean rounded to dtype (on-disk raw-value contract) | real |
 | `test_build_norm_arrays_modes_and_clip` | `build_norm_arrays` maps the stats `mode`/`clip`/`scale` to per-channel arrays (RGB plain z-score; EXTRA zscore-with-clip vs fixed_scale) — data.md §9 | real |
 | `test_apply_norm_zscore_clip_and_fixed_scale` | `apply_norm` clips before z-score on zscore channels; divides by `scale` (no z-score) on fixed_scale (SE_PROTO) channels | real — the §9 dispatch contract |
+| `test_apply_norm_neutralizes_nonfinite_extra` | Non-finite EXTRA pixels (SE coverage gaps, NDVI/NBR div-zero) → 0 post-norm (channel mean / no-signal), so NoData can't propagate NaN into the network — fixes the Phase-4 validation crash (2026-06-17) | real |
 | `test_apply_norm_rgb_only_matches_plain_zscore` | No EXTRA/modes ⇒ dispatch == plain `(x-μ)/σ` (backward-compat) | real |
 | `test_build_stats_dict_records_modes` | `build_stats_dict` carries `extra_modes`/`extra_clips`/`extra_scales` into the `extra` block | shallow |
 

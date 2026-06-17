@@ -214,6 +214,11 @@ def apply_norm(img: np.ndarray, params: dict[str, np.ndarray]) -> np.ndarray:
     fx = params["is_fixed"]
     if fx.any():
         out[fx] = img[fx] / params["scale"][fx, None, None]
+    # Neutralize NoData: EXTRA channels carry NaN where the source has no coverage
+    # (SE gaps, NDVI/NBR div-zero). Post-norm 0 is the channel mean for z-score
+    # channels and the no-signal value for fixed_scale (SE_PROTO), so NoData can't
+    # propagate NaN into the network (which crashed Phase-4 at validation).
+    out[~np.isfinite(out)] = 0.0
     return out
 
 

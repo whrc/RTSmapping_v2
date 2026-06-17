@@ -148,6 +148,23 @@ def test_apply_norm_zscore_clip_and_fixed_scale():
     assert np.isclose(out[4, 0, 0], 0.6)   # fixed_scale bypasses z-score
 
 
+def test_apply_norm_neutralizes_nonfinite_extra():
+    """Non-finite EXTRA pixels (SE coverage gaps, NDVI/NBR div-zero) → 0 post-norm.
+
+    0 is the channel mean for z-score channels and the no-signal value for
+    fixed_scale (SE_PROTO), so a NoData EXTRA pixel can't propagate NaN into the
+    network (which crashed Phase-4 at validation). Shared path → train/inference
+    parity (Rule 3).
+    """
+    p = build_norm_arrays(_stats_with_modes(), with_extra=True)
+    img = np.zeros((5, 1, 1), dtype=np.float32)
+    img[3, 0, 0] = np.nan   # ndvi (zscore) NoData
+    img[4, 0, 0] = np.nan   # se_proto (fixed_scale) NoData
+    out = apply_norm(img, p)
+    assert np.isfinite(out).all()
+    assert out[3, 0, 0] == 0.0 and out[4, 0, 0] == 0.0
+
+
 def test_apply_norm_rgb_only_matches_plain_zscore():
     """No EXTRA / no modes ⇒ build_norm_arrays + apply_norm == plain (x-μ)/σ."""
     stats = {"rgb": {"channel_names": ["R", "G", "B"], "mean": [1, 2, 3], "std": [2, 2, 2]}}
