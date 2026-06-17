@@ -23,6 +23,15 @@ Specs are the source of truth. Always read the relevant md before implementing (
 
 ---
 
+## Status — 2026-06-17
+
+**Phase 3 closed; Phase 4 (EXTRA) running.** Full analysis: `docs/phase3_loss_boundary.md`.
+- **Phase-3 boundary winner LOCKED → `focal · ignore width 2`** (3-seed mean **0.8100**, clears the bar across all seeds). Tied within σ₀ with `compound 1:2 · ignore w3` (0.8116); focal·w2 chosen for simplicity. **The win is the boundary, not the loss.** Deploy architecture so far: **UNet++/EffB5 + focal + ignore_w2**.
+- **Phase-5 arch sweep (partial):** FPN 0.794, MAnet 0.621 — no smp decoder beats the UNet++ baseline yet; DeepLabV3+/PSPNet still running.
+- **Phase-4 EXTRA ablation LAUNCHED** on the corrected (leakage-free) split + 8-band norm stats: RGB control + 5 single-group (NDVI/NBR/SE_PCA/SE_PROTO/TC) + full-stack, inheriting the focal baseline (boundary=none; the boundary win is additive). Run via `run_gpu_pool.sh` from the `phase4-extra` worktree.
+- **NaN-crash fixed.** First Phase-4 launch died at the epoch-5 validation: EXTRA channels carry NaN where the source has no coverage (SE gaps, NDVI/NBR div-zero) — 28/2151 val tiles — and NaN propagated to val logits → `average_precision_score` crashed the wave. Fix: `apply_norm` neutralizes non-finite EXTRA to 0 (channel mean / SE_PROTO no-signal), shared train+inference (Rule 3). Relaunched; runs now pass validation. PR branch: `phase4-fixes`.
+- All Phase-3/5 numbers are on the leaky pre-hotfix split (absolute optimistic, relative valid); Phase-4 + final test use the corrected split.
+
 ## Status — 2026-06-15
 
 **Dataset: v1.0 is the STANDARD training dataset** (declared 2026-06-13 after a full fresh-from-rasters QC — `docs/v1.0_qc.md`). The previous v2-alpha/v0.x dataset was destroyed 2026-06-12 and is gone; **all v2-alpha numbers are invalid and archived** (`docs/archive/v2-alpha/`).
