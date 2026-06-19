@@ -1,0 +1,18 @@
+# Step 3a fusion sweep (second-wave plan): F0 EARLY-fusion baseline for the stronger SE pair
+# ndvi + se_pca (SE_PCA scored higher alone — 0.874 — than SE_PROTO — 0.847). Tests whether the
+# stronger-alone SE representation makes a better channel partner for NDVI than the more
+# decorrelated SE_PROTO. Boundary held at baseline (none), matching the EXTRA/fusion track.
+# 4-channel subset norm stats (ndvi + se_pca_1/2/3), derived from the 8-band stats.
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_sepca.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: se_pca_1, band: 2}
+    - {name: se_pca_2, band: 3}
+    - {name: se_pca_3, band: 4}
+mlflow:
+  run_name: phase4_extra_ndvi_sepca

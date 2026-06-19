@@ -1,0 +1,16 @@
+# Step 3a fusion sweep (second-wave plan): F0 EARLY-fusion baseline for the cross-modal pair
+# ndvi + se_proto (SE_PROTO is the cleanest optically-decorrelated complement to NDVI per the
+# Step-1 8-band correlation map). Same channels as phase4_f1/f2_ndvi_seproto but default
+# (early) fusion → the F0 reference the F1/F2 fusion methods are compared against.
+# Boundary held at baseline (none), matching the rest of the EXTRA/fusion track.
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_seproto.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: se_proto, band: 5}
+mlflow:
+  run_name: phase4_extra_ndvi_seproto

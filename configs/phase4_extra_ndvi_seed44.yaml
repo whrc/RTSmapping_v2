@@ -1,0 +1,13 @@
+# Step 3b seed-confirm of the best single EXTRA group (NDVI, 0.888 @ seed42).
+# De-noises the single-seed channel ranking. Identical to phase4_extra_ndvi but seed 44.
+seed: 44
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+mlflow:
+  run_name: phase4_extra_ndvi_seed44

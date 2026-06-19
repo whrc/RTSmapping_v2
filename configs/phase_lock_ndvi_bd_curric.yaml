@@ -1,0 +1,22 @@
+# Second-wave INTEGRATION run (additivity check / final-lock dress rehearsal).
+# Stacks the three independently-measured wins onto one config:
+#   - EXTRA channel : NDVI (best single group, 0.888)
+#   - boundary      : ignore_w2 (Phase-3 lock; +delta was measured on the loss track)
+#   - curriculum    : positive_fraction 0.33 (Phase-10 winner r20_pf33, 0.894 vs base 0.879)
+# Each win was measured against its OWN control; this run tests whether they add up.
+# NDVI subset norm stats. Corrected leakage-free split.
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+sampling:
+  positive_fraction: 0.33
+mlflow:
+  run_name: phase_lock_ndvi_bd_curric

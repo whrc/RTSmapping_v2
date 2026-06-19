@@ -1,0 +1,19 @@
+# Step 3b seed-confirm of the full 8-band EXTRA stack (0.876 @ seed42). Seed 44.
+seed: 44
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: nbr,      band: 1}
+    - {name: se_pca_1, band: 2}
+    - {name: se_pca_2, band: 3}
+    - {name: se_pca_3, band: 4}
+    - {name: se_proto, band: 5}
+    - {name: tc_1,     band: 6}
+    - {name: tc_2,     band: 7}
+mlflow:
+  run_name: phase4_extra_full_seed44

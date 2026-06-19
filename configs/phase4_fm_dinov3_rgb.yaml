@@ -3,7 +3,8 @@
 #   - freeze_backbone_epochs = linear-probe phase (train decoder/head on frozen ViT first,
 #     avoids feature distortion from the fresh head),
 #   - then unfreeze with layer-wise LR decay (llrd_decay) so early ViT layers move least.
-# NOTE base_lr below is PROVISIONAL — set it from phase4_fm_dinov3_rgb_lrtest.yaml.
+# base_lr set 2026-06-19 from phase4_fm_dinov3_rgb_lrtest: smoothed-loss min ~8.6e-5, stable
+# through ~3e-4, hard divergence at ~1e-3 → base_lr=2e-4 (stable zone, decade below divergence).
 # NOTE normalization: uses the shared per-dataset z-score (Arm A), not DINOv3's native
 #   ImageNet stats; LP-FT adapts. A per-family normalization override is a possible refinement.
 base: phase0c_seed42.yaml
@@ -21,7 +22,7 @@ optimizer:
   weight_decay: 5.0e-2                # ViT-appropriate
 lr_schedule:
   frozen_lr: 1.0e-3                   # linear-probe phase: decoder/head only
-  base_lr: 3.0e-4                     # PROVISIONAL — set from the LR-range test
+  base_lr: 2.0e-4                     # from the LR-range test (see header)
   backbone_lr_multiplier: 1.0         # top encoder layer LR = base_lr; LLRD tapers earlier layers
   llrd_decay: 0.75                    # per-layer LR decay (§8.2a)
   freeze_backbone_epochs: 20          # longer linear-probe than the CNN default (fresh decoder on frozen ViT)

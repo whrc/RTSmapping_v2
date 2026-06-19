@@ -29,6 +29,10 @@ PATCH='sed -i "s/LayerId = cv2.dnn.DictValue/LayerId = object/" /usr/local/lib/p
 
 VERSION="${VERSION:-v1.0}"
 NGPU="${NGPU:-8}"
+# Shared, persistent HF cache (foundation-encoder weights) — avoids re-downloading into each
+# ephemeral --rm container and the anonymous-Hub rate limits under concurrent downloads.
+HF_CACHE="${HF_CACHE:-/mnt/outputs/hf_cache}"
+mkdir -p "${HF_CACHE}" 2>/dev/null || sudo mkdir -p "${HF_CACHE}"
 OUTROOT="/mnt/outputs/${VERSION}"
 mkdir -p "${OUTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${OUTROOT}"/{runs,mlflow,logs}
 
@@ -40,6 +44,7 @@ run_one() {  # $1=name  $2=gpu  — one container to completion (blocking; calle
   sudo docker run --rm --gpus all -e CUDA_VISIBLE_DEVICES="${gpu}" --privileged --shm-size=16g \
       --name "${name}" \
       -v "${REPO}:/app" -v /mnt/outputs:/outputs \
+      -v "${HF_CACHE}:/root/.cache/huggingface" -e HF_HOME=/root/.cache/huggingface \
       -v "${ADC}:/gcp_adc.json:ro" \
       -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
       -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
