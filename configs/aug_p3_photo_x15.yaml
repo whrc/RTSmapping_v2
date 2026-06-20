@@ -1,0 +1,18 @@
+# Stage 3A P3: photometric x1.5 (stronger brightness/contrast/sat + higher p).
+seed: 42
+base: base_v2_fast.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels: {rgb: true, extra: []}
+loss: {boundary_handling: ignore, boundary_ignore_width: 2}
+sampling: {positive_fraction: 0.33}
+augmentation:
+  color:
+    brightness: 0.3
+    contrast: 0.3
+    saturation: 0.3
+    brightness_contrast_p: 0.75
+    gaussian_noise: {p: 0.45}
+    clahe: {p: 0.3}
+mlflow: {run_name: aug_p3_photo_x15}

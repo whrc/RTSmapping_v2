@@ -1,0 +1,15 @@
+# Stage 3A P0: geometric-only (brightness/contrast/hue-sat/noise/CLAHE all OFF).
+seed: 42
+base: base_v2_fast.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels: {rgb: true, extra: []}
+loss: {boundary_handling: ignore, boundary_ignore_width: 2}
+sampling: {positive_fraction: 0.33}
+augmentation:
+  color:
+    brightness_contrast_p: 0.0
+    gaussian_noise: {p: 0.0}
+    clahe: {p: 0.0}
+mlflow: {run_name: aug_p0_geom_only}
