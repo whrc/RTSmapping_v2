@@ -264,6 +264,9 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_accumulator_speckle_fp_filtered` | 1-px FP below min_blob_size doesn't count | real |
 | `test_accumulator_pr_auc_ranges_between_zero_and_one` | PR-AUC in [0, 1]; geomean equals single-ratio value | real |
 | `test_accumulator_no_positive_tiles_produces_zero_pr_auc` | No-positive val → PR-AUC=0.0 gracefully | real — edge case |
+| `test_bootstrap_off_by_default` | No `bootstrap_ratios` → no boot keys emitted (default frozen) | real — Stage 0.2 guard |
+| `test_bootstrap_emits_mean_and_ci_within_range` | Enabled → per-ratio mean/lo/hi in [0,1], lo ≤ mean ≤ hi | real — Stage 0.2 bootstrap readout |
+| `test_bootstrap_does_not_change_gate_metric` | Enabling bootstrap leaves the gate geomean bit-identical (separate RNG) | real — eval-freeze guarantee |
 
 ### [test_freeze.py](test_freeze.py)
 

@@ -164,6 +164,13 @@ class ValidationAccumulator:
             else [int(r) for r in metrics_cfg.get("pr_auc_ratios", [200, 500, 1000])]
         )
         self._rng = np.random.default_rng(seed)
+        # Stage 0.2 bootstrap high-ratio readout (secondary, deployment-aligned lens).
+        # Default OFF (empty list) so the primary gate path + per-epoch cost are unchanged;
+        # enable via metrics.bootstrap_ratios (e.g. [50, 100]) for final-lock / eval configs.
+        # Uses its own RNG so the gate's negative-subsampling draw order stays bit-identical.
+        self.boot_ratios: list[int] = [int(r) for r in metrics_cfg.get("bootstrap_ratios", [])]
+        self.boot_n = int(metrics_cfg.get("bootstrap_n", 200))
+        self._boot_rng = np.random.default_rng(seed + 12345)
 
         # Pixel-level TP/FP/FN (ignore pixels excluded).
         self.pixel_tp = 0
@@ -281,7 +288,43 @@ class ValidationAccumulator:
         result["val_n_positive_tiles"] = float(n_pos_tiles)
         result["val_n_negative_tiles"] = float(len(self._tiles) - n_pos_tiles)
 
+        # Stage 0.2: bootstrapped high-ratio PR-AUC with CIs (only if enabled).
+        if self.boot_ratios:
+            result.update(self._bootstrap_high_ratio())
+
         return result
+
+    def _bootstrap_high_ratio(self) -> dict[str, float]:
+        """Bootstrap PR-AUC at high prevalence ratios (e.g. 1:50, 1:100) with CIs.
+
+        Deployment runs at ~1:200–1:1000 prevalence, far above what the val negative
+        pool supports exactly — so for each ratio we resample the negative tiles WITH
+        replacement ``boot_n`` times and report the mean + 95% CI of the resulting
+        PR-AUC distribution. Secondary readout only (plan Stage 0.2): the primary gate
+        stays the [5,10,20] geomean. Approximate (reuses the same finite negatives), so
+        the CI captures sampling noise, not true high-prevalence ground truth.
+        """
+        pos = [t for t in self._tiles if t.is_positive_tile]
+        neg = [t for t in self._tiles if not t.is_positive_tile]
+        out: dict[str, float] = {}
+        if not pos or not neg:
+            return {f"val_realistic_pr_auc_ratio_{r}_boot_mean": 0.0 for r in self.boot_ratios}
+        for r in self.boot_ratios:
+            needed = r * len(pos)
+            aps: list[float] = []
+            for _ in range(self.boot_n):
+                idx = self._boot_rng.choice(len(neg), size=needed, replace=True)
+                logits, labels = _concat_subsampled(
+                    pos + [neg[i] for i in idx], self._boot_rng,
+                )
+                aps.append(
+                    float(average_precision_score(labels, logits)) if labels.max() > 0 else 0.0
+                )
+            arr = np.asarray(aps, dtype=np.float64)
+            out[f"val_realistic_pr_auc_ratio_{r}_boot_mean"] = float(arr.mean())
+            out[f"val_realistic_pr_auc_ratio_{r}_boot_lo"] = float(np.percentile(arr, 2.5))
+            out[f"val_realistic_pr_auc_ratio_{r}_boot_hi"] = float(np.percentile(arr, 97.5))
+        return out
 
     def _pr_auc_at_ratios(self) -> dict[str, float]:
         pos = [t for t in self._tiles if t.is_positive_tile]
@@ -335,6 +378,30 @@ class ValidationAccumulator:
             else:
                 out[f"pr_auc_ratio_{r}"] = float(average_precision_score(labels, logits))
         return out
+
+
+def _concat_subsampled(
+    tiles: list[_TileRecord], rng: np.random.Generator, max_pix: int = 10_000_000
+) -> tuple[np.ndarray, np.ndarray]:
+    """Concatenate valid (logits, labels) across tiles, proportionally subsampling
+    pixels if the total exceeds ``max_pix`` (bootstrap-with-replacement can otherwise
+    blow up memory). Preserves each tile's pos/neg pixel ratio. Used by the Stage-0.2
+    bootstrap readout; the primary-gate path keeps its own inline copy so its RNG draw
+    order stays frozen.
+    """
+    total = sum(len(t.valid_logits) for t in tiles)
+    if total > max_pix:
+        frac = max_pix / total
+        lo, la = [], []
+        for t in tiles:
+            n = max(1, int(round(len(t.valid_logits) * frac)))
+            si = rng.choice(len(t.valid_logits), size=n, replace=False)
+            lo.append(t.valid_logits[si]); la.append(t.valid_labels[si])
+        return np.concatenate(lo), np.concatenate(la)
+    return (
+        np.concatenate([t.valid_logits for t in tiles]),
+        np.concatenate([t.valid_labels for t in tiles]),
+    )
 
 
 def _geomean(values: list[float]) -> float:

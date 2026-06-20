@@ -158,6 +158,11 @@ metrics:
   object_iou_threshold: 0.3
   reporting_threshold: 0.5
   pr_auc_ratios: [5, 10, 20]
+  # Stage 0.2 bootstrap high-ratio readout (secondary, deployment-aligned; CIs).
+  # OFF by default ([]) — enable per-config for the final-lock/eval (e.g. [50, 100]).
+  # Does not affect the gate (val_realistic_pr_auc_geomean over pr_auc_ratios above).
+  bootstrap_ratios: []
+  bootstrap_n: 200
   preview_tile_config: "configs/preview_tiles.yaml"
 
 mlflow:

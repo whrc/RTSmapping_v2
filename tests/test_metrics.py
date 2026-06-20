@@ -206,3 +206,48 @@ def test_accumulator_no_positive_tiles_produces_zero_pr_auc():
     assert m["pr_auc_ratio_200"] == 0.0
     assert m["pr_auc_ratio_500"] == 0.0
     assert m["val_realistic_pr_auc_geomean"] == pytest.approx(0.0, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Stage 0.2 — bootstrap high-ratio readout
+# ---------------------------------------------------------------------------
+
+
+def _pos_neg_acc(cfg, n_neg: int = 4):
+    """One partially-predicted positive tile + n_neg low-confidence negative tiles."""
+    acc = ValidationAccumulator(cfg, ratios=[1])
+    prob_pos = np.zeros((8, 8), dtype=np.float32); prob_pos[2:6, 2:6] = 0.8
+    label_pos = np.zeros((8, 8), dtype=np.int64); label_pos[2:6, 2:6] = 1
+    acc.update(_logits_from_prob(prob_pos), torch.from_numpy(label_pos).unsqueeze(0), ["pos"])
+    for i in range(n_neg):
+        prob_neg = np.full((8, 8), 0.3, dtype=np.float32)
+        label_neg = np.zeros((8, 8), dtype=np.int64)
+        acc.update(_logits_from_prob(prob_neg), torch.from_numpy(label_neg).unsqueeze(0), [f"neg{i}"])
+    return acc
+
+
+def test_bootstrap_off_by_default():
+    """No bootstrap_ratios → no boot keys, gate metric present (default behaviour frozen)."""
+    m = _pos_neg_acc(_cfg()).compute()
+    assert not any("_boot_" in k for k in m)
+    assert "val_realistic_pr_auc_geomean" in m
+
+
+def test_bootstrap_emits_mean_and_ci_within_range():
+    """Enabled → mean/lo/hi per ratio, all in [0,1] with lo <= mean <= hi."""
+    cfg = _cfg(bootstrap_ratios=[2, 3], bootstrap_n=25)
+    m = _pos_neg_acc(cfg, n_neg=4).compute()
+    for r in (2, 3):
+        mean = m[f"val_realistic_pr_auc_ratio_{r}_boot_mean"]
+        lo = m[f"val_realistic_pr_auc_ratio_{r}_boot_lo"]
+        hi = m[f"val_realistic_pr_auc_ratio_{r}_boot_hi"]
+        assert 0.0 <= lo <= mean <= hi <= 1.0
+
+
+def test_bootstrap_does_not_change_gate_metric():
+    """Enabling bootstrap must not perturb the primary gate (separate RNG)."""
+    base = _pos_neg_acc(_cfg()).compute()["val_realistic_pr_auc_geomean"]
+    with_boot = _pos_neg_acc(_cfg(bootstrap_ratios=[2], bootstrap_n=10)).compute()[
+        "val_realistic_pr_auc_geomean"
+    ]
+    assert with_boot == pytest.approx(base, rel=1e-9)
