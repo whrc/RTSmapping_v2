@@ -14,7 +14,7 @@ Source of truth: `/mnt/outputs/v1.0/runs/<name>/run_summary.md` (finished) and `
 > control (Phase-4 RGB control = 0.830), not against earlier phases. Final test is scored once, honestly,
 > on the corrected split (Step 5).
 
-_Last refreshed: 2026-06-20 09:00._
+_Last refreshed: 2026-06-20 13:00 — second wave complete (all seed-confirms + aug study finished)._
 
 ---
 
@@ -68,17 +68,17 @@ _Last refreshed: 2026-06-20 09:00._
 | 44 | 06-19 | phase10_curric_r20_pf33_seed43 | 10 curric seed-confirm | corrected | 0.901 | ✅ |
 | 45 | 06-19 | phase10_curric_r20_pf33_seed44 | 10 curric seed-confirm | corrected | **0.859** | ✅ ⚠ low (variance) |
 | 46 | 06-19 | phase4_extra_se_pca_seed43 | 4 EXTRA seed-confirm | corrected | 0.857 | ✅ (s42 was 0.874) |
-| 47 | 06-19 | phase4_extra_ndvi_seed43 | 4 EXTRA seed-confirm | corrected | ~0.90 | 🔵 live (raw peak) |
-| 48 | 06-19 | phase4_extra_ndvi_seed44 | 4 EXTRA seed-confirm | corrected | ~0.92 | 🔵 live (raw peak) |
-| 49 | 06-19 | phase4_extra_full_seed43 | 4 EXTRA seed-confirm | corrected | ~0.884 | 🔵 live (raw peak) |
-| 50 | 06-19 | phase4_extra_full_seed44 | 4 EXTRA seed-confirm | corrected | ~0.864 | 🔵 live (raw peak) |
-| 51 | 06-19 | phase4_extra_ndvi_fastcheck | 0.1 stop-fix validation | corrected | ~0.898 | 🔵 gate-neutral check (≈ s42 0.888) |
-| 52 | 06-20 | aug_ref | 3A aug control | corrected | — | 🔵 early ep |
-| 53 | 06-20 | aug_p0_geom_only | 3A photometric-off | corrected | — | 🔵 early ep |
-| 54 | 06-20 | aug_p1_no_clahe | 3A drop CLAHE | corrected | — | 🔵 early ep |
-| 55 | 06-20 | aug_scale_off | 3B RandomScale off | corrected | — | ⏳ queued |
-| 56 | 06-20 | aug_p3_photo_x15 | 3A photometric ×1.5 | corrected | — | ⏳ queued |
-| 57 | 06-20 | aug_pad_ignore | 3B pad-ignore fix (fill_mask) | corrected | — | ⏳ queued |
+| 47 | 06-19 | phase4_extra_ndvi_seed43 | 4 EXTRA seed-confirm | corrected | 0.8965 | ✅ |
+| 48 | 06-19 | **phase4_extra_ndvi_seed44** | 4 EXTRA seed-confirm | corrected | **0.9111** | ✅ best single run |
+| 49 | 06-19 | phase4_extra_full_seed43 | 4 EXTRA seed-confirm | corrected | 0.8619 | ✅ |
+| 50 | 06-19 | phase4_extra_full_seed44 | 4 EXTRA seed-confirm | corrected | 0.8678 | ✅ |
+| 51 | 06-19 | phase4_extra_ndvi_fastcheck | 0.1 stop-fix validation | corrected | 0.8934 | ✅ gate-neutral confirmed (≈ s42 0.888) |
+| 52 | 06-20 | aug_ref | 3A aug control | corrected | 0.8661 | ✅ control |
+| 53 | 06-20 | aug_p0_geom_only | 3A photometric-off | corrected | 0.7936 | ✅ −0.072 → photometric aug helps a lot |
+| 54 | 06-20 | aug_p1_no_clahe | 3A drop CLAHE | corrected | 0.8541 | ✅ −0.012 (within noise) |
+| 55 | 06-20 | **aug_scale_off** | 3B RandomScale off | corrected | **0.8862** | ✅ +0.020 → best aug arm |
+| 56 | 06-20 | aug_p3_photo_x15 | 3A photometric ×1.5 | corrected | 0.8658 | ✅ ≈ ref (no extra gain) |
+| 57 | 06-20 | aug_pad_ignore | 3B pad-ignore fix (fill_mask) | corrected | 0.8527 | ✅ −0.013 → pad fix ≠ the lever; downscale itself hurts |
 
 ---
 
@@ -126,8 +126,9 @@ Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap i
 - **EXTRA channels (Phase 4, corrected):** NDVI-alone (0.888) ≈ full 8-band (0.876) ≈ SE-PCA (0.874)
   ≫ RGB control (0.830). NBR/SE-proto (+0.017) are weak. → NDVI is the efficient ceiling; the open
   question (Step 3) is whether a channel **combination** + better **fusion** beats NDVI-alone.
-  **Seed-confirmed (3 seeds):** NDVI is robust and high — s42 0.888, s43 ~0.90, s44 ~0.92 (live raw
-  peaks) — clearly beating RGB by ~0.06 (≫ any plausible σ). NDVI is a **real, low-variance win**.
+  **Seed-confirmed (3 seeds, final):** NDVI 0.888 / 0.8965 / 0.9111 → **mean 0.8985, std 0.0095**;
+  full 8-band 0.876 / 0.8619 / 0.8678 → mean 0.869, std 0.007. NDVI beats RGB by ~0.07 (≫ σ) and beats
+  full by ~0.03 → NDVI is a **real, low-variance win** and the **efficient channel**.
 - **Curriculum (Phase 10, corrected):** r20_pf33 best cell single-seed 0.894, **but seed-confirm is
   high-variance: 0.894 / 0.901 / 0.859 → mean ≈0.885 vs base 0.879 (Δ≈0.006), within std ≈0.021.**
   The curriculum "win" is **not distinguishable from seed noise** at 3 seeds — treat as unconfirmed.
@@ -138,4 +139,12 @@ Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap i
 - **Stop-schedule fix (Stage 0.1, audit 2026-06-19):** all 48 prior runs peaked by ~ep52 then trained a
   median 40 wasted epochs (41% of GPU-h, overfitting tail), best checkpoint unchanged. New `base_v2_fast`
   (patience 8→5, start_epoch 101→45, max_epochs 300→120) is **gate-neutral** — validated by `fastcheck`
-  (~0.898 ≈ original NDVI 0.888). ~2× throughput; all second-wave runs inherit it.
+  (0.8934 ≈ original NDVI 0.888). ~2× throughput; all second-wave runs inherit it.
+- **Augmentation study (Stage 3A/3B, corrected, single-seed vs control aug_ref 0.866):** **(1) photometric aug
+  matters** — geometric-only craters to 0.794 (−0.072); dropping CLAHE −0.012 and ×1.5 photometric ≈0 (within
+  noise) → keep the current photometric set, don't strengthen it. Consistent with PlanetScope basemap RGB being a
+  CV-optimized visual product. **(2) RandomScale downscale HURTS** — `aug_scale_off` 0.886 (**+0.020, best arm**)
+  > control; and `aug_pad_ignore` (scale on, pad-border bug fixed) 0.853 is *below* the buggy control → the lever
+  is the **downscale aug itself**, not the pad-ignore labeling. **Provisional: drop RandomScale from the locked
+  recipe.** Single-seed — **seed-confirm `aug_scale_off` before locking** (the +0.020 is ~1–2σ at the measured
+  corrected-split std).
