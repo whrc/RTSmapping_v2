@@ -85,6 +85,9 @@ augmentation:
   multi_scale:
     scale_range: [0.5, 1.0]
     p: 0.3
+    pad_mask_ignore: false   # false = baked-in baseline (pad mask border = background 0).
+                             # true → label the RandomScale pad border ignore(255). A/B in
+                             # configs/aug_pad_ignore.yaml (data/transforms.py, Stage 3B).
 
 loss:
   function: "focal"

@@ -1,0 +1,16 @@
+# Stage 3B: fix the PadIfNeeded mask-border bug. RandomScale (downscale-only) pads
+# scaled samples back to 512; the padded MASK border is currently labeled background
+# (0) instead of ignore (255) — see data/transforms.py. This arm flips it to ignore
+# and A/B's against aug_ref (same baseline, bug present). Pairs with aug_scale_off
+# (scale removed entirely) for the full keep-vs-remove + fix-pad triad.
+seed: 42
+base: base_v2_fast.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels: {rgb: true, extra: []}
+loss: {boundary_handling: ignore, boundary_ignore_width: 2}
+sampling: {positive_fraction: 0.33}
+augmentation:
+  multi_scale: {pad_mask_ignore: true}
+mlflow: {run_name: aug_pad_ignore}

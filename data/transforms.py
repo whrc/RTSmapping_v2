@@ -49,15 +49,36 @@ class TrainTransform:
         return {"image": geo_out["image"], "mask": geo_out["mask"]}
 
 
-def build_train_transforms(tile_size: int, aug_cfg: dict[str, Any]) -> TrainTransform:
+def build_train_transforms(
+    tile_size: int, aug_cfg: dict[str, Any], ignore_index: int = 255
+) -> TrainTransform:
     """Training-time augmentation. Returns a TrainTransform callable.
 
     Color stage runs on RGB only (training.md §9.2). Geometric + multi-scale
     stage runs on RGB+EXTRA+mask together via additional_targets.
+
+    Args:
+        tile_size: output crop size (square).
+        aug_cfg: the ``augmentation`` config block.
+        ignore_index: label value for pixels with no valid data. Used by the
+            ``multi_scale.pad_mask_ignore`` A/B toggle (see below).
+
+    Multi-scale pad-ignore A/B (Stage 3B): ``RandomScale`` is downscale-only
+    (0.5–1.0), so a scaled sample is smaller than ``tile_size`` and gets padded
+    back up by ``PadIfNeeded``. With ``border_mode=0`` (constant) the padded
+    region is synthetic "no data". The image border is filled with 0; the *mask*
+    border defaults to 0 too — i.e. **background**, training the model to call
+    no-data background. Setting ``multi_scale.pad_mask_ignore: true`` labels that
+    border ``ignore_index`` instead, so it carries no loss signal. Default is
+    ``false`` to preserve the current locked baseline; the arm flips it for A/B.
     """
     geo = aug_cfg["geometric"]
     col = aug_cfg["color"]
     ms = aug_cfg["multi_scale"]
+    # Default off → fill_mask=0 (the baked-in baseline: pad mask border = background).
+    # On → fill_mask=ignore_index so the synthetic pad border carries no loss signal.
+    # (albumentations 2.x uses `fill`/`fill_mask`; older `value`/`mask_value` are ignored.)
+    pad_fill_mask = ignore_index if ms.get("pad_mask_ignore", False) else 0
 
     color_stage = A.Compose([
         A.RandomBrightnessContrast(
@@ -103,7 +124,10 @@ def build_train_transforms(tile_size: int, aug_cfg: dict[str, Any]) -> TrainTran
                 scale_limit=(ms["scale_range"][0] - 1.0, ms["scale_range"][1] - 1.0),
                 p=ms["p"],
             ),
-            A.PadIfNeeded(min_height=tile_size, min_width=tile_size, border_mode=0),
+            A.PadIfNeeded(
+                min_height=tile_size, min_width=tile_size, border_mode=0,
+                fill_mask=pad_fill_mask,
+            ),
             A.CenterCrop(height=tile_size, width=tile_size),
         ],
         additional_targets={"extra": "image"},

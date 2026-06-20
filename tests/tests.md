@@ -150,6 +150,8 @@ EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine 
 | `test_color_aug_does_not_touch_extra` | EXTRA channels are bit-identical after color-only augmentation (training.md §9.2) | real — Critical C3 (2026-05-02) |
 | `test_geometric_aug_applies_to_extra_and_mask` | HorizontalFlip applies to RGB, EXTRA, and mask jointly | real |
 | `test_extra_none_path_still_works` | RGB-only call path (no `extra` kwarg) preserved through the split | real — backward-compat for baseline RGB-only |
+| `test_pad_mask_ignore_default_is_background` | Default RandomScale pad border in the mask is background (0) — documents the baked-in baseline | real — Stage 3B A/B control |
+| `test_pad_mask_ignore_true_labels_border_ignore` | `multi_scale.pad_mask_ignore: true` labels the pad border ignore (255), not background | real — Stage 3B pad-fix (albumentations 2.x `fill_mask`) |
 
 ### [test_models.py](test_models.py)
 

@@ -224,7 +224,7 @@ def _setup_data(cfg: dict) -> dict:
         stats = None
         logger.warning("Normalization stats not found at %s; using unit stats", stats_path)
 
-    tr_aug = build_train_transforms(tile_size, cfg["augmentation"])
+    tr_aug = build_train_transforms(tile_size, cfg["augmentation"], ignore_index=ignore_idx)
     ev_aug = build_eval_transforms()
 
     train_ids = get_tile_ids("train", metadata, splits)

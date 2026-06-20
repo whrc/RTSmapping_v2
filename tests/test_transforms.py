@@ -78,6 +78,40 @@ def test_geometric_aug_applies_to_extra_and_mask():
     np.testing.assert_array_equal(out["mask"], np.ascontiguousarray(mask[:, ::-1]))
 
 
+def _scale_down_cfg() -> dict:
+    """All ops off except a deterministic 0.5x RandomScale (forces PadIfNeeded to pad)."""
+    cfg = _aug_cfg(color_p=0.0, geo_p=0.0)
+    cfg["multi_scale"] = {"scale_range": [0.5, 0.5], "p": 1.0}
+    return cfg
+
+
+def test_pad_mask_ignore_default_is_background():
+    """Default (flag absent): the RandomScale pad border in the mask is background (0).
+
+    This documents the baked-in baseline behaviour the A/B compares against.
+    """
+    rng = np.random.default_rng(3)
+    rgb = rng.integers(0, 256, size=(64, 64, 3), dtype=np.uint8)
+    mask = np.ones((64, 64), dtype=np.uint8)  # all-RTS so any 0 in output is from padding
+    transform = build_train_transforms(tile_size=64, aug_cfg=_scale_down_cfg())
+    out = transform(image=rgb, mask=mask)
+    assert (out["mask"] == 0).any(), "expected a background-labeled pad border by default"
+    assert (out["mask"] == 255).sum() == 0, "no ignore pixels should appear by default"
+
+
+def test_pad_mask_ignore_true_labels_border_ignore():
+    """With multi_scale.pad_mask_ignore=true, the pad border becomes ignore (255)."""
+    rng = np.random.default_rng(3)
+    rgb = rng.integers(0, 256, size=(64, 64, 3), dtype=np.uint8)
+    mask = np.ones((64, 64), dtype=np.uint8)
+    cfg = _scale_down_cfg()
+    cfg["multi_scale"]["pad_mask_ignore"] = True
+    transform = build_train_transforms(tile_size=64, aug_cfg=cfg, ignore_index=255)
+    out = transform(image=rgb, mask=mask)
+    assert (out["mask"] == 255).any(), "expected an ignore-labeled pad border with the flag on"
+    assert (out["mask"] == 0).sum() == 0, "pad border should be ignore(255), not background(0)"
+
+
 def test_extra_none_path_still_works():
     """Existing RGB-only call path (no extra kwarg) must still work."""
     rgb, _, mask = _make_inputs(seed=11)
