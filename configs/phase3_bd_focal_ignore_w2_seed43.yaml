@@ -1,0 +1,10 @@
+# §3.4 seed confirm — focal × boundary ignore w2 (boundary winner candidate, +0.0134) at seed 43.
+base: phase0c_seed42.yaml
+seed: 43
+data:
+  data_root: /outputs/v1.0/data_local
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+mlflow:
+  run_name: phase3_bd_focal_ignore_w2_seed43

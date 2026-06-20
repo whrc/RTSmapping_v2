@@ -96,16 +96,24 @@ Stage-0.3 v1.0 re-stage (+28 pos / −49 black); heavy fusion **F3** (dual-encod
 
 ---
 
-## Deferred / dropped (planned, not running)
+## Campaign stages & deferred (planned, not yet running)
 
-| Item | Decision | Reason |
-|------|----------|--------|
-| Foundation finetuning — DINOv3 RGB-only → +EXTRA | ⏸️ Step 4 | Code + configs landed (Step 1); LR-range test runs first |
-| Foundation — SAM3 | ⏸️ Step 4 | Image incompatible (py3.12/torch2.7); SAM2 as cheap second |
-| Reg grid wd×aug (6.3) | ❌ dropped | Trigger never fired; wd folded into Step-2b guard |
-| SegFormer / EffB7 (8.2) | ❌ dropped | Low value on plateau; foundation is the better transformer bet |
-| EffB3 (8.2) | ⏸️ optional | Cheap backfill only |
-| Multi-scale (6.4) / MAE (12.1) / hard-neg (12.2) | ⏸️ deferred | Gated (post-inference / user-go / precision-bound) |
+Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap in `current_working_status.md`.
+
+| Item | Stage / decision | Notes |
+|------|------------------|-------|
+| Heavy fusion **F3** (dual-encoder late) + **F5** (residual cross-modal attn, JSTARS) | **Stage 1** — to build | F0–F2 already run; pick F\* across all, then channel selection under F\* |
+| Foundation **DINOv3** (LLRD/LP-FT) → +best-EXTRA | **Stage 2** | DINOv3 RGB running; +EXTRA if it beats EffB5 |
+| Foundation **SAM2** · **EffB3** cheap probe | **Stage 2** | SAM3 image-incompatible (py3.12/torch2.7); EffB3 = capacity-DOWN probe on a plateau |
+| **Augmentation study** — copy-paste / mosaic / cutmix / mixup / RandAug / TrivialAug / annealing | **Stage 3A** — config arms running; mixing-aug code pending | domain fact: PlanetScope basemap RGB is CV-optimized, not surface reflectance → full toolbox; exclude shadow-cue scramblers; precision-guard = shadow safety net |
+| **Multi-scale** — RandomScale A/B + pad-ignore (running); D4-TTA; scale-TTA | **Stage 3B** — tested, not assumed | scale-TTA gated on a scale-transfer test; context-expansion deferred to post-inference |
+| **Calibration** (temp+threshold) · **ensemble** · **3-seed final lock → Test-Realistic once → ship** | **Stage 3C** | ensemble decided at final-lock (F4 + top-k vs ×k cost) |
+| **Bootstrap 1:50/1:100 high-ratio eval** | **Stage 0.2** | secondary deployment-aligned readout; primary gate stays [5,10,20] |
+| **v1.0 re-stage** (+28 pos / −49 black, train-only) | **Stage 0.3** | preserves the ecoregion split |
+| **MAE** ViT-B/16 SSL pretraining | **Stage 5** — end-stage, parallel w/ inference | go/no-go = linear-probe beats random-init; → next iteration (v2); does NOT gate v1 |
+| **Hard-negative mining** (manual) | **Stage 4** — post first inference | feeds the next iteration |
+| Reg grid wd×aug (6.3) · SegFormer / EffB7 (8.2) | ❌ dropped | trigger never fired / low value on a plateau |
+| Pseudo-labeling · val-negative growth | ⏸️ backup only | confirmation-bias risk / only if the bootstrap readout becomes decisive |
 
 ---
 

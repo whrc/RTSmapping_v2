@@ -99,6 +99,20 @@ def _fig_to_base64(fig) -> str:
     return base64.b64encode(buf.read()).decode()
 
 
+def _img_file_b64(path: str) -> str | None:
+    """Read a PNG file → base64, or None if missing. Tries /outputs and /mnt/outputs."""
+    for p in (Path(path), Path(path.replace("/outputs/", "/mnt/outputs/"))):
+        if p.exists():
+            return base64.b64encode(p.read_bytes()).decode()
+    return None
+
+
+# Qualitative-artifact paths (container /outputs; helper falls back to /mnt/outputs).
+_VAL_OVERLAY = "/outputs/v1.0/inference/v1.0_baseline_validation/validation_overlay.png"
+_VAL_OVERLAY_2024 = "/outputs/v1.0/inference/v1.0_baseline_validation/validation_overlay_2024labels.png"
+_EXTRA_VIS = "/outputs/v1.0/qc/extra_vis"
+
+
 def _plot_metric_curves(
     histories: dict[str, list[tuple[int, float]]],
     title: str,
@@ -184,6 +198,9 @@ img     { max-width: 100%; border-radius: 6px; margin: 0.5rem 0; box-shadow: 0 1
 .insight strong { color:#1d4ed8; }
 .pass { color:#166534; font-weight:700; } .fail { color:#94a3b8; }
 .toc a { margin-right: 1rem; font-size: 0.9rem; text-decoration: none; color:#2563EB; }
+.figrow { display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-start; }
+.figrow figure { flex:1 1 360px; margin:0.5rem 0; }
+figure figcaption { font-size:0.82rem; color:#64748b; margin-top:0.2rem; }
 """
 
 
@@ -519,6 +536,14 @@ def _plot_gap_bars(labels, train_ious, val_ious) -> str:
 
 
 def _section_overview(tracking_uri: str) -> str:
+    # Dataset facts come from the SSoT (data/version.json), never hardcoded.
+    try:
+        vj = json.loads(Path("data/version.json").read_text())
+        ds = f"v{vj['version']}"
+        tc = vj["tile_counts"]
+        tiles = f"{tc['total']:,} tiles · {tc['positive']:,} pos"
+    except Exception:
+        ds, tiles = "v1.0", ""
     return f"""
 <h2 id='overview'>1. Overview &amp; status</h2>
 <p>Semantic segmentation of <strong>Retrogressive Thaw Slumps (RTS)</strong> in pan-arctic PlanetScope
@@ -526,10 +551,10 @@ imagery (60–74°N). UNet++ / EfficientNet-B5; balanced sampling + curriculum +
 project's single living dashboard — auto-generated from MLflow (<code>{tracking_uri}</code>).</p>
 <div class='card'>
   <div style='display:flex; gap:2rem; flex-wrap:wrap;'>
-    <div><span class='label'>Dataset</span><br><span class='metric'>v0.2</span> <span style='font-size:0.8rem'>15,528 tiles · 1,819 pos</span></div>
+    <div><span class='label'>Dataset</span><br><span class='metric'>{ds}</span> <span style='font-size:0.8rem'>{tiles}</span></div>
     <div><span class='label'>Baseline μ₀</span><br><span class='metric'>{MU0:.4f}</span></div>
     <div><span class='label'>Gate G = max(2σ₀,0.01)</span><br><span class='metric'>{GATE_G:.3f}</span></div>
-    <div><span class='label'>Current phase</span><br><span class='metric'>2 → 3</span></div>
+    <div><span class='label'>Current phase</span><br><span class='metric'>Phase 3 → 4</span></div>
   </div>
   <p style='margin-top:0.6rem; font-size:0.85rem; color:#555'>A candidate <strong>wins</strong> iff
   Δ(PR-AUC geomean) vs μ₀ ≥ G <em>and</em> precision@recall0.5 does not regress (experiments.md §1.4).
@@ -603,22 +628,19 @@ def _section_phase2(mlflow, experiment_name: str) -> str:
 {_html_table(pd.DataFrame(rows))}
 <div class='insight'><strong>§5.3 slope</strong> (75→100)/(25→50) ≈ <strong>{ratio_txt}</strong> →
 <strong>{regime}</strong>.<br>
-<strong>§5.4 gap</strong>: see table (gap &gt; 0.4 ⇒ severe over-parameterization ⇒ §6.3 weight-decay sweep
-triggered; bigger architectures would overfit more → Phase 5 lean SKIP). Real levers when data-limited +
-over-parameterized: <strong>more data + regularization</strong>, not capacity.<br>
-<em>Prose interpretation snapshot 2026-06-07 (v2.0 runs): ratio ≈ 4.4, gap ≈ 0.43 — see
-docs/phase2_data_scaling.md.</em></div>
+<strong>§5.4 gap</strong>: see table — on v1.0 the train/val IoU gap is small (≈0.05 best / 0.17 final,
+&lt; 0.4) → the model is <strong>well-matched to its data, not over-parameterized</strong>. Combined with the
+flat slope this reads as a <strong>data/representation plateau</strong>, not a pure data-volume or capacity
+limit, so leverage pivots to <strong>representation (Phase 4 EXTRA channels)</strong> rather than bigger
+backbones or heavier regularization (experiments.md §1.6).</div>
 """
 
 
-def _section_phase3(mlflow, experiment_name: str) -> str:
-    runs = _dedup_latest(_search_runs(mlflow, experiment_name, "phase3_loss_"))
-    abl = _dedup_latest(_search_runs(mlflow, experiment_name, "abl_loss_"))
-    allruns = pd.concat([runs, abl]) if not abl.empty else runs
-    # §1.4 defines the win as Δ vs baseline μ₀ (multi-seed mean), not the
-    # single seed-42 number — that reference was off by +0.0076 (30% of G).
-    rows = [{"Candidate": "focal (baseline μ₀)", "Best gate": _fmt(MU0),
-             "Δ vs baseline": "ref", "Win (≥G)?": "—"}]
+def _phase3_rows(mlflow, experiment_name: str, *prefixes: str) -> pd.DataFrame:
+    """Δ-vs-μ₀ gate table for the given run-name prefixes (live from MLflow)."""
+    frames = [_dedup_latest(_search_runs(mlflow, experiment_name, p)) for p in prefixes]
+    allruns = pd.concat([f for f in frames if not f.empty]) if any(not f.empty for f in frames) else frames[0]
+    rows = []
     for _, run in allruns.iterrows():
         name = run.get("tags.mlflow.runName", ""); rid = run.get("run_id", "")
         gate = _best_smoothed_from_history(mlflow, rid, "val_realistic_pr_auc_geomean")
@@ -626,45 +648,118 @@ def _section_phase3(mlflow, experiment_name: str) -> str:
             continue
         d = gate - MU0
         passed = d >= GATE_G
-        rows.append({"Candidate": name.replace("phase3_loss_", "").replace("abl_loss_", ""),
-                     "Best gate": _fmt(gate), "Δ vs baseline": f"{d:+.4f}",
+        label = name
+        for p in prefixes:
+            label = label.replace(p, "")
+        rows.append({"Candidate": label, "Best gate": _fmt(gate), "Δ vs baseline": f"{d:+.4f}",
                      "Win (≥G)?": f"<span class='{'pass' if passed else 'fail'}'>{'PASS' if passed else 'no'}</span>"})
+    return pd.DataFrame(rows)
+
+
+def _section_phase3(mlflow, experiment_name: str) -> str:
+    # §1.4 defines the win as Δ vs baseline μ₀ (multi-seed mean), not the single seed-42 number.
+    ref = pd.DataFrame([{"Candidate": "focal (baseline μ₀)", "Best gate": _fmt(MU0),
+                         "Δ vs baseline": "ref", "Win (≥G)?": "—"}])
+    loss = _phase3_rows(mlflow, experiment_name, "phase3_loss_", "abl_loss_")
+    boundary = _phase3_rows(mlflow, experiment_name, "phase3_bd_")
+    loss_tbl = _html_table(pd.concat([ref, loss], ignore_index=True))
+    bd_tbl = _html_table(pd.concat([ref, boundary], ignore_index=True)) if not boundary.empty \
+        else "<p><em>No boundary runs yet.</em></p>"
     return f"""
-<h2 id='p3'>5. Phase 3 — Loss family → boundary {_badge('running')}</h2>
+<h2 id='p3'>5. Phase 3 — Loss family → boundary {_badge('done')}</h2>
 <p>Sequential elimination (experiments.md §6): pick loss, lock, then boundary. Win = Δ ≥ G={GATE_G:.3f} + no precision drop.</p>
-{_html_table(pd.DataFrame(rows))}
-<div class='insight'><em>Prose interpretation snapshot 2026-06-07 (v2.0 runs):</em> <strong>focal-only wins
-so far.</strong> Tversky (precision-focused) collapses the imbalanced gate; compound (Focal+Dice) ties.
-Per §1.4 tie-break the simpler <strong>focal</strong> holds unless a candidate clears G. The table above is
-live from MLflow — trust it over this prose if they disagree. Next: boundary handling (§6.2) + the §6.3
-weight-decay sweep (triggered by the §5.4 gap above).</div>
+<h3>5a. Loss family</h3>
+{loss_tbl}
+<h3>5b. Boundary factorial (focal &amp; compound 1:2 × ignore-width)</h3>
+{bd_tbl}
+<div class='insight'><strong>v1.0 read (live from MLflow above):</strong> no loss beat the gate →
+<strong>focal stays the loss winner</strong> (tversky collapses the imbalanced gate; compound 1:2 is a
+near-miss). The boundary factorial is the first real win: <strong>boundary winner LOCKED = focal + ignore-width 2</strong>
+(3-seed mean 0.8100, clears the bar across all seeds), statistically tied with compound 1:2 + width 3
+(0.8116) and chosen for simplicity. <strong>The win is the boundary, not the loss</strong> — both loss
+families clear the gate once <code>ignore</code> is added, neither without. Deploy architecture so far:
+<strong>UNet++/EffB5 + focal + ignore_w2</strong>. Caveat: leaky-split numbers (absolute optimistic, relative
+preserved); the corrected split is used for Phase-4 + the final test. Full analysis: <code>docs/phase3_loss_boundary.md</code>.</div>
 """
 
 
-def _section_phase45() -> str:
+def _extra_vis_block() -> str:
+    """Embed one positive (with RTS label contour) + one negative EXTRA-vis panel."""
+    import glob
+    pos = sorted(glob.glob(f"{_EXTRA_VIS}/pos_*.png")) or \
+        sorted(glob.glob(f"{_EXTRA_VIS.replace('/outputs/', '/mnt/outputs/')}/pos_*.png"))
+    neg = sorted(glob.glob(f"{_EXTRA_VIS}/neg_*.png")) or \
+        sorted(glob.glob(f"{_EXTRA_VIS.replace('/outputs/', '/mnt/outputs/')}/neg_*.png"))
+    out = []
+    if pos and (b := _img_file_b64(pos[0])):
+        out.append(f"<figure><img src='data:image/png;base64,{b}' alt='EXTRA positive'>"
+                   f"<figcaption>Positive tile — RGB + 8 EXTRA bands (RTS label contour overlaid).</figcaption></figure>")
+    if neg and (b := _img_file_b64(neg[0])):
+        out.append(f"<figure><img src='data:image/png;base64,{b}' alt='EXTRA negative'>"
+                   f"<figcaption>Negative tile — featureless by comparison.</figcaption></figure>")
+    return "".join(out) if out else "<p><em>EXTRA-vis panels not found.</em></p>"
+
+
+def _section_phase45(mlflow, experiment_name: str) -> str:
+    arch = _phase3_rows(mlflow, experiment_name, "phase5_arch_")
+    ref = pd.DataFrame([{"Candidate": "UNet++/EffB5 (baseline μ₀)", "Best gate": _fmt(MU0),
+                         "Δ vs baseline": "ref", "Win (≥G)?": "—"}])
+    arch_tbl = _html_table(pd.concat([ref, arch], ignore_index=True)) if not arch.empty \
+        else "<p><em>No architecture runs yet.</em></p>"
     return f"""
-<h2 id='p4'>6. Phase 4 — EXTRA channels {_badge('pending')}</h2>
-<p>EXTRA group ablation — NDVI / NBR / SE-PCA / SE-Proto / TC (experiments.md §7). Blocked: EXTRA tiles not yet generated.</p>
-<h2 id='p5'>7. Phase 5 — Architecture {_badge('gated')}</h2>
-<p>Gated (experiments.md §8.1): runs only with data headroom AND an unsaturated model. Evidence — data still
-scaling (good) but the <strong>gap ≈ 0.43 is large</strong> → over-parameterized; bigger backbones
-(B7 / SegFormer) would overfit more → <strong>lean SKIP</strong>. SegFormer support is implemented and
-<code>configs/phase5_*</code> are ready if the gate flips after Phase 3/4.</p>
-<div class='todo'>⚠ Spec note: §8.1 cond-2 ("gap not closed &lt; 0.3 → run Phase 5") reads backwards vs §5.4
-("large gap → over-parameterized → regularize"). Interpreted here as <strong>large gap ⇒ skip Phase 5</strong>.</div>
+<h2 id='p4'>6. Phase 4 — EXTRA channels {_badge('running')}</h2>
+<p>EXTRA group ablation — NDVI / NBR / SE-PCA / SE-Proto / TC (experiments.md §7), the primary
+plateau-breaker (§1.6). <strong>Full 8-band stack now generated for all 22,259 tiles</strong> (S2 bands
+NDVI/NBR/TC + SE bands: global-PCA(3) and a contrastive RTS prototype), with per-channel normalization
+(data.md §9). The <strong>ablation wave is running on the corrected leakage-free split</strong> (RGB
+control + 5 single-group + full-stack), inheriting the focal baseline (boundary held at none — the
+boundary win is additive). A NaN-fill fix (<code>apply_norm</code> neutralizes EXTRA NoData where the
+source has no coverage) was required to clear a first-validation crash. Quantitative results pending
+(early epochs; corrected-split absolutes are not comparable to the leaky-split μ₀ above).</p>
+<p><strong>EXTRA carries RTS-specific signal</strong> (the accept gate before trusting the stack):</p>
+<div class='figrow'>{_extra_vis_block()}</div>
+<h2 id='p5'>7. Phase 5 — Architecture {_badge('running')}</h2>
+<p>Run-now architecture sweep (experiments.md §8): smp decoder drop-ins on EffB5 (frozen HP, §8.2);
+encoder-family swaps (SegFormer/DINOv3) need per-family HP retuning (§8.2a) before a fair comparison.</p>
+{arch_tbl}
+<div class='insight'><strong>v1.0 read (live above):</strong> decoder swaps so far underperform the
+UNet++ baseline (FPN ≈ μ₀, MAnet collapses); the dense-skip UNet++ remains the architecture to beat.
+Phase 5 is exploratory here (not the primary lever — see §1.6: the v1.0 plateau points to representation,
+not capacity).</div>
 """
 
 
 def _section_findings() -> str:
-    return """
-<h2 id='findings'>8. Findings &amp; insights</h2>
+    ov = _img_file_b64(_VAL_OVERLAY)
+    ov24 = _img_file_b64(_VAL_OVERLAY_2024)
+    val_figs = []
+    if ov24:
+        val_figs.append(f"<figure><img src='data:image/png;base64,{ov24}' alt='2024-label overlay'>"
+                        f"<figcaption>Baseline probability vs <strong>2024 RTS labels</strong> (Banks Is. AOI): "
+                        f"mean prob <strong>0.578 inside labels vs 0.071 outside (8×)</strong>.</figcaption></figure>")
+    if ov:
+        val_figs.append(f"<figure><img src='data:image/png;base64,{ov}' alt='2025 inference overlay'>"
+                        f"<figcaption>Merged 2025 inference probability over the validation AOI.</figcaption></figure>")
+    val_block = (f"<h3>Baseline qualitative validation</h3><div class='figrow'>{''.join(val_figs)}</div>"
+                 if val_figs else "")
+    return f"""
+<h2 id='findings'>8. Findings &amp; insights (v1.0)</h2>
+{val_block}
 <ul>
-<li><strong>Data is the bottleneck.</strong> Data-scaling still rising at 100% + a large train/val gap →
-more labeled positives + regularization are the highest-leverage levers, not bigger models.</li>
-<li><strong>Severe overfitting</strong> — train IoU ~0.68 vs val ~0.24. The §6.3 weight-decay sweep is now warranted.</li>
-<li><strong>Focal-only loss wins so far</strong>; precision-focused Tversky hurts the imbalanced gate.</li>
-<li><strong>Gate is data-limited</strong> — measured at 1:5–1:20 (honest), not deployment 1:1000, so these
-numbers are optimistic vs deployment precision (still unmeasured).</li>
+<li><strong>Representation, not capacity or volume, is the bottleneck.</strong> v1.0 data-scaling is a
+<strong>plateau</strong> (flat slope) and the model is <strong>well-matched</strong> (train/val IoU gap
+≈0.05 best / 0.17 final, &lt; 0.4) → bigger backbones and heavier regularization are low-leverage; the
+plateau-breaker is <strong>EXTRA channels (Phase 4)</strong>.</li>
+<li><strong>Focal-only loss wins</strong>; precision-focused Tversky collapses the imbalanced gate; compound
+(Focal+Dice) is a near-miss.</li>
+<li><strong>Boundary-ignore is the win</strong> — boundary winner <strong>locked = focal + ignore-width 2</strong>
+(3-seed mean 0.8100), tied with compound 1:2 + width 3. The win is the boundary, not the loss; both losses
+clear the gate once <code>ignore</code> is added, neither without.</li>
+<li><strong>Gate is honest-ratio</strong> — measured at 1:5–1:20, not deployment 1:1000, so these numbers
+are optimistic vs deployment precision (still unmeasured).</li>
+<li><strong>Split-leakage fixed</strong> — the RegionName hotfix + re-split landed (leakage-free, 0 ecoregions
+span splits). Phase-0/3/5 numbers stay on the leaky split (relative-only); Phase-4 + the final test use the
+corrected split.</li>
 <li><strong>Feasibility</strong> — pan-arctic mapping is realistic as a <strong>QC-assisted candidate map</strong>
 (high recall + filtering), not yet a fully-automated high-precision product.</li>
 </ul>
@@ -677,9 +772,9 @@ def _section_future() -> str:
 <ul>
 <li><strong>Spatial generalization</strong> — leave-one-ecoregion-out CV (make-or-break for pan-arctic).</li>
 <li><strong>Honest deployment precision</strong> — false-positives per true-positive on a held-out region at realistic prevalence.</li>
-<li><strong>More labels</strong> — Phase 2 says they help; path toward ~3500 positives.</li>
-<li><strong>v0.3 dataset</strong> (selection upgrade, no relabel) → re-baseline + re-gate.</li>
-<li><strong>Multi-GPU VM</strong> → parallel orchestrator + concurrency-safe MLflow; run the full program fast.</li>
+<li><strong>EXTRA channels (Phase 4)</strong> — the primary plateau-breaker; S2 bands generated, SE path next.</li>
+<li><strong>RegionName/split hotfix</strong> — re-split on corrected metadata; re-score μ₀ if the val split moves.</li>
+<li><strong>Inference</strong> — us-west1 16× L4 fleet decided (PR #19 merged); pan-arctic pass after winner lock.</li>
 <li><strong>Multi-year consistency</strong> (2024∧2025) as a precision lever at deployment.</li>
 </ul>
 """
@@ -715,7 +810,7 @@ def main() -> int:
     s1 = _section_phase1()
     s2 = _section_phase2(mlflow, experiment_name)
     s3 = _section_phase3(mlflow, experiment_name)
-    s45 = _section_phase45()
+    s45 = _section_phase45(mlflow, experiment_name)
     findings = _section_findings()
     future = _section_future()
     s_art = _section_artifacts(mlflow, experiment_name)

@@ -1,0 +1,13 @@
+# §3.4 1σ-tie confirm — compound(focal+dice,1:2) × boundary ignore w2 (near-miss 0.8003, within 1σ of bar) at seed 43.
+base: phase0c_seed42.yaml
+seed: 43
+data:
+  data_root: /outputs/v1.0/data_local
+loss:
+  function: compound
+  lambda_focal: 1.0
+  lambda_dice: 2.0
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+mlflow:
+  run_name: phase3_bd_compound_1to2_ignore_w2_seed43

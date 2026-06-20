@@ -1,0 +1,13 @@
+# §3.4 3-seed lock — compound(focal+dice,1:2) × boundary ignore w3 (marginal gate clear) at seed 44.
+base: phase0c_seed42.yaml
+seed: 44
+data:
+  data_root: /outputs/v1.0/data_local
+loss:
+  function: compound
+  lambda_focal: 1.0
+  lambda_dice: 2.0
+  boundary_handling: ignore
+  boundary_ignore_width: 3
+mlflow:
+  run_name: phase3_bd_compound_1to2_ignore_w3_seed44
