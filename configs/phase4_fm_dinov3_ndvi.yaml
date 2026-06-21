@@ -1,0 +1,40 @@
+# Architecture/encoder family (E): the FAIR encoder test — DINOv3 + NDVI vs EffB5 + NDVI (deploy ~0.915).
+# DINOv3-RGB (0.873) already beat EffB5-RGB (~0.830), so the open question is whether a stronger
+# encoder + NDVI beats EffB5+NDVI. Same v2 deploy recipe (NDVI, ignore_w2, drop-RandomScale,
+# base_v2_fast) + the DINOv3 HP (LP-FT + LLRD, ViT wd). EXTRA enters via the widened, zero-init
+# patch-embed conv (models/foundation.py) → epoch-0 == RGB-only (fair, F1-style smart-stem start).
+base: base_v2_fast.yaml
+seed: 42
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+model:
+  architecture: foundation
+  backbone: vit_base_patch16_dinov3
+  pretrained: true
+optimizer:
+  weight_decay: 5.0e-2                # ViT-appropriate
+lr_schedule:
+  frozen_lr: 1.0e-3                   # linear-probe phase: decoder/head only
+  base_lr: 2.0e-4                     # from the dinov3 LR-range test
+  backbone_lr_multiplier: 1.0
+  llrd_decay: 0.75                    # per-layer LR decay (§8.2a)
+  freeze_backbone_epochs: 20          # LP-FT: long linear-probe on the frozen ViT
+  warmup_epochs: 5
+  warmup_start_lr: 1.0e-6
+  min_lr: 1.0e-6
+  backbone_warmup_epochs: 5
+training:
+  early_stopping:
+    start_epoch: 70                   # LP-FT unfreezes at ep20 → give the fine-tune phase room
+mlflow:
+  run_name: phase4_fm_dinov3_ndvi

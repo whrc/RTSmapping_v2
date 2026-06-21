@@ -77,9 +77,12 @@ class _FPNDecoder(nn.Module):
 class FoundationSegmenter(nn.Module):
     """DINOv3/DINOv2/SAM-ViT encoder → simple feature pyramid → FPN decoder → logits."""
 
-    def __init__(self, backbone: str, pretrained: bool, dim: int = 256, n_taps: int = 4):
+    def __init__(self, backbone: str, pretrained: bool, dim: int = 256, n_taps: int = 4,
+                 in_channels: int = 3):
         super().__init__()
         self.encoder = timm.create_model(backbone, pretrained=pretrained, num_classes=0)
+        if in_channels != 3:
+            self._expand_patch_embed(in_channels)
         self.patch = self._infer_patch(backbone)
         depth = len(self.encoder.blocks)
         # 4 evenly-spaced block indices (deepest last).
@@ -91,6 +94,26 @@ class FoundationSegmenter(nn.Module):
             nn.Conv2d(dim, 1, kernel_size=1),  # [0] = final conv (bias) for _init_output_bias
             nn.Upsample(scale_factor=_PYRAMID_STRIDES[0], mode="bilinear", align_corners=False),
         )
+
+    def _expand_patch_embed(self, in_channels: int, n_rgb: int = 3) -> None:
+        """Widen the ViT patch-embed conv to `in_channels` for RGB+EXTRA early fusion.
+
+        Copies the pretrained RGB weights and **zero-inits the EXTRA channels** (smart
+        stem init, cf. models.segmentation F1): epoch-0 output == RGB-only, then the model
+        learns to use EXTRA. Fair vs EffB5+EXTRA, which also early-fuses at the stem.
+        """
+        pe = self.encoder.patch_embed
+        conv = pe.proj if isinstance(getattr(pe, "proj", None), nn.Conv2d) else \
+            next(m for m in pe.modules() if isinstance(m, nn.Conv2d))
+        new = nn.Conv2d(in_channels, conv.out_channels, kernel_size=conv.kernel_size,
+                        stride=conv.stride, padding=conv.padding, bias=conv.bias is not None)
+        with torch.no_grad():
+            new.weight.zero_()
+            new.weight[:, :n_rgb] = conv.weight
+            if conv.bias is not None:
+                new.bias.copy_(conv.bias)
+        pe.proj = new
+        logger.info("Foundation patch-embed expanded 3 → %d channels (EXTRA zero-init)", in_channels)
 
     @staticmethod
     def _infer_patch(backbone: str) -> int:

@@ -286,12 +286,8 @@ def build_model(cfg: dict) -> nn.Module:
         # adapter / second stream) is Step 4b. Lazy import keeps timm-ViT cost off other paths.
         from models.foundation import FoundationSegmenter
 
-        if in_channels != 3:
-            raise ValueError(
-                f"arch='foundation' is RGB-only for now (in_channels=3); got {in_channels}. "
-                f"+EXTRA fusion on the FM is second-wave Step 4b."
-            )
-        model = FoundationSegmenter(backbone=backbone, pretrained=pretrained)
+        # RGB or RGB+EXTRA (early fusion via a widened, EXTRA-zero-init patch-embed conv).
+        model = FoundationSegmenter(backbone=backbone, pretrained=pretrained, in_channels=in_channels)
     else:
         raise ValueError(
             f"Unsupported model.architecture: {arch!r}. "

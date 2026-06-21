@@ -51,3 +51,28 @@ def test_foundation_output_is_logits():
     with torch.no_grad():
         y = model(x)
     assert y.min().item() < 0.0 or y.max().item() > 1.0
+
+
+def test_foundation_extra_channels_forward_shape():
+    """RGB+EXTRA (in_channels=4) → (B,1,H,W); patch-embed widened to 4 input channels."""
+    model = FoundationSegmenter(BACKBONE, pretrained=False, in_channels=4).eval()
+    conv = model.encoder.patch_embed.proj
+    assert conv.in_channels == 4
+    x = torch.zeros(2, 4, 64, 64)
+    with torch.no_grad():
+        y = model(x)
+    assert y.shape == (2, 1, 64, 64)
+
+
+def test_foundation_extra_channels_zero_init_is_rgb_only_at_init():
+    """At init the EXTRA channels are zero-init → changing only EXTRA leaves output unchanged
+    (epoch-0 == RGB-only; the fair, F1-style smart-stem start)."""
+    model = FoundationSegmenter(BACKBONE, pretrained=False, in_channels=4).eval()
+    assert torch.count_nonzero(model.encoder.patch_embed.proj.weight[:, 3:]) == 0
+    torch.manual_seed(0)
+    rgb = torch.randn(1, 3, 64, 64)
+    x1 = torch.cat([rgb, torch.zeros(1, 1, 64, 64)], dim=1)
+    x2 = torch.cat([rgb, torch.randn(1, 1, 64, 64)], dim=1)
+    with torch.no_grad():
+        y1, y2 = model(x1), model(x2)
+    assert torch.allclose(y1, y2, atol=1e-5)

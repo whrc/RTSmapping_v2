@@ -203,6 +203,8 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_foundation_taps_four_blocks_incl_deepest` | 4 evenly-spaced block taps, deepest included, sorted | real — pyramid-diversity contract |
 | `test_foundation_exposes_encoder_and_head` | `.encoder` (freeze/LLRD) + `.segmentation_head[0]` bias-init compatible | real — integration hooks |
 | `test_foundation_output_is_logits` | random-input outputs span beyond [0,1] | shallow — logits contract |
+| `test_foundation_extra_channels_forward_shape` | RGB+EXTRA (in_channels=4): patch-embed widened to 4, forward → `(B,1,H,W)` | real — guards the DINOv3+EXTRA adapter |
+| `test_foundation_extra_channels_zero_init_is_rgb_only_at_init` | EXTRA channels zero-init ⇒ epoch-0 invariant to EXTRA (fair F1-style start) | real — fairness/init guarantee |
 
 ### [test_losses.py](test_losses.py)
 

@@ -110,24 +110,43 @@ Stage-0.3 v1.0 re-stage (+28 pos / −49 black); heavy fusion **F3** (dual-encod
 
 ---
 
-## Campaign stages & deferred (planned, not yet running)
+## Program status — planned / in-progress / conditional / dropped + discussed-but-didn't-land
 
-Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap in `current_working_status.md`.
+Model = **v2** (repo RTSmapping_v2); first pan-Arctic map = v2 product; re-stage / hard-neg / MAE → v3+.
+Plan: `.claude/plans/elegant-exploring-lemur.md`. Family scheme (replacing the old §N/Stage-N mix):
+**A** Baseline · **B** Data · **C** Loss/boundary · **D** Channels/fusion · **E** Architecture/encoder ·
+**F** Augmentation · **G** Sampling · **H** Calibration/TTA · **I** Final-lock/Test · **J** Deploy/inference · **K** Deferred.
 
-| Item | Stage / decision | Notes |
-|------|------------------|-------|
-| Heavy fusion **F3** (dual-encoder late) + **F5** (residual cross-modal attn, JSTARS) | **Stage 1** — to build | F0–F2 already run; pick F\* across all, then channel selection under F\* |
-| Foundation **DINOv3** (LLRD/LP-FT) → +best-EXTRA | **Stage 2** | DINOv3 RGB running; +EXTRA if it beats EffB5 |
-| Foundation **SAM2** · **EffB3** cheap probe | **Stage 2** | SAM3 image-incompatible (py3.12/torch2.7); EffB3 = capacity-DOWN probe on a plateau |
-| **Augmentation study** — copy-paste / mosaic / cutmix / mixup / RandAug / TrivialAug / annealing | **Stage 3A** — config arms running; mixing-aug code pending | domain fact: PlanetScope basemap RGB is CV-optimized, not surface reflectance → full toolbox; exclude shadow-cue scramblers; precision-guard = shadow safety net |
-| **Multi-scale** — RandomScale A/B + pad-ignore (running); D4-TTA; scale-TTA | **Stage 3B** — tested, not assumed | scale-TTA gated on a scale-transfer test; context-expansion deferred to post-inference |
-| **Calibration** (temp+threshold) · **ensemble** · **3-seed final lock → Test-Realistic once → ship** | **Stage 3C** | ensemble decided at final-lock (F4 + top-k vs ×k cost) |
-| **Bootstrap 1:50/1:100 high-ratio eval** | **Stage 0.2** | secondary deployment-aligned readout; primary gate stays [5,10,20] |
-| **v1.0 re-stage** (+28 pos / −49 black, train-only) | **Stage 0.3** | preserves the ecoregion split |
-| **MAE** ViT-B/16 SSL pretraining | **Stage 5** — end-stage, parallel w/ inference | go/no-go = linear-probe beats random-init; → next iteration (v2); does NOT gate v1 |
-| **Hard-negative mining** (manual) | **Stage 4** — post first inference | feeds the next iteration |
-| Reg grid wd×aug (6.3) · SegFormer / EffB7 (8.2) | ❌ dropped | trigger never fired / low value on a plateau |
-| Pseudo-labeling · val-negative growth | ⏸️ backup only | confirmation-bias risk / only if the bootstrap readout becomes decisive |
+**✅ Locked:** A (μ₀=0.7912, G=0.0112) · B (data plateau) · C (focal·ignore_w2) · D (**EXTRA=NDVI** + **F0** channel-stack) ·
+E (UNet++/EffB5 — decoders lose) · F (drop-RandomScale; keep photometric+CLAHE) · G (default sampling) ·
+I (v2 recipe 3-seed **~0.915**, pending pre-ship screens). Infra: `base_v2_fast` stop-fix · bootstrap metric · gate policy (mean Δ≥G **and** 3-seed sign-consistency).
+
+**🔵 In-progress (running):** F3/F5 heavy-fusion screens (losing → confirm F0) · EffB3 probe · mixing-aug screens (copy-paste / mosaic / cutmix / mixup).
+
+**⏳ To-do before v2 ship:** E DINOv3+NDVI (fair test — adapter built) · E SAM2 · F RandAug/TrivialAug + annealing · H calibration (temp + threshold + D4-TTA) · seed-confirm any screen winner · report.html overhaul (EXTRA-decision + reasoning check · locked-decisions · training-overview dashboard) · A–K ledger narrative reorg.
+
+**⏸️ Conditional (gated on a trigger):** H scale-TTA (scale-transfer test) · J hard-neg mining (post first inference) · K MAE (user-go; end-stage parallel w/ inference) · context-expansion multi-scale (post-inference map review) · val-negative growth (if bootstrap readout becomes decisive) · ensemble (decide at final lock).
+
+**📦 Deferred to v3 (post-v2-ship):** re-stage (+28 pos / −49 black) · hard-negative mining · MAE (if not run in the v2 window).
+
+### ❌ Dropped & 💭 discussed-but-didn't-land (record of what we considered and why it isn't in v2)
+| Idea | Fam | Verdict / why |
+|---|---|---|
+| §6.5 loss×wd×curriculum interaction check | C/F/G | **dropped** (per user) — moot after wd dropped + curriculum rejected + loss locked |
+| wd × aug regularization grid (§6.3) | F | **dropped** — over-parameterization trigger never fired (gap 0.05/0.17 < 0.4); wd=5e-2 untested |
+| Curriculum r20_pf33 | G | **tested → rejected** — within seed noise (0.894/0.901/0.859) |
+| RandomScale downscale aug | F | **tested → dropped** — 3-seed A/B: removing it +0.016 (all seeds) |
+| F2 channel-attention (full 8-band) | D | **tested → collapsed** (0.827) |
+| F3 dual-encoder / F5 cross-modal attn | D | **tested → lose to F0** (≪ NDVI-alone) — heavy fusion extracts less than the stack |
+| SegFormer (mit_b5) | E | **dropped** — low value on a plateau; foundation is the better transformer bet |
+| EffB7 | E | **dropped** — overfit risk on a plateau (bound-only) |
+| UNet3+ | E | **dropped** — condition unmet (no decoder family moved the gate) |
+| YOLO / instance-seg (Mask R-CNN) | E | **rejected** — paradigm mismatch (coarse proposal-anchored masks) |
+| SAM3 | E | **dropped** — image incompatible (py3.12/torch2.7); SAM2 used instead |
+| DINOv3 + EXTRA (earlier "dropped") | E | **revived** — the earlier drop used an unfair comparison (DINOv3-RGB 0.873 *beat* EffB5-RGB 0.830); now a to-do |
+| Re-run Phase 2 on 3500 positives | B | **moot** — no new labels coming |
+| Pseudo-labeling / self-training | K | **backup only** — confirmation-bias risk; revisit only if representation gains plateau |
+| Soft-label boundary handling | C | **deferred / not implemented** (data.md) — `ignore` covers annotation noise for v2 |
 
 ---
 
