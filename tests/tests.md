@@ -172,6 +172,8 @@ EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine 
 | `test_fusion_chan_attn_shape_gate_and_delegation` | F2: wrapper returns (B,1,H,W) logits, delegates `.encoder`/`.segmentation_head` (bias-init flows through), gate per-channel in (0,1) | real — guards F2 + freeze/bias compat |
 | `test_fusion_chan_attn_param_groups_split` | F2: gate params land in the non-encoder (decoder) group so freeze schedule + backbone-LR target correctly | real — F2 × freeze.py integration |
 | `test_fusion_unknown_rejected` | Unsupported `model.fusion` → clear `ValueError` | shallow |
+| `test_heavy_fusion_shape_delegation_and_uses_extra` | F3/F5: (B,1,H,W) logits, delegates `.encoder`/`.segmentation_head`, has 2nd `.extra_encoder`, output depends on EXTRA channels | real — guards F3/F5 dual-encoder wiring |
+| `test_heavy_fusion_rejects_rgb_only` | F3/F5 with no EXTRA channels → `ValueError` | shallow — guard |
 | `test_build_model_foundation_rgb` | `arch='foundation'` (DINOv3 ViT) builds, (B,1,H,W) logits, class-prior bias flows through `.segmentation_head[0]` | real — guards the FM branch (2026-06-18) |
 | `test_build_model_foundation_rejects_extra_channels` | foundation is RGB-only for now → declaring EXTRA raises (Step 4b) | shallow |
 

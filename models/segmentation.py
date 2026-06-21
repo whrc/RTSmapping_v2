@@ -114,6 +114,92 @@ class ChannelAttentionFusion(nn.Module):
         return self.base(x * self.gate(x))
 
 
+class _DualEncoder(nn.Module):
+    """Shared scaffold for F3/F5 heavy fusion: a separate EXTRA encoder alongside the
+    base (RGB) UNet++, fused per encoder stage, then the base decoder + head.
+
+    The base is built with ``in_channels=3`` (RGB); the EXTRA stream is a second
+    encoder of the same backbone with ``in_channels=n_extra``. Encoder feature stages
+    1..N share channel dims across the two streams (the EfficientNet stem only differs
+    at the stage-0 input passthrough), so stages 1..N fuse elementwise and stage-0 keeps
+    the RGB passthrough the decoder was built for. Delegates ``.encoder`` /
+    ``.segmentation_head`` so freeze.py param-groups + output-bias init are unchanged.
+    Input x is the usual RGB+EXTRA channel stack (split at n_rgb).
+    """
+
+    def __init__(self, base: nn.Module, backbone: str, n_extra: int, pretrained: bool, n_rgb: int = 3):
+        super().__init__()
+        from segmentation_models_pytorch.encoders import get_encoder
+
+        self.base = base
+        self.n_rgb = n_rgb
+        self.extra_encoder = get_encoder(
+            backbone, in_channels=n_extra, depth=5,
+            weights="imagenet" if pretrained else None,
+        )
+
+    @property
+    def encoder(self) -> nn.Module:
+        return self.base.encoder
+
+    @property
+    def segmentation_head(self) -> nn.Module:
+        return self.base.segmentation_head
+
+    def _fuse(self, fr: list, fe: list) -> list:
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rgb, extra = x[:, : self.n_rgb], x[:, self.n_rgb :]
+        fr = self.base.encoder(rgb)
+        fe = self.extra_encoder(extra)
+        fused = self._fuse(fr, fe)
+        return self.base.segmentation_head(self.base.decoder(fused))
+
+
+class DualEncoderLateFusion(_DualEncoder):
+    """F3: late fusion by elementwise sum of the two encoders' per-stage features."""
+
+    def _fuse(self, fr: list, fe: list) -> list:
+        return [fr[0]] + [a + b for a, b in zip(fr[1:], fe[1:])]
+
+
+class _CrossModalResidual(nn.Module):
+    """Per-stage residual cross-modal attention: fused = rgb + sigmoid(W·[rgb,extra]) ⊙ extra.
+
+    A learned gate (from BOTH modalities) reweights the EXTRA features added back onto the
+    RGB stream — residual so the RGB path is preserved. Near-identity init (gate bias 0 →
+    ~0.5) gives EXTRA a fair but bounded initial contribution. Approximates the residual
+    cross-modal attention of the JSTARS fusion design (exact §IV.C formulas not reproduced).
+    """
+
+    def __init__(self, c: int):
+        super().__init__()
+        hidden = max(c // 4, 4)
+        self.gate = nn.Sequential(
+            nn.Conv2d(2 * c, hidden, 1), nn.ReLU(inplace=True),
+            nn.Conv2d(hidden, c, 1), nn.Sigmoid(),
+        )
+        nn.init.zeros_(self.gate[2].weight)
+        nn.init.zeros_(self.gate[2].bias)  # sigmoid(0)=0.5 at init
+
+    def forward(self, r: torch.Tensor, e: torch.Tensor) -> torch.Tensor:
+        return r + self.gate(torch.cat([r, e], dim=1)) * e
+
+
+class CrossModalAttentionFusion(_DualEncoder):
+    """F5: residual cross-modal attention fusion at encoder stages 1..N (JSTARS-style)."""
+
+    def __init__(self, base, backbone, n_extra, pretrained, n_rgb: int = 3):
+        super().__init__(base, backbone, n_extra, pretrained, n_rgb)
+        # stage channel dims 1..N (skip stage-0 input passthrough)
+        dims = list(self.base.encoder.out_channels)[1:]
+        self.blocks = nn.ModuleList([_CrossModalResidual(c) for c in dims])
+
+    def _fuse(self, fr: list, fe: list) -> list:
+        return [fr[0]] + [blk(a, b) for blk, a, b in zip(self.blocks, fr[1:], fe[1:])]
+
+
 def build_model(cfg: dict) -> nn.Module:
     """Construct the segmentation model from a config dict.
 
@@ -150,6 +236,17 @@ def build_model(cfg: dict) -> nn.Module:
     pretrained = cfg["model"].get("pretrained", True)
     prior = cfg["model"].get("output_bias_prior", 0.5)
     in_channels = _derive_in_channels(cfg)
+    fusion = cfg["model"].get("fusion", "early")
+
+    # F3/F5 heavy fusion use a dual-encoder: the base (RGB) encoder is built with 3
+    # channels, the EXTRA stream is a separate encoder. All other fusions feed the full
+    # RGB+EXTRA stack into one encoder.
+    _dual = fusion in ("dual_encoder", "cross_modal")
+    if _dual and arch != "unetplusplus":
+        raise ValueError(f"fusion={fusion!r} (F3/F5) supports only arch='unetplusplus', got {arch!r}")
+    if _dual and in_channels <= 3:
+        raise ValueError(f"fusion={fusion!r} (F3/F5) needs EXTRA channels; in_channels={in_channels}")
+    enc_in = 3 if _dual else in_channels
 
     encoder_weights = "imagenet" if pretrained else None
 
@@ -157,7 +254,7 @@ def build_model(cfg: dict) -> nn.Module:
         model = smp.UnetPlusPlus(
             encoder_name=backbone,
             encoder_weights=encoder_weights,
-            in_channels=in_channels,
+            in_channels=enc_in,
             classes=1,
             activation=None,  # logits (training.md §4.2)
         )
@@ -205,18 +302,20 @@ def build_model(cfg: dict) -> nn.Module:
 
     _init_output_bias(model, prior)
 
-    fusion = cfg["model"].get("fusion", "early")
     if fusion in ("early", "ensemble"):
         pass  # ensemble: train a normal model; F4 averaging happens at eval time
     elif fusion == "stem_init":
         _zero_extra_stem_channels(model, in_channels)
     elif fusion == "chan_attn":
         model = ChannelAttentionFusion(model, in_channels)
+    elif fusion == "dual_encoder":   # F3
+        model = DualEncoderLateFusion(model, backbone, in_channels - 3, pretrained)
+    elif fusion == "cross_modal":    # F5
+        model = CrossModalAttentionFusion(model, backbone, in_channels - 3, pretrained)
     else:
         raise ValueError(
             f"Unsupported model.fusion: {fusion!r}. Supported: 'early', 'stem_init', "
-            f"'chan_attn', 'ensemble' (eval-side). Dual-encoder / cross-modal fusion "
-            f"(F3/F5) are separate model classes."
+            f"'chan_attn', 'ensemble' (eval-side), 'dual_encoder' (F3), 'cross_modal' (F5)."
         )
 
     logger.info(

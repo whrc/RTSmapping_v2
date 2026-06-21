@@ -1,0 +1,16 @@
+# Heavy fusion F5 — residual cross-modal attention on the best F0 pair (ndvi+se_proto, F0=0.898).
+# Does cross-modal attention beat early-stack on the same channels? base_v2_fast; boundary none.
+base: base_v2_fast.yaml
+seed: 42
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_seproto.json
+model:
+  fusion: cross_modal
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: se_proto, band: 5}
+mlflow:
+  run_name: phase4_f5_ndvi_seproto

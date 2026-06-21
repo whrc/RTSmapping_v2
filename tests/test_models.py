@@ -202,6 +202,32 @@ def test_fusion_chan_attn_shape_gate_and_delegation():
     assert float(g.min()) >= 0.0 and float(g.max()) <= 1.0
 
 
+@pytest.mark.parametrize("fusion", ["dual_encoder", "cross_modal"])
+def test_heavy_fusion_shape_delegation_and_uses_extra(fusion):
+    """F3/F5: (B,1,H,W) logits, exposes .encoder + .segmentation_head (freeze + bias-init),
+    has a second EXTRA encoder, and the output actually depends on the EXTRA channels."""
+    cfg = _extra_fusion_cfg(fusion, n_extra=2, output_bias_prior=0.01)
+    model = build_model(cfg).eval()
+    assert hasattr(model, "encoder") and hasattr(model, "segmentation_head")
+    assert hasattr(model, "extra_encoder")  # dual-encoder scaffold
+    assert math.isclose(model.segmentation_head[0].bias.detach().item(),
+                        -math.log((1.0 - 0.01) / 0.01), abs_tol=1e-5)
+    torch.manual_seed(0)
+    rgb = torch.randn(2, 3, 64, 64)
+    x1 = torch.cat([rgb, torch.zeros(2, 2, 64, 64)], dim=1)
+    x2 = torch.cat([rgb, torch.randn(2, 2, 64, 64)], dim=1)
+    with torch.no_grad():
+        y1, y2 = model(x1), model(x2)
+    assert y1.shape == (2, 1, 64, 64)
+    assert not torch.allclose(y1, y2, atol=1e-4)  # EXTRA stream influences the output
+
+
+def test_heavy_fusion_rejects_rgb_only():
+    """F3/F5 need EXTRA channels — building with in_channels=3 must raise."""
+    with pytest.raises(ValueError, match="EXTRA"):
+        build_model(_base_cfg(backbone="efficientnet-b0", fusion="dual_encoder"))
+
+
 def test_fusion_chan_attn_param_groups_split():
     """F2 gate params land in the non-encoder (decoder) group so the freeze
     schedule + backbone-LR multiplier still target the right params."""
