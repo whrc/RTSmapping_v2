@@ -14,7 +14,7 @@ Source of truth: `/mnt/outputs/v1.0/runs/<name>/run_summary.md` (finished) and `
 > control (Phase-4 RGB control = 0.830), not against earlier phases. Final test is scored once, honestly,
 > on the corrected split (Step 5).
 
-_Last refreshed: 2026-06-20 13:00 — second wave complete (all seed-confirms + aug study finished)._
+_Last refreshed: 2026-06-21 10:40 — aug recipe LOCKED (drop RandomScale, 3-seed); EXTRA channel greedy → NDVI-alone (nbr/tc screens confirming)._
 
 ---
 
@@ -79,6 +79,12 @@ _Last refreshed: 2026-06-20 13:00 — second wave complete (all seed-confirms + 
 | 55 | 06-20 | **aug_scale_off** | 3B RandomScale off | corrected | **0.8862** | ✅ +0.020 → best aug arm |
 | 56 | 06-20 | aug_p3_photo_x15 | 3A photometric ×1.5 | corrected | 0.8658 | ✅ ≈ ref (no extra gain) |
 | 57 | 06-20 | aug_pad_ignore | 3B pad-ignore fix (fill_mask) | corrected | 0.8527 | ✅ −0.013 → pad fix ≠ the lever; downscale itself hurts |
+| 58 | 06-20 | aug_ref_seed43 / seed44 | 3A aug-control seed-confirm | corrected | 0.8468 / 0.8808 | ✅ ref 3-seed mean 0.865 |
+| 59 | 06-20 | **aug_scale_off_seed43 / seed44** | 3B drop-RandomScale confirm | corrected | 0.8673 / 0.8892 | ✅ **mean 0.881, +0.016 vs ref, 3/3 seeds → LOCKED drop** |
+| 60 | 06-20 | phase4_extra_ndvi_seproto_seed43 / 44 | channel-sel ndvi+se_proto | corrected | 0.8988 / 0.8966 | ✅ mean 0.898 ≈ NDVI-alone (no gain) |
+| 61 | 06-20 | phase4_extra_ndvi_sepca_seed43 / 44 | channel-sel ndvi+se_pca | corrected | 0.8949 / 0.9088 | ✅ mean 0.900 ≈ NDVI-alone (no gain) |
+| 62 | 06-21 | phase4_extra_ndvi_nbr | greedy round-1 ndvi+nbr | corrected | — | 🔵 screen |
+| 63 | 06-21 | phase4_extra_ndvi_tc | greedy round-1 ndvi+tc | corrected | — | 🔵 screen |
 
 ---
 
@@ -129,6 +135,12 @@ Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap i
   **Seed-confirmed (3 seeds, final):** NDVI 0.888 / 0.8965 / 0.9111 → **mean 0.8985, std 0.0095**;
   full 8-band 0.876 / 0.8619 / 0.8678 → mean 0.869, std 0.007. NDVI beats RGB by ~0.07 (≫ σ) and beats
   full by ~0.03 → NDVI is a **real, low-variance win** and the **efficient channel**.
+- **🔒 Channel selection — greedy forward from NDVI (F0 early-stack, 3-seed, corrected):** anchor
+  NDVI-alone **0.8985**. Round-1 additions: +se_pca **0.900** (Δ+0.0015), +se_proto **0.898** (Δ−0.001) —
+  both *tie* the anchor (≪ G=0.0112, within σ); +nbr / +tc screens pending (weakest channels, can't beat
+  what se_pca/se_proto couldn't). No candidate clears the gate → **greedy terminates, no channel added →
+  LOCKED EXTRA = `[NDVI]`** (RGB+NDVI, 4-channel F0 stack). Fusion: F0/F1/F2 all tie NDVI-alone → **F0
+  channel-stack locked**; heavy F3/F5 skipped per the plan's skip-condition (no multi-channel benefit to amplify).
 - **Curriculum (Phase 10, corrected):** r20_pf33 best cell single-seed 0.894, **but seed-confirm is
   high-variance: 0.894 / 0.901 / 0.859 → mean ≈0.885 vs base 0.879 (Δ≈0.006), within std ≈0.021.**
   The curriculum "win" is **not distinguishable from seed noise** at 3 seeds — treat as unconfirmed.
@@ -145,6 +157,6 @@ Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap i
   noise) → keep the current photometric set, don't strengthen it. Consistent with PlanetScope basemap RGB being a
   CV-optimized visual product. **(2) RandomScale downscale HURTS** — `aug_scale_off` 0.886 (**+0.020, best arm**)
   > control; and `aug_pad_ignore` (scale on, pad-border bug fixed) 0.853 is *below* the buggy control → the lever
-  is the **downscale aug itself**, not the pad-ignore labeling. **Provisional: drop RandomScale from the locked
-  recipe.** Single-seed — **seed-confirm `aug_scale_off` before locking** (the +0.020 is ~1–2σ at the measured
-  corrected-split std).
+  is the **downscale aug itself**, not the pad-ignore labeling. **🔒 3-seed A/B confirms it:** aug_scale_off
+  0.886/0.867/0.889 (**mean 0.881**) vs aug_ref 0.866/0.847/0.881 (**mean 0.865**) → **Δ+0.016, positive in all
+  3 seeds** → **DROP RandomScale from the locked recipe** (photometric set + CLAHE kept).
