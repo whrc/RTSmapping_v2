@@ -1,28 +1,24 @@
-# Fixed preview tiles for cross-experiment visual comparison.
+# Fixed preview tiles for cross-experiment visual comparison (3 pos + 3 neg).
 #
-# Explicit tile UIDs (the .tif filenames in PLANET-RGB) drawn from the v1.0
-# val_realistic split (1,495 tiles: 267 pos / 1,228 neg). Pinning these means
-# every experiment and every seed renders the SAME tiles, so preview grids are
-# directly comparable across runs (fix the input, vary the model).
+# Explicit tile UIDs from the v1.0 **val_realistic** split. Pinning them means every
+# experiment/seed renders the SAME tiles → preview grids are directly comparable.
 #
-# Regenerated 2026-06-14 from the v1.0 split via
-# training/visualizations.py:pick_preview_tiles_pass1 (seed 42, 3 pos + 3 neg).
-# The previous set pointed at the DESTROYED v2-alpha split, so stale UIDs were
-# silently skipped → only 2 negatives rendered.
+# ⚠ Regenerated 2026-06-21: the previous set (2026-06-14) pre-dated the 2026-06-16
+# region-leakage split regeneration, so 5 of its 6 UIDs were no longer in val_realistic
+# → every run silently rendered a **1-tile** preview instead of 3-pos/3-neg
+# (log: "Preview tiles not in val split (skipped): [...] Using 1 fixed preview tiles").
+# These UIDs are verified members of the current val_realistic split (98 pos / 2,053 neg)
+# and are staged in /mnt/outputs/v1.0/data_local. `_select_preview_tiles` now falls back to
+# the seeded heuristic if fewer than (wanted-2) tiles match, so a future split change can't
+# silently degrade the panel again.
 #
-# Selection: negatives = 25-75th pctile of distance-to-nearest-positive centroid
-# (ambiguous tundra near RTS), via centroid_lat/lon. Positives: v1.0 metadata has
-# no Pos_frac column, so they fall back to deterministic selection (not the
-# pos-pixel-fraction band the spec prefers) — refine in pass-2 if needed.
-#
-# Edit freely to swap in any val UIDs you find more diagnostic. Tiles not present
-# in a given run's val split are skipped with a warning; if none match, the run
-# falls back to the seeded pass-1 heuristic.
+# Regenerate via: get_tile_ids("val_realistic", metadata, splits, class_filter) on the
+# current splits.yaml (see data/splits.py); pick 3 pos + 3 neg that are staged.
 positive:
-  - ckup2c208101
-  - ckgu8f8pb02k
-  - ckupt6852p0p
+  - b7zfm1zzrcpx
+  - ch66f5pzrcpw
+  - zkwefr84bn85
 negative:
-  - c7yj9fnpzbxs
-  - c6fh1ksxn18n
-  - c6ycxq0kfcpf
+  - b4tpwjj2tgpv
+  - ck4y1psue18p
+  - zs94f0p1qgpv

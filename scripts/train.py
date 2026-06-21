@@ -539,11 +539,15 @@ def _select_preview_tiles(cfg: dict, metadata: pd.DataFrame, val_ids: list[str])
         missing = [t for t in wanted if t not in val_set]
         if missing:
             logger.warning("Preview tiles not in val split (skipped): %s", missing)
-        if selected:
+        # Require most of the curated set to be present, else fall back to the heuristic.
+        # Guards against a stale config (e.g. after a split regeneration) silently
+        # degrading the panel to 1 tile instead of the intended 3-pos/3-neg.
+        min_ok = max(2, len(wanted) - 2)
+        if len(selected) >= min_ok:
             logger.info("Using %d fixed preview tiles from %s", len(selected), preview_cfg_path)
             return selected
-        logger.warning("No preview tiles from %s are in val; falling back to heuristic",
-                       preview_cfg_path)
+        logger.warning("Only %d/%d preview tiles from %s are in val (< %d); falling back to heuristic",
+                       len(selected), len(wanted), preview_cfg_path, min_ok)
     picked = viz.pick_preview_tiles_pass1(
         metadata.set_index("Tile_ID"),
         val_ids,
