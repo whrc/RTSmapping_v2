@@ -240,7 +240,7 @@ def _setup_data(cfg: dict) -> dict:
         logger.info("Filtered train tiles to %d%% positive subset → %d tiles",
                     int(subset_pct), len(train_ids))
 
-    def _make_ds(tile_ids, transform):
+    def _make_ds(tile_ids, transform, aug_cfg=None):
         return RTSDataset(
             tile_ids=tile_ids,
             metadata=metadata,
@@ -256,9 +256,11 @@ def _setup_data(cfg: dict) -> dict:
             boundary_handling=boundary,
             boundary_ignore_width=boundary_w,
             nodata_handling=cfg["data"].get("nodata_handling", False),
+            aug_cfg=aug_cfg,
         )
 
-    train_ds = _make_ds(train_ids, tr_aug)
+    # Mixing augs are train-only → pass aug_cfg to train, never to val.
+    train_ds = _make_ds(train_ids, tr_aug, aug_cfg=cfg["augmentation"])
     val_ds = _make_ds(val_ids, ev_aug)
 
     bs = int(cfg["training"]["batch_size"])

@@ -28,6 +28,7 @@ from torch.utils.data import Dataset
 from data.normalization import (
     apply_norm, build_norm_arrays, fill_nodata_with_mean, load_stats, stats_to_arrays,
 )
+from data.mixing import MixingAugmenter
 from data.transforms import dilate_label_boundary
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ class RTSDataset(Dataset):
         boundary_handling: str = "none",   # none | ignore (soft_labels deferred to a later iteration)
         boundary_ignore_width: int = 3,
         nodata_handling: bool = False,      # §4.4: zero→mean input + 255 label for all-band-zero
+        aug_cfg: dict | None = None,        # train-only; enables sample-mixing augs (data/mixing.py)
     ):
         if boundary_handling == "soft_labels":
             raise NotImplementedError(
@@ -193,6 +195,22 @@ class RTSDataset(Dataset):
                           "is_fixed": np.zeros(n_channels, dtype=bool),
                           "scale": np.ones(n_channels, dtype=np.float32)}
 
+        # Sample-mixing augmentations (copy-paste/mosaic/cutmix/mixup — data/mixing.py).
+        # Train-only: enabled iff aug_cfg declares an `augmentation.mixing` block with p>0.
+        self._positive_ids = [t for t in self.tile_ids if self.is_positive(t)]
+
+        def _sample_source(positive_only: bool):
+            pool = self._positive_ids if (positive_only and self._positive_ids) else self.tile_ids
+            tid = pool[int(np.random.default_rng().integers(len(pool)))]
+            s_rgb = self._read_rgb(tid)
+            s_lab = self._read_label(tid)
+            s_extra = self._read_extra(tid) if self.extra_channels else None
+            return s_rgb, s_extra, s_lab
+
+        self._mixing = MixingAugmenter(
+            aug_cfg or {}, _sample_source, self.tile_size, self.label_ignore_index,
+        )
+
     def __len__(self) -> int:
         return len(self.tile_ids)
 
@@ -230,6 +248,12 @@ class RTSDataset(Dataset):
         tid = self.tile_ids[idx]
         rgb = self._read_rgb(tid)                             # (H, W, 3) uint8
         label = self._read_label(tid)                         # (H, W) uint8
+        extra = self._read_extra(tid) if self.extra_channels else None
+
+        # Sample-mixing augs (train-only, default-off) on raw arrays, BEFORE boundary
+        # dilation + transform so pasted/mixed pixels get the same downstream treatment.
+        if self._mixing.enabled:
+            rgb, extra, label = self._mixing(rgb, extra, label, np.random.default_rng())
 
         if self.nodata_handling:                              # §4.4 (before boundary/aug)
             rgb, label = substitute_nodata(rgb, label, self.mean, self.label_ignore_index)
@@ -237,8 +261,6 @@ class RTSDataset(Dataset):
         if self.boundary_handling == "ignore":
             label = dilate_label_boundary(label, self.boundary_ignore_width,
                                           self.label_ignore_index)
-
-        extra = self._read_extra(tid) if self.extra_channels else None
 
         if extra is not None:
             aug = self.transform(image=rgb, extra=extra, mask=label)

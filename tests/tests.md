@@ -143,6 +143,22 @@ EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine 
 | `test_read_with_retry_recovers_from_transient_failure` | Transient GCS/VSI read error is retried; eventual success returned (no real backoff) | real — guards against single transient read crashing a multi-hour run (2026-06-04) |
 | `test_read_with_retry_raises_after_exhausting_attempts` | Persistently corrupt tile fails all 4 attempts and raises `RuntimeError` naming the tile id | real — corrupt tiles surface loudly, not silently |
 
+### [test_mixing.py](test_mixing.py)
+
+Sample-mixing augs (`data/mixing.py`, family F). Pure array ops; synthetic tiles + fake sampler.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_copy_paste_adds_positives_and_preserves_dtype` | copy-paste pastes an instance: positives appear, shape/dtype preserved | real — the rare-object lever |
+| `test_copy_paste_no_source_instances_is_identity` | negative source ⇒ identity (nothing to paste) | real — edge case |
+| `test_copy_paste_preserves_ignore_pixels` | pasted positives never overwrite ignore(255) | real — label-integrity guard |
+| `test_copy_paste_rgb_only_path` | works with `extra=None` | real — RGB-only compat |
+| `test_mosaic_output_shape_and_density` | mosaic returns tile_size, valid labels, positives present | real |
+| `test_cutmix_swaps_patch` | source patch (incl. positives) enters target | real |
+| `test_mixup_blends_and_unions_labels` | pixel blend + label union of both positive blocks | real |
+| `test_augmenter_off_by_default_is_identity` | no `mixing` config ⇒ bit-identical passthrough (default-off guarantee) | real — protects existing runs |
+| `test_augmenter_copy_paste_p1_fires` | `copy_paste.p=1` ⇒ op fires (positives added) | real — dispatch guard |
+
 ### [test_transforms.py](test_transforms.py)
 
 | Test | Checks | Strictness |
