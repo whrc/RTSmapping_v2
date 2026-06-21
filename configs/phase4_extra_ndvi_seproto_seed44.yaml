@@ -1,0 +1,15 @@
+# Seed-confirm of the top F0 fusion pair (ndvi+se_proto, s42=0.898) to LOCK EXTRA composition
+# vs NDVI-alone (3-seed mean 0.8985). base_v2_fast = gate-neutral fast schedule; boundary none
+# + pf0.5 inherited (matches the original fusion-sweep + NDVI-alone setup → apples-to-apples).
+base: base_v2_fast.yaml
+seed: 44
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_seproto.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: se_proto, band: 5}
+mlflow:
+  run_name: phase4_extra_ndvi_seproto_seed44

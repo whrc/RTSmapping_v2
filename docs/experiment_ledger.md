@@ -14,7 +14,7 @@ Source of truth: `/mnt/outputs/v1.0/runs/<name>/run_summary.md` (finished) and `
 > control (Phase-4 RGB control = 0.830), not against earlier phases. Final test is scored once, honestly,
 > on the corrected split (Step 5).
 
-_Last refreshed: 2026-06-21 10:55 — v1 recipe LOCKED (EXTRA=NDVI, F0, drop-RandomScale); gate/variance policy resolved; final-lock 3-seed running (~0.917 val)._
+_Last refreshed: 2026-06-21 21:00 — v2 final-lock 3-seed ~0.915; greedy COMPLETE (EXTRA=NDVI); F3/F5 heavy fusion LOSES (F0 locked); pre-ship screens (EffB3, mixing augs) launched. (Model = v2; repo RTSmapping_v2.)_
 
 ---
 
@@ -83,8 +83,16 @@ _Last refreshed: 2026-06-21 10:55 — v1 recipe LOCKED (EXTRA=NDVI, F0, drop-Ran
 | 59 | 06-20 | **aug_scale_off_seed43 / seed44** | 3B drop-RandomScale confirm | corrected | 0.8673 / 0.8892 | ✅ **mean 0.881, +0.016 vs ref, 3/3 seeds → LOCKED drop** |
 | 60 | 06-20 | phase4_extra_ndvi_seproto_seed43 / 44 | channel-sel ndvi+se_proto | corrected | 0.8988 / 0.8966 | ✅ mean 0.898 ≈ NDVI-alone (no gain) |
 | 61 | 06-20 | phase4_extra_ndvi_sepca_seed43 / 44 | channel-sel ndvi+se_pca | corrected | 0.8949 / 0.9088 | ✅ mean 0.900 ≈ NDVI-alone (no gain) |
-| 62 | 06-21 | phase4_extra_ndvi_nbr | greedy round-1 ndvi+nbr | corrected | — | 🔵 screen |
-| 63 | 06-21 | phase4_extra_ndvi_tc | greedy round-1 ndvi+tc | corrected | — | 🔵 screen |
+| 62 | 06-21 | phase4_extra_ndvi_nbr | greedy round-1 ndvi+nbr | corrected | 0.8559 | ✅ < NDVI-alone (no add) |
+| 63 | 06-21 | phase4_extra_ndvi_tc | greedy round-1 ndvi+tc | corrected | 0.8996 | ✅ ≈ NDVI-alone (no add) |
+| 64 | 06-20 | **deploy_v1_ndvi_seed42/43/44** | **I: final-lock 3-seed (v2 recipe)** | corrected | **0.9144 / ~0.916 / 0.9156** | ✅ mean **~0.915** (+0.017 over NDVI-alone → boundary+aug additive) |
+| 65 | 06-21 | phase4_f3_full | D: F3 dual-encoder late fusion | corrected | ~0.78 (peak) | 🔵 losing — ≪ NDVI-alone |
+| 66 | 06-21 | phase4_f5_full | D: F5 cross-modal attn (8-band) | corrected | ~0.83 (peak) | 🔵 losing — ≪ NDVI-alone |
+| 67 | 06-21 | phase4_f5_ndvi_seproto | D: F5 cross-modal attn (pair) | corrected | ~0.87 (peak) | 🔵 losing — < NDVI-alone |
+| 68 | 06-21 | effb3_deploy | E: EffB3 capacity-down probe | corrected | — | 🔵 running (vs EffB5 0.915) |
+| 69 | 06-21 | aug_copypaste_deploy | F: copy-paste screen | corrected | — | 🔵 running (vs deploy 0.915) |
+| 70 | 06-21 | aug_mosaic_deploy | F: mosaic screen | corrected | — | 🔵 running |
+| 71 | 06-21 | aug_cutmix_deploy / aug_mixup_deploy | F: cutmix / mixup screens | corrected | — | ⏳ auto-dispatch |
 
 ---
 
@@ -135,12 +143,19 @@ Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap i
   **Seed-confirmed (3 seeds, final):** NDVI 0.888 / 0.8965 / 0.9111 → **mean 0.8985, std 0.0095**;
   full 8-band 0.876 / 0.8619 / 0.8678 → mean 0.869, std 0.007. NDVI beats RGB by ~0.07 (≫ σ) and beats
   full by ~0.03 → NDVI is a **real, low-variance win** and the **efficient channel**.
-- **🔒 Channel selection — greedy forward from NDVI (F0 early-stack, 3-seed, corrected):** anchor
-  NDVI-alone **0.8985**. Round-1 additions: +se_pca **0.900** (Δ+0.0015), +se_proto **0.898** (Δ−0.001) —
-  both *tie* the anchor (≪ G=0.0112, within σ); +nbr / +tc screens pending (weakest channels, can't beat
-  what se_pca/se_proto couldn't). No candidate clears the gate → **greedy terminates, no channel added →
-  LOCKED EXTRA = `[NDVI]`** (RGB+NDVI, 4-channel F0 stack). Fusion: F0/F1/F2 all tie NDVI-alone → **F0
-  channel-stack locked**; heavy F3/F5 skipped per the plan's skip-condition (no multi-channel benefit to amplify).
+- **🔒 Channel selection — greedy forward from NDVI COMPLETE (F0 early-stack, corrected):** anchor
+  NDVI-alone **0.8985**. All round-1 additions: +se_pca **0.900**, +se_proto **0.898**, +tc **0.900**, +nbr
+  **0.856** — none clears the gate (all ≤ anchor, within σ) → **greedy terminates, no channel added →
+  LOCKED EXTRA = `[NDVI]`** (RGB+NDVI, 4-channel F0 stack).
+- **🔒 Fusion (D) — F0 early channel-stack LOCKED, now evidence-based:** light fusion F0/F1/F2 all tie
+  NDVI-alone; **heavy fusion F3/F5 LOSES** — F3-full ~0.78, F5-full ~0.83, F5-pair ~0.87 (all ≪ 0.8985,
+  below even F0). Dual-encoder / cross-modal attention extract *less* than the simple channel-stack here →
+  the skip-condition is confirmed, not assumed. DINOv3+NDVI (fair encoder test) still to run (family E).
+- **🔒 Final-lock (I) — v2 deploy recipe, 3-seed:** RGB+NDVI · F0 · focal·ignore_w2 · default sampling ·
+  aug−RandomScale · base_v2_fast → **0.9144 / ~0.916 / 0.9156 (mean ~0.915)**. That's **+0.017 over
+  NDVI-alone (boundary none) 0.8985** → boundary-ignore + drop-RandomScale are **additive on top of NDVI**,
+  tight across seeds. Pre-ship screens (EffB3, mixing augs, SAM2, DINOv3+NDVI, calibration) run before the
+  one-shot Test-Realistic; recipe re-locks only if a screen earns it.
 - **Curriculum (Phase 10, corrected):** r20_pf33 best cell single-seed 0.894, **but seed-confirm is
   high-variance: 0.894 / 0.901 / 0.859 → mean ≈0.885 vs base 0.879 (Δ≈0.006), within std ≈0.021.**
   The curriculum "win" is **not distinguishable from seed noise** at 3 seeds — treat as unconfirmed.

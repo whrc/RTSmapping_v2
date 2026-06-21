@@ -1,0 +1,14 @@
+# Greedy forward channel selection (round 1): NDVI + NBR. base_v2_fast, boundary none + pf0.5
+# inherited (matches the NDVI-alone anchor 0.8985 + the seproto/sepca pairs → apples-to-apples).
+base: base_v2_fast.yaml
+seed: 42
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_nbr.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+    - {name: nbr,  band: 1}
+mlflow:
+  run_name: phase4_extra_ndvi_nbr

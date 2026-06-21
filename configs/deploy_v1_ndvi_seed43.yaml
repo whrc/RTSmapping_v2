@@ -1,0 +1,24 @@
+# FINAL-LOCK candidate (v1 deployment recipe), seed 43. Integrates every locked decision:
+#   EXTRA = NDVI-alone (F0 early channel-stack)   [greedy forward: no channel beats it]
+#   loss  = focal + boundary ignore_w2            [Phase-3 seed-confirmed winner]
+#   sampling = default curriculum/pf0.5           [r20_pf33 curriculum REJECTED — within noise]
+#   aug   = baseline minus RandomScale downscale  [3-seed A/B: drop = +0.016, all seeds positive]
+#   schedule = base_v2_fast (gate-neutral fast stop)
+# This is the first 3-seed run of the FULL integrated recipe (components confirmed individually).
+# Test-Realistic is touched ONCE, separately, after this lock — NOT here.
+base: base_v2_fast.yaml
+seed: 43
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+mlflow:
+  run_name: deploy_v1_ndvi_seed43

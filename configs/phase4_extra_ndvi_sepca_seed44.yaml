@@ -1,0 +1,16 @@
+# Seed-confirm of the F0 fusion pair ndvi+se_pca (s42=0.896) to LOCK EXTRA composition
+# vs NDVI-alone (3-seed mean 0.8985). base_v2_fast gate-neutral; boundary none + pf0.5 inherited.
+base: base_v2_fast.yaml
+seed: 44
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_sepca.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi,     band: 0}
+    - {name: se_pca_1, band: 2}
+    - {name: se_pca_2, band: 3}
+    - {name: se_pca_3, band: 4}
+mlflow:
+  run_name: phase4_extra_ndvi_sepca_seed44
