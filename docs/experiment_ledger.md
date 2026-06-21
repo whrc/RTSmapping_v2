@@ -14,7 +14,7 @@ Source of truth: `/mnt/outputs/v1.0/runs/<name>/run_summary.md` (finished) and `
 > control (Phase-4 RGB control = 0.830), not against earlier phases. Final test is scored once, honestly,
 > on the corrected split (Step 5).
 
-_Last refreshed: 2026-06-21 10:40 — aug recipe LOCKED (drop RandomScale, 3-seed); EXTRA channel greedy → NDVI-alone (nbr/tc screens confirming)._
+_Last refreshed: 2026-06-21 10:55 — v1 recipe LOCKED (EXTRA=NDVI, F0, drop-RandomScale); gate/variance policy resolved; final-lock 3-seed running (~0.917 val)._
 
 ---
 
@@ -144,10 +144,13 @@ Second-wave campaign plan: `.claude/plans/elegant-exploring-lemur.md`; roadmap i
 - **Curriculum (Phase 10, corrected):** r20_pf33 best cell single-seed 0.894, **but seed-confirm is
   high-variance: 0.894 / 0.901 / 0.859 → mean ≈0.885 vs base 0.879 (Δ≈0.006), within std ≈0.021.**
   The curriculum "win" is **not distinguishable from seed noise** at 3 seeds — treat as unconfirmed.
-- **⚠ Gate vs measured variance (open):** the corrected-split seed std (~0.02) is **~4× the leaky-split
-  σ₀=0.0056** that set the gate G=0.0112. Many single-seed "wins" near G (curriculum, se_pca) are within
-  noise. Decision pending: widen G toward ~2σ_corrected (≈0.04) and/or **require a seed-confirm before
-  any lock**. NDVI's ~0.06 margin survives either way.
+- **🔒 Gate vs measured variance (RESOLVED 2026-06-21):** measured corrected-split seed std ranges
+  ~0.007–0.021 (NDVI 0.0095, full 0.007, aug_scale_off 0.012, aug_ref 0.017, curriculum 0.021) → σ_corrected
+  ≈ 0.012, **~2× the leaky σ₀=0.0056** behind G=0.0112. **Policy: keep G=0.0112 as a single-seed SCREEN, but
+  every LOCK requires a 3-seed confirm judged on BOTH (a) mean Δ ≥ G AND (b) sign-consistency across all 3
+  seeds.** Sign-consistency is the decisive test: drop-RandomScale (+0.016 mean, **3/3 positive**) → locked;
+  curriculum r20_pf33 (+0.006 mean, sign **flipped** s44) → rejected as noise. This is the discipline already
+  applied to every second-wave lock; NDVI's ~0.07 margin clears it trivially.
 - **Stop-schedule fix (Stage 0.1, audit 2026-06-19):** all 48 prior runs peaked by ~ep52 then trained a
   median 40 wasted epochs (41% of GPU-h, overfitting tail), best checkpoint unchanged. New `base_v2_fast`
   (patience 8→5, start_epoch 101→45, max_epochs 300→120) is **gate-neutral** — validated by `fastcheck`
