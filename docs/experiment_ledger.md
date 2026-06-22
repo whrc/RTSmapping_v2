@@ -14,7 +14,7 @@ Source of truth: `/mnt/outputs/v1.0/runs/<name>/run_summary.md` (finished) and `
 > control (Phase-4 RGB control = 0.830), not against earlier phases. Final test is scored once, honestly,
 > on the corrected split (Step 5).
 
-_Last refreshed: 2026-06-21 21:00 — v2 final-lock 3-seed ~0.915; greedy COMPLETE (EXTRA=NDVI); F3/F5 heavy fusion LOSES (F0 locked); pre-ship screens (EffB3, mixing augs) launched. (Model = v2; repo RTSmapping_v2.)_
+_Last refreshed: 2026-06-22 — v2 final-lock 3-seed mean **0.9123**; greedy COMPLETE (EXTRA=NDVI); F3/F5 heavy fusion LOSES (F0 locked); mixing-aug family struck out (EffB3/copy-paste/mosaic/cutmix all no-win); now running: DINOv3+NDVI, SAM2/Hiera RGB, RandAug/TrivialAug. (Model = v2; repo RTSmapping_v2.)_
 
 ---
 
@@ -94,7 +94,10 @@ _Last refreshed: 2026-06-21 21:00 — v2 final-lock 3-seed ~0.915; greedy COMPLE
 | 70 | 06-21 | aug_mosaic_deploy | F: mosaic screen | corrected | 0.9069 | ✅ Δ−0.0054 → no-win (within deploy seed spread) |
 | 71 | 06-21 | aug_cutmix_deploy | F: cutmix screen | corrected | 0.9014 | ✅ Δ−0.0109 → no-win |
 | 72 | 06-22 | aug_mixup_deploy | F: mixup screen | corrected | — | 🔵 running (ep71, vs deploy 0.9123) |
-| 73 | 06-22 | phase4_fm_dinov3_ndvi | D/E: DINOv3+NDVI (fair foundation test) | corrected | — | 🔵 running (ep45/~120; slow ViT) — gate vs EffB5+NDVI 0.9123 |
+| 73 | 06-22 | phase4_fm_dinov3_ndvi | D/E: DINOv3+NDVI (fair foundation test) | corrected | — | 🔵 running (ep47/~120; slow ViT) — gate vs EffB5+NDVI 0.9123 |
+| 74 | 06-22 | aug_trivialaugment_deploy | F: TrivialAugment (shadow-safe pool) | corrected | — | 🔵 running (user-revived) — gate vs deploy 0.9123 |
+| 75 | 06-22 | aug_randaugment_deploy | F: RandAugment num_ops=2 (shadow-safe pool) | corrected | — | 🔵 running (user-revived) — gate vs deploy 0.9123 |
+| 76 | 06-22 | fm_sam2_rgb | E: SAM2/Hiera foundation encoder, RGB-only | corrected | — | 🔵 running — gate vs EffB5-RGB ~0.830 (foundation-helps-RGB?) + EffB5+NDVI 0.9123 |
 
 ---
 
@@ -123,11 +126,11 @@ Plan: `.claude/plans/elegant-exploring-lemur.md`. Family scheme (replacing the o
 E (UNet++/EffB5 — decoders lose) · F (drop-RandomScale; keep photometric+CLAHE) · G (default sampling) ·
 I (v2 recipe 3-seed mean **0.9123**, spread 0.907–0.916; pending DINOv3 fair test). Infra: `base_v2_fast` stop-fix · bootstrap metric · gate policy (mean Δ≥G **and** 3-seed sign-consistency).
 
-**🔵 In-progress (running):** mixup screen (ep71) · **DINOv3+NDVI** (ep45/~120, slow ViT — the long pole) · F3/F5 finishing (verdict already set: lose to F0).
+**🔵 In-progress (running):** **DINOv3+NDVI** (ep47/~120, slow ViT — the long pole) · **SAM2/Hiera RGB** (foundation, built 06-22) · **TrivialAugment** + **RandAugment** (shadow-safe pool, user-revived 06-22) · mixup (finishing) · F3/F5 finishing (verdict already set: lose to F0).
 
-**✅ Screens landed 06-22 (all no-win vs deploy 0.9123, single-seed — none earns a seed-confirm):** EffB3 0.9050 (Δ−0.007) · copy-paste 0.8930 (Δ−0.019) · mosaic 0.9069 (Δ−0.005) · cutmix 0.9014 (Δ−0.011). **Mixing-aug family (F) is striking out** → reprioritize remaining GPU/effort toward representation (DINOv3+NDVI, SAM2), not more augmentation; **RandAug/TrivialAug + annealing deprioritized by this evidence** (4/4 aug arms no-win — consistent with the representation-limited, not regularization-limited, diagnosis).
+**✅ Screens landed 06-22 (all no-win vs deploy 0.9123, single-seed — none earns a seed-confirm):** EffB3 0.9050 (Δ−0.007) · copy-paste 0.8930 (Δ−0.019) · mosaic 0.9069 (Δ−0.005) · cutmix 0.9014 (Δ−0.011). **Mixing-aug family (F) struck out** (4/4 no-win — consistent with the representation-limited, not regularization-limited, diagnosis). RandAug/TrivialAug were briefly deprioritized on this evidence but **user revived them** → now running as the auto-policy angle (distinct from the mixing arms).
 
-**⏳ To-do before v2 ship:** E DINOv3+NDVI (running) · E SAM2 (build) · H calibration (temp + threshold + D4-TTA) · report.html overhaul (EXTRA-decision + reasoning check · locked-decisions · training-overview dashboard) · A–K ledger narrative reorg. (F RandAug/annealing → deprioritized, see above.)
+**⏳ To-do before v2 ship:** collect the running screens (DINOv3+NDVI · SAM2 · RandAug/TrivialAug · mixup) + seed-confirm any winner · H calibration (temp + threshold + D4-TTA) · report.html overhaul (EXTRA-decision + reasoning check · locked-decisions · training-overview dashboard) · A–K ledger narrative reorg.
 
 **⏸️ Conditional (gated on a trigger):** H scale-TTA (scale-transfer test) · J hard-neg mining (post first inference) · K MAE (user-go; end-stage parallel w/ inference) · context-expansion multi-scale (post-inference map review) · val-negative growth (if bootstrap readout becomes decisive) · ensemble (decide at final lock).
 
@@ -144,7 +147,8 @@ I (v2 recipe 3-seed mean **0.9123**, spread 0.907–0.916; pending DINOv3 fair t
 | F3 dual-encoder / F5 cross-modal attn | D | **tested → lose to F0** (≪ NDVI-alone) — heavy fusion extracts less than the stack |
 | Mixing augs: copy-paste / mosaic / cutmix / mixup | F | **tested → no-win** (06-22; 0.893 / 0.907 / 0.901 / running vs deploy 0.9123) — copy-paste worst (breaks spatial-context/shadow cues) |
 | EffB3 capacity-down | E | **tested → no-win** (0.9050, Δ−0.007 vs EffB5) — capacity isn't the lever; kept as a cheaper deploy fallback only |
-| RandAugment / TrivialAugment + aug-strength annealing | F | **deprioritized 06-22** — 4/4 aug screens struck out → low EV; aug is not the lever (representation-limited). Revisit only if a representation win reopens headroom |
+| RandAugment / TrivialAugment | F | **running 06-22** (user-revived after a brief evidence-based deprioritization) — auto-policy over a shadow-safe pool; gate vs deploy 0.9123 |
+| Aug-strength annealing | F | **deprioritized 06-22** — needs epoch-aware transform plumbing; low EV while the aug family is striking out. Revisit only if an auto-policy/representation win reopens headroom |
 | SegFormer (mit_b5) | E | **dropped** — low value on a plateau; foundation is the better transformer bet |
 | EffB7 | E | **dropped** — overfit risk on a plateau (bound-only) |
 | UNet3+ | E | **dropped** — condition unmet (no decoder family moved the gate) |
