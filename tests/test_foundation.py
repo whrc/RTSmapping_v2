@@ -76,3 +76,35 @@ def test_foundation_extra_channels_zero_init_is_rgb_only_at_init():
     with torch.no_grad():
         y1, y2 = model(x1), model(x2)
     assert torch.allclose(y1, y2, atol=1e-5)
+
+
+# --- SAM2 / Hiera hierarchical backbone (family E) ---
+
+SAM2_BACKBONE = "sam2_hiera_tiny"
+
+
+def test_sam2_hierarchical_forward_shape():
+    """Hiera native {/4,/8,/16,/32} pyramid → 1×1 proj → FPN → (B,1,H,W) at input res."""
+    model = FoundationSegmenter(SAM2_BACKBONE, pretrained=False).eval()
+    assert model._hierarchical and len(model.proj) == 4
+    x = torch.zeros(1, 3, 256, 256)
+    with torch.no_grad():
+        y = model(x)
+    assert y.shape == (1, 1, 256, 256)
+
+
+def test_sam2_exposes_encoder_and_head():
+    """freeze/LP-FT needs .encoder.parameters(); _init_output_bias needs .segmentation_head[0]."""
+    model = FoundationSegmenter(SAM2_BACKBONE, pretrained=False)
+    assert hasattr(model, "encoder") and any(True for _ in model.encoder.parameters())
+    assert isinstance(model.segmentation_head[0], torch.nn.Conv2d)
+    _init_output_bias(model, 0.01)
+    assert math.isclose(model.segmentation_head[0].bias.detach().item(),
+                        -math.log((1.0 - 0.01) / 0.01), abs_tol=1e-5)
+
+
+def test_sam2_rejects_extra_channels():
+    """SAM2/Hiera path is RGB-only for now (features_only hides the stem) → clear error."""
+    import pytest
+    with pytest.raises(NotImplementedError):
+        FoundationSegmenter(SAM2_BACKBONE, pretrained=False, in_channels=4)

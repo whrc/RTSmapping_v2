@@ -120,3 +120,55 @@ def test_extra_none_path_still_works():
     np.testing.assert_array_equal(out["image"], rgb)
     np.testing.assert_array_equal(out["mask"], mask)
     assert "extra" not in out
+
+
+# --- Auto-augment policies (RandAugment / TrivialAugment), family F ---
+
+def _auto_cfg(mode: str, **kw) -> dict:
+    """Base aug cfg (geometry+scale off) with an auto_policy block."""
+    cfg = _aug_cfg(color_p=0.0, geo_p=0.0)  # geometry/scale off → mask & shape stay fixed
+    cfg["auto_policy"] = {"mode": mode, **kw}
+    return cfg
+
+
+def test_auto_policy_default_none_is_handtuned():
+    """No auto_policy key → hand-tuned color stage (locked baseline), runs unchanged."""
+    rgb, extra, mask = _make_inputs(seed=1)
+    cfg = _aug_cfg(color_p=1.0, geo_p=0.0)
+    assert "auto_policy" not in cfg
+    out = build_train_transforms(tile_size=64, aug_cfg=cfg)(image=rgb, extra=extra, mask=mask)
+    assert out["image"].shape == rgb.shape
+    np.testing.assert_array_equal(out["extra"], extra)  # color stage never touches EXTRA
+
+
+def test_trivialaugment_runs_preserves_shape_and_mask():
+    rgb, extra, mask = _make_inputs(seed=2)
+    out = build_train_transforms(tile_size=64, aug_cfg=_auto_cfg("trivialaugment", magnitude=1.0))(
+        image=rgb, extra=extra, mask=mask)
+    assert out["image"].shape == rgb.shape and out["image"].dtype == rgb.dtype
+    np.testing.assert_array_equal(out["mask"], mask)      # photometric ops never touch the mask
+    np.testing.assert_array_equal(out["extra"], extra)    # nor EXTRA
+
+
+def test_randaugment_runs_with_num_ops():
+    rgb, extra, mask = _make_inputs(seed=3)
+    out = build_train_transforms(tile_size=64, aug_cfg=_auto_cfg("randaugment", num_ops=2, magnitude=0.5))(
+        image=rgb, extra=extra, mask=mask)
+    assert out["image"].shape == rgb.shape
+    np.testing.assert_array_equal(out["mask"], mask)
+
+
+def test_auto_policy_pool_excludes_shadow_scramblers():
+    """The op pool must omit shadow-cue scramblers (solarize/invert/posterize/equalize/
+    channelshuffle/grayscale) — RTS keys on headwall shadows + tonal contrast."""
+    from data.transforms import _AUTOAUG_EXCLUDED, _auto_policy_pool
+    names = {type(op).__name__.lower() for op in _auto_policy_pool(0.5)}
+    for banned in _AUTOAUG_EXCLUDED:
+        assert not any(banned in n for n in names), f"shadow scrambler {banned!r} leaked into pool"
+
+
+def test_auto_policy_invalid_mode_raises():
+    import pytest
+    rgb, _, mask = _make_inputs(seed=4)
+    with pytest.raises(ValueError):
+        build_train_transforms(tile_size=64, aug_cfg=_auto_cfg("autoaugment"))(image=rgb, mask=mask)

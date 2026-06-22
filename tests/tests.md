@@ -168,6 +168,11 @@ Sample-mixing augs (`data/mixing.py`, family F). Pure array ops; synthetic tiles
 | `test_extra_none_path_still_works` | RGB-only call path (no `extra` kwarg) preserved through the split | real — backward-compat for baseline RGB-only |
 | `test_pad_mask_ignore_default_is_background` | Default RandomScale pad border in the mask is background (0) — documents the baked-in baseline | real — Stage 3B A/B control |
 | `test_pad_mask_ignore_true_labels_border_ignore` | `multi_scale.pad_mask_ignore: true` labels the pad border ignore (255), not background | real — Stage 3B pad-fix (albumentations 2.x `fill_mask`) |
+| `test_auto_policy_default_none_is_handtuned` | No `auto_policy` block ⇒ hand-tuned color stage (locked baseline), EXTRA untouched | real — backward-compat for the auto-policy gate |
+| `test_trivialaugment_runs_preserves_shape_and_mask` | `auto_policy.mode=trivialaugment` runs; shape/dtype preserved; mask + EXTRA bit-identical (photometric never touches them) | real — family-F auto-policy contract |
+| `test_randaugment_runs_with_num_ops` | `auto_policy.mode=randaugment, num_ops=2` runs; shape preserved; mask untouched | real — family-F auto-policy contract |
+| `test_auto_policy_pool_excludes_shadow_scramblers` | op pool omits solarize/invert/posterize/equalize/channel-shuffle/grayscale (shadow-cue safety) | real — the RTS shadow-safety guard |
+| `test_auto_policy_invalid_mode_raises` | unknown `auto_policy.mode` → `ValueError` | shallow |
 
 ### [test_models.py](test_models.py)
 
@@ -205,6 +210,9 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_foundation_output_is_logits` | random-input outputs span beyond [0,1] | shallow — logits contract |
 | `test_foundation_extra_channels_forward_shape` | RGB+EXTRA (in_channels=4): patch-embed widened to 4, forward → `(B,1,H,W)` | real — guards the DINOv3+EXTRA adapter |
 | `test_foundation_extra_channels_zero_init_is_rgb_only_at_init` | EXTRA channels zero-init ⇒ epoch-0 invariant to EXTRA (fair F1-style start) | real — fairness/init guarantee |
+| `test_sam2_hierarchical_forward_shape` | SAM2/Hiera (`sam2_hiera_tiny`): native {/4,/8,/16,/32} pyramid → 1×1 proj (4) → FPN → `(B,1,H,W)` | real — guards the hierarchical foundation branch (2026-06-22) |
+| `test_sam2_exposes_encoder_and_head` | `.encoder.parameters()` (LP-FT/freeze) + `.segmentation_head[0]` bias-init compatible | real — integration hooks for the no-LLRD path |
+| `test_sam2_rejects_extra_channels` | SAM2/Hiera path is RGB-only (stem not exposed) → `in_channels≠3` raises `NotImplementedError` | shallow — guard |
 
 ### [test_losses.py](test_losses.py)
 

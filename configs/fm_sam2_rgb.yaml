@@ -1,0 +1,36 @@
+# Family E: SAM2 (Hiera) foundation encoder, RGB-only — the second foundation bet after
+# DINOv3. Hiera is *hierarchical* (native {/4,/8,/16,/32} pyramid), so models/foundation.py
+# uses a features_only path (1×1-project each native stage → FPN), not the ViT tap+resample
+# bridge. Gate vs EffB5-RGB ~0.830 (does SAM2 help on RGB, like DINOv3-RGB's +0.043?) and
+# against the EffB5+NDVI 0.9123 reference.
+#
+# Foundation recipe mirrors phase4_fm_dinov3_rgb (LP-FT) but with NO LLRD: the Hiera
+# features_only wrapper has no `.blocks` ModuleList, so ViT-style layer-wise LR decay can't
+# map layers → llrd_decay disabled (uniform encoder LR after the linear-probe freeze).
+# EXTRA fusion isn't supported yet (stem not exposed) → RGB-only. Base is phase0c_seed42
+# directly (config loader allows only one base level; can't chain via the dinov3 config).
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels:
+  rgb: true
+  extra: []
+model:
+  architecture: foundation
+  backbone: sam2_hiera_small
+  pretrained: true
+optimizer:
+  weight_decay: 5.0e-2
+lr_schedule:
+  frozen_lr: 1.0e-3
+  base_lr: 2.0e-4
+  backbone_lr_multiplier: 1.0
+  llrd_decay: null              # Hiera has no `.blocks`; uniform encoder LR (build_param_groups)
+  freeze_backbone_epochs: 20
+  warmup_epochs: 5
+  warmup_start_lr: 1.0e-6
+  min_lr: 1.0e-6
+  backbone_warmup_epochs: 5
+mlflow:
+  run_name: fm_sam2_rgb

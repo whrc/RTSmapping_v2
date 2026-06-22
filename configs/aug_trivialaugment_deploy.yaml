@@ -1,0 +1,25 @@
+# Augmentation family (F): TrivialAugment screen on the locked v2 deploy recipe.
+# Replaces the hand-tuned color stage with TrivialAugment (one random shadow-safe photometric
+# op per image, random strength) over a shadow-cue-preserving pool (excludes solarize/invert/
+# posterize/equalize/channel-shuffle/grayscale — RTS keys on headwall shadows + tonal contrast).
+# Single-seed screen vs the deploy 3-seed mean 0.9123; lock only if mean Δ≥G AND sign-consistent
+# + precision guard. (Mixing-aug family struck out 4/4 — this re-tests the auto-policy angle.)
+base: base_v2_fast.yaml
+seed: 42
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+  auto_policy:
+    mode: trivialaugment
+    magnitude: 1.0
+mlflow:
+  run_name: aug_trivialaugment_deploy

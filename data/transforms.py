@@ -23,6 +23,70 @@ import numpy as np
 from scipy import ndimage
 
 
+# Auto-augment op pool (RandAugment/TrivialAugment), RGB-only, **shadow-cue preserving**
+# (training.md §9.2 + plan family F). RTS detection keys on headwall shadows + tonal
+# contrast, so we EXCLUDE the shadow-cue scramblers — solarize, invert, posterize, equalize,
+# channel-shuffle, grayscale — and keep only monotonic-tonal / local-contrast / blur-noise
+# ops that preserve the shadow ordering and colour cues. `magnitude` ∈ [0,1] scales strength.
+_AUTOAUG_EXCLUDED = ("solarize", "invert", "posterize", "equalize", "channelshuffle", "togray")
+
+
+def _auto_policy_pool(magnitude: float) -> list:
+    """Shadow-safe photometric op pool for RandAugment/TrivialAugment (each applied p=1).
+
+    All ops are RGB-only and strength-scaled by `magnitude`; each still samples its own
+    magnitude within the scaled limit per call (TrivialAugment-style randomness).
+    """
+    m = float(magnitude)
+    return [
+        A.RandomBrightnessContrast(brightness_limit=0.4 * m, contrast_limit=0.4 * m, p=1.0),
+        A.HueSaturationValue(hue_shift_limit=int(20 * m), sat_shift_limit=int(30 * m),
+                             val_shift_limit=int(20 * m), p=1.0),
+        A.RandomGamma(gamma_limit=(int(100 - 40 * m), int(100 + 40 * m)), p=1.0),
+        A.Sharpen(alpha=(0.1, 0.1 + 0.4 * m), lightness=(0.8, 1.2), p=1.0),
+        A.GaussianBlur(blur_limit=(3, 3 + 2 * int(round(m))), p=1.0),
+        A.CLAHE(clip_limit=max(1.0, 4.0 * m), tile_grid_size=(8, 8), p=1.0),
+    ]
+
+
+def _build_color_stage(col: dict, auto: dict) -> A.Compose:
+    """Color stage: either the auto-policy (RandAugment/TrivialAugment) or the hand-tuned ops.
+
+    `auto.mode` ∈ {none, randaugment, trivialaugment}. Default `none` → the hand-tuned color
+    stage (locked baseline, bit-identical). RandAugment picks `num_ops` ops at fixed
+    `magnitude`; TrivialAugment picks exactly one op at random strength.
+    """
+    mode = (auto.get("mode", "none") or "none").lower()
+    if mode in ("randaugment", "trivialaugment"):
+        pool = _auto_policy_pool(auto.get("magnitude", 0.5))
+        if mode == "trivialaugment":
+            return A.Compose([A.OneOf(pool, p=1.0)])
+        n = int(auto.get("num_ops", 2))
+        return A.Compose([A.SomeOf(pool, n=n, replace=False, p=1.0)])
+    if mode != "none":
+        raise ValueError(f"augmentation.auto_policy.mode must be none|randaugment|trivialaugment; got {mode!r}")
+    return A.Compose([
+        A.RandomBrightnessContrast(
+            brightness_limit=col["brightness"],
+            contrast_limit=col["contrast"],
+            p=col["brightness_contrast_p"],
+        ),
+        A.HueSaturationValue(
+            sat_shift_limit=int(col["saturation"] * 100),
+            p=col["brightness_contrast_p"],
+        ),
+        A.GaussNoise(
+            var_limit=tuple(col["gaussian_noise"]["var_limit"]),
+            p=col["gaussian_noise"]["p"],
+        ),
+        A.CLAHE(
+            clip_limit=col["clahe"]["clip_limit"],
+            tile_grid_size=tuple(col["clahe"]["tile_grid"]),
+            p=col["clahe"]["p"],
+        ),
+    ])
+
+
 class TrainTransform:
     """Two-stage augmentation: color-only on RGB, then geometric on RGB+EXTRA+mask.
 
@@ -80,26 +144,8 @@ def build_train_transforms(
     # (albumentations 2.x uses `fill`/`fill_mask`; older `value`/`mask_value` are ignored.)
     pad_fill_mask = ignore_index if ms.get("pad_mask_ignore", False) else 0
 
-    color_stage = A.Compose([
-        A.RandomBrightnessContrast(
-            brightness_limit=col["brightness"],
-            contrast_limit=col["contrast"],
-            p=col["brightness_contrast_p"],
-        ),
-        A.HueSaturationValue(
-            sat_shift_limit=int(col["saturation"] * 100),
-            p=col["brightness_contrast_p"],
-        ),
-        A.GaussNoise(
-            var_limit=tuple(col["gaussian_noise"]["var_limit"]),
-            p=col["gaussian_noise"]["p"],
-        ),
-        A.CLAHE(
-            clip_limit=col["clahe"]["clip_limit"],
-            tile_grid_size=tuple(col["clahe"]["tile_grid"]),
-            p=col["clahe"]["p"],
-        ),
-    ])
+    # Color stage: hand-tuned ops (default) OR a shadow-safe auto-policy (RandAug/TrivialAug).
+    color_stage = _build_color_stage(col, aug_cfg.get("auto_policy", {}))
 
     geometric_stage = A.Compose(
         [

@@ -80,6 +80,28 @@ class FoundationSegmenter(nn.Module):
     def __init__(self, backbone: str, pretrained: bool, dim: int = 256, n_taps: int = 4,
                  in_channels: int = 3):
         super().__init__()
+        # SAM2/Hiera are *hierarchical* (Hiera backbone) — they emit a native {/4,/8,/16,/32}
+        # pyramid, so we skip the SimpleFeaturePyramid and just 1×1-project each native stage.
+        # An isotropic ViT (DINOv3/v2) needs the tap+resample bridge below.
+        self._hierarchical = backbone.startswith(("sam2", "hiera"))
+        if self._hierarchical:
+            if in_channels != 3:
+                raise NotImplementedError(
+                    "SAM2/Hiera foundation path is RGB-only for now — the timm features_only "
+                    "wrapper doesn't expose the patch-embed stem for EXTRA early fusion."
+                )
+            self.encoder = timm.create_model(
+                backbone, pretrained=pretrained, features_only=True, out_indices=(0, 1, 2, 3),
+            )
+            chs = self.encoder.feature_info.channels()  # e.g. [96, 192, 384, 768]
+            self.proj = nn.ModuleList([nn.Conv2d(c, dim, 1) for c in chs])
+            self.decoder = _FPNDecoder(dim)
+            self.segmentation_head = nn.Sequential(
+                nn.Conv2d(dim, 1, kernel_size=1),  # [0] = final conv (bias) for _init_output_bias
+                nn.Upsample(scale_factor=_PYRAMID_STRIDES[0], mode="bilinear", align_corners=False),
+            )
+            return
+
         self.encoder = timm.create_model(backbone, pretrained=pretrained, num_classes=0)
         if in_channels != 3:
             self._expand_patch_embed(in_channels)
@@ -124,11 +146,15 @@ class FoundationSegmenter(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         H, W = x.shape[-2:]
-        maps = self.encoder.forward_intermediates(
-            x, indices=self.tap_indices, norm=True, output_fmt="NCHW",
-            intermediates_only=True,
-        )
-        feats = self.pyramid(list(maps))
+        if self._hierarchical:
+            maps = self.encoder(x)  # native {/4,/8,/16,/32} pyramid
+            feats = [p(m) for p, m in zip(self.proj, maps)]
+        else:
+            maps = self.encoder.forward_intermediates(
+                x, indices=self.tap_indices, norm=True, output_fmt="NCHW",
+                intermediates_only=True,
+            )
+            feats = self.pyramid(list(maps))
         fused = self.decoder(feats)
         logits = self.segmentation_head(fused)
         if logits.shape[-2:] != (H, W):  # patch-grid rounding → resize to input
