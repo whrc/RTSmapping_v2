@@ -38,11 +38,20 @@ from training import visualizations as viz  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("regen_previews")
 
-# Legacy runs (phase0/2/3/5) recorded a now-dead `gs://rts-mapping-v2/...` norm path.
-# Their data_root is already local; only the norm json is unreachable. They are all
-# RGB-only, so the local superset stats (RGB + all bands) reproduce the RGB mean/std the
-# model was trained with (per-dataset z-score; corrected-split RGB stats differ negligibly).
+# Legacy runs (phase0/2/3/5) recorded now-dead `gs://rts-mapping-v2/...` data_root + norm
+# paths; the tiles + a superset stats json are mirrored locally with identical layout
+# (metadata.csv / PLANET-RGB / EXTRA / labels). They are all RGB-only, so the superset
+# stats (RGB + all bands) reproduce the RGB mean/std the model was trained with (per-dataset
+# z-score; corrected-split RGB stats differ negligibly).
+LOCAL_DATA_FALLBACK = "/outputs/v1.0/data_local"
 LOCAL_NORM_FALLBACK = "/outputs/v1.0/staging/v1_splits/normalization_stats.json"
+
+
+def _resolve_data_root(root: str) -> str:
+    """Remap a dead gs:// (or missing) data_root to the local mirror (same dir layout)."""
+    if root.startswith("gs://") or not Path(root).exists():
+        return LOCAL_DATA_FALLBACK
+    return root
 
 
 def _resolve_norm_path(norm_path: str) -> str:
@@ -59,7 +68,7 @@ def _regen_one(run_dir: Path, preview_ids: list[str]) -> str:
         return "skip (no config/ckpt)"
     cfg = yaml.safe_load(cfg_path.read_text())
     data = cfg["data"]
-    root = data["data_root"].rstrip("/")
+    root = _resolve_data_root(data["data_root"]).rstrip("/")
     extra_channels = parse_extra_spec(cfg.get("channels", {}).get("extra", []) or [])
     metadata = load_metadata(f"{root}/{data['metadata_csv']}")
 
