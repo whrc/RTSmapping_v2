@@ -85,14 +85,16 @@ _Last refreshed: 2026-06-21 21:00 — v2 final-lock 3-seed ~0.915; greedy COMPLE
 | 61 | 06-20 | phase4_extra_ndvi_sepca_seed43 / 44 | channel-sel ndvi+se_pca | corrected | 0.8949 / 0.9088 | ✅ mean 0.900 ≈ NDVI-alone (no gain) |
 | 62 | 06-21 | phase4_extra_ndvi_nbr | greedy round-1 ndvi+nbr | corrected | 0.8559 | ✅ < NDVI-alone (no add) |
 | 63 | 06-21 | phase4_extra_ndvi_tc | greedy round-1 ndvi+tc | corrected | 0.8996 | ✅ ≈ NDVI-alone (no add) |
-| 64 | 06-20 | **deploy_v1_ndvi_seed42/43/44** | **I: final-lock 3-seed (v2 recipe)** | corrected | **0.9144 / ~0.916 / 0.9156** | ✅ mean **~0.915** (+0.017 over NDVI-alone → boundary+aug additive) |
-| 65 | 06-21 | phase4_f3_full | D: F3 dual-encoder late fusion | corrected | ~0.78 (peak) | 🔵 losing — ≪ NDVI-alone |
-| 66 | 06-21 | phase4_f5_full | D: F5 cross-modal attn (8-band) | corrected | ~0.83 (peak) | 🔵 losing — ≪ NDVI-alone |
-| 67 | 06-21 | phase4_f5_ndvi_seproto | D: F5 cross-modal attn (pair) | corrected | ~0.87 (peak) | 🔵 losing — < NDVI-alone |
-| 68 | 06-21 | effb3_deploy | E: EffB3 capacity-down probe | corrected | — | 🔵 running (vs EffB5 0.915) |
-| 69 | 06-21 | aug_copypaste_deploy | F: copy-paste screen | corrected | — | 🔵 running (vs deploy 0.915) |
-| 70 | 06-21 | aug_mosaic_deploy | F: mosaic screen | corrected | — | 🔵 running |
-| 71 | 06-21 | aug_cutmix_deploy / aug_mixup_deploy | F: cutmix / mixup screens | corrected | — | ⏳ auto-dispatch |
+| 64 | 06-20 | **deploy_v1_ndvi_seed42/43/44** | **I: final-lock 3-seed (v2 recipe)** | corrected | **0.9144 / 0.9068 / 0.9156** | ✅ mean **0.9123** (spread 0.907–0.916; +0.014 over NDVI-alone 0.8985 → boundary+aug additive) — **v2 reference baseline** |
+| 65 | 06-21 | phase4_f3_full | D: F3 dual-encoder late fusion | corrected | ~0.78 (peak) | ✅ losing — ≪ NDVI-alone (still finishing; verdict set) |
+| 66 | 06-21 | phase4_f5_full | D: F5 cross-modal attn (8-band) | corrected | ~0.83 (peak) | ✅ losing — ≪ NDVI-alone (still finishing; verdict set) |
+| 67 | 06-21 | phase4_f5_ndvi_seproto | D: F5 cross-modal attn (pair) | corrected | ~0.87 (peak) | ✅ losing — < NDVI-alone |
+| 68 | 06-21 | effb3_deploy | E: EffB3 capacity-down probe | corrected | 0.9050 | ✅ Δ−0.0072 vs EffB5 0.9123 → **no-win** (capacity isn't the lever; B5 stays; B3 a ~0.7%-cheaper deploy fallback if needed) |
+| 69 | 06-21 | aug_copypaste_deploy | F: copy-paste screen | corrected | 0.8930 | ✅ Δ−0.0192 → **worst aug arm** (instance-paste breaks spatial-context/shadow cues) |
+| 70 | 06-21 | aug_mosaic_deploy | F: mosaic screen | corrected | 0.9069 | ✅ Δ−0.0054 → no-win (within deploy seed spread) |
+| 71 | 06-21 | aug_cutmix_deploy | F: cutmix screen | corrected | 0.9014 | ✅ Δ−0.0109 → no-win |
+| 72 | 06-22 | aug_mixup_deploy | F: mixup screen | corrected | — | 🔵 running (ep71, vs deploy 0.9123) |
+| 73 | 06-22 | phase4_fm_dinov3_ndvi | D/E: DINOv3+NDVI (fair foundation test) | corrected | — | 🔵 running (ep45/~120; slow ViT) — gate vs EffB5+NDVI 0.9123 |
 
 ---
 
@@ -119,11 +121,13 @@ Plan: `.claude/plans/elegant-exploring-lemur.md`. Family scheme (replacing the o
 
 **✅ Locked:** A (μ₀=0.7912, G=0.0112) · B (data plateau) · C (focal·ignore_w2) · D (**EXTRA=NDVI** + **F0** channel-stack) ·
 E (UNet++/EffB5 — decoders lose) · F (drop-RandomScale; keep photometric+CLAHE) · G (default sampling) ·
-I (v2 recipe 3-seed **~0.915**, pending pre-ship screens). Infra: `base_v2_fast` stop-fix · bootstrap metric · gate policy (mean Δ≥G **and** 3-seed sign-consistency).
+I (v2 recipe 3-seed mean **0.9123**, spread 0.907–0.916; pending DINOv3 fair test). Infra: `base_v2_fast` stop-fix · bootstrap metric · gate policy (mean Δ≥G **and** 3-seed sign-consistency).
 
-**🔵 In-progress (running):** F3/F5 heavy-fusion screens (losing → confirm F0) · EffB3 probe · mixing-aug screens (copy-paste / mosaic / cutmix / mixup).
+**🔵 In-progress (running):** mixup screen (ep71) · **DINOv3+NDVI** (ep45/~120, slow ViT — the long pole) · F3/F5 finishing (verdict already set: lose to F0).
 
-**⏳ To-do before v2 ship:** E DINOv3+NDVI (fair test — adapter built) · E SAM2 · F RandAug/TrivialAug + annealing · H calibration (temp + threshold + D4-TTA) · seed-confirm any screen winner · report.html overhaul (EXTRA-decision + reasoning check · locked-decisions · training-overview dashboard) · A–K ledger narrative reorg.
+**✅ Screens landed 06-22 (all no-win vs deploy 0.9123, single-seed — none earns a seed-confirm):** EffB3 0.9050 (Δ−0.007) · copy-paste 0.8930 (Δ−0.019) · mosaic 0.9069 (Δ−0.005) · cutmix 0.9014 (Δ−0.011). **Mixing-aug family (F) is striking out** → reprioritize remaining GPU/effort toward representation (DINOv3+NDVI, SAM2), not more augmentation; **RandAug/TrivialAug + annealing deprioritized by this evidence** (4/4 aug arms no-win — consistent with the representation-limited, not regularization-limited, diagnosis).
+
+**⏳ To-do before v2 ship:** E DINOv3+NDVI (running) · E SAM2 (build) · H calibration (temp + threshold + D4-TTA) · report.html overhaul (EXTRA-decision + reasoning check · locked-decisions · training-overview dashboard) · A–K ledger narrative reorg. (F RandAug/annealing → deprioritized, see above.)
 
 **⏸️ Conditional (gated on a trigger):** H scale-TTA (scale-transfer test) · J hard-neg mining (post first inference) · K MAE (user-go; end-stage parallel w/ inference) · context-expansion multi-scale (post-inference map review) · val-negative growth (if bootstrap readout becomes decisive) · ensemble (decide at final lock).
 
@@ -138,6 +142,9 @@ I (v2 recipe 3-seed **~0.915**, pending pre-ship screens). Infra: `base_v2_fast`
 | RandomScale downscale aug | F | **tested → dropped** — 3-seed A/B: removing it +0.016 (all seeds) |
 | F2 channel-attention (full 8-band) | D | **tested → collapsed** (0.827) |
 | F3 dual-encoder / F5 cross-modal attn | D | **tested → lose to F0** (≪ NDVI-alone) — heavy fusion extracts less than the stack |
+| Mixing augs: copy-paste / mosaic / cutmix / mixup | F | **tested → no-win** (06-22; 0.893 / 0.907 / 0.901 / running vs deploy 0.9123) — copy-paste worst (breaks spatial-context/shadow cues) |
+| EffB3 capacity-down | E | **tested → no-win** (0.9050, Δ−0.007 vs EffB5) — capacity isn't the lever; kept as a cheaper deploy fallback only |
+| RandAugment / TrivialAugment + aug-strength annealing | F | **deprioritized 06-22** — 4/4 aug screens struck out → low EV; aug is not the lever (representation-limited). Revisit only if a representation win reopens headroom |
 | SegFormer (mit_b5) | E | **dropped** — low value on a plateau; foundation is the better transformer bet |
 | EffB7 | E | **dropped** — overfit risk on a plateau (bound-only) |
 | UNet3+ | E | **dropped** — condition unmet (no decoder family moved the gate) |

@@ -38,6 +38,19 @@ from training import visualizations as viz  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("regen_previews")
 
+# Legacy runs (phase0/2/3/5) recorded a now-dead `gs://rts-mapping-v2/...` norm path.
+# Their data_root is already local; only the norm json is unreachable. They are all
+# RGB-only, so the local superset stats (RGB + all bands) reproduce the RGB mean/std the
+# model was trained with (per-dataset z-score; corrected-split RGB stats differ negligibly).
+LOCAL_NORM_FALLBACK = "/outputs/v1.0/staging/v1_splits/normalization_stats.json"
+
+
+def _resolve_norm_path(norm_path: str) -> str:
+    """Remap a dead gs:// (or missing) norm path to the local superset stats json."""
+    if norm_path.startswith("gs://") or not Path(norm_path).exists():
+        return LOCAL_NORM_FALLBACK
+    return norm_path
+
 
 def _regen_one(run_dir: Path, preview_ids: list[str]) -> str:
     cfg_path = run_dir / "config.yaml"
@@ -55,7 +68,7 @@ def _regen_one(run_dir: Path, preview_ids: list[str]) -> str:
         tile_ids=preview_ids, metadata=metadata, data_root=root,
         rgb_dir=data["rgb_dir"], extra_dir=data["extra_dir"], labels_dir=data["labels_dir"],
         extra_channels=extra_channels,
-        norm_stats_path=data["normalization_stats_path"],
+        norm_stats_path=_resolve_norm_path(data["normalization_stats_path"]),
         transform=build_eval_transforms(),
         tile_size=int(data["tile_size"]), label_ignore_index=int(data["label_ignore_index"]),
         boundary_handling="none",
