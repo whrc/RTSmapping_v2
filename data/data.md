@@ -35,6 +35,8 @@
 
 The full EXTRA channel layout — group IDs, band indices, total band count — lives in §9 (single source of truth). Other auxiliary sources (ArcticDEM derivatives, NDMI, SAR backscatter, etc.) were considered but not included; see §9 for the deferred-to-a-later-iteration list.
 
+Sentinel-2 is also exported as standalone **RGB(+NIR) imagery** for a separate pure-S2 RTS model (74–84°N where no PlanetScope exists, plus the South) — distinct from the EXTRA channels above. Spec/usage: [`data/s2_rgb_data.md`](s2_rgb_data.md); design: [`docs/s2_extra_data_prep.md`](../docs/s2_extra_data_prep.md).
+
 ### 1.3 Secondary Training Data (Optional)
 
 | Source | Resolution | Volume | Use Case |

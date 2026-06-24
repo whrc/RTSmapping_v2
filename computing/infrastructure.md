@@ -86,7 +86,8 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 | `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2-alpha training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
 | `gs://rts-mapping-v2/` | PDG | Compute-adjacent **training** data, outputs, artifacts, deployment packages | Region **US (multi-region)** — verified 2026-06-15. |
 | `gs://pdg-planet-data/` | PDG | **2025 Planet basemap quads** (pan-arctic inference input) | Region **US-WEST1 (single)** — verified 2026-06-15. Drives the inference region. |
-| `gs://woodwell-rts-inference-arts-south/` | PDG | **Inference I/O** (probability COGs, masks, vectors, logs) + 2025 EXTRA tiles + deployment-package copy | **us-west1 (single region)** — co-located with `pdg-planet-data` + the inference fleet → egress-free. (To be created.) |
+| `gs://woodwell-rts-inference-arts-south/` | PDG | **Inference I/O** (probability COGs, masks, vectors, logs) + deployment-package copy | **us-west1 (single region)** — co-located with `pdg-planet-data` + the inference fleet → egress-free. (To be created.) |
+| `gs://rts-mapping-v2-usw1/` | PDG | **Sentinel-2 imagery** (`S2_RGB/<year>_<region>/` cells) for the pure-S2 model + the Planet-model NDVI source | **us-west1 (single region)** — created **2026-06-24**. egress-free for the us-west1 inference fleet. NDVI is derived on-the-fly from these composites (B8/B4), not stored separately. |
 
 **Region co-location (verified 2026-06-15):** bucket regions — `pdg-planet-data` = **us-west1**,
 `rts-mapping-v2` = **US multi-region**, `abrupt_thaw` = **US multi-region**. **Training** runs in
@@ -139,14 +140,36 @@ All VMs are in the **PDG project**. Daily start/stop/SSH workflow:
 | `ml-training-vm` | us-west1-b | single NVIDIA A100-40GB | **STOPPED 2026-06-12** (superseded; boot disk kept) | — |
 | `gpu-vm-l4` | us-west1-a | NVIDIA L4 (23 GB) | **Deprecated** | — |
 
+### Conventions (2026-06-23)
+
+- **VM naming:** every project-owned VM is named with the **`rts-`** prefix (GCE names disallow
+  underscores) so our instances are identifiable in the shared org project. **Not all VMs in the
+  project are ours** — e.g. the pre-existing `download-vm` (n2-standard-4, us-west1-a) is **not ours;
+  do not touch it**.
+- **Control node:** `a100-8x-train` (us-central1-a) drives the other VMs' lifecycle + jobs via
+  `gcloud compute instances …` and `gcloud compute ssh rts-… --command "…"` over **external IP**
+  (IAP is not authorized, §8) — so no VSCode Remote-SSH target switch is needed to operate them.
+
+### Granted quota (us-west1, 2026-06-23)
+
+For the inference fleet + S2 download VM: **`NVIDIA_L4_GPUS` 8→32** and **`CPUS` 246→480** (both
+granted in full). `GPUS_ALL_REGIONS` stays 360 (≫ the ~40 needed; the +40→400 ask was denied but is
+irrelevant). Preemptible-L4 not raised (still 8) → request `PREEMPTIBLE_NVIDIA_L4_GPUS=32` only if the
+bulk inference pass is run on Spot.
+
 ### Planned
 
-- **Inference fleet `rts-infer-usw1` — 2× `g2-standard-96` = 16× NVIDIA L4, us-west1** (decided
-  2026-06-15, `inference.md §2.1`). Pan-arctic inference (forward-only bf16, GCS-I/O-bound → no A100
-  needed); co-located with `pdg-planet-data` (us-west1). ~$15/hr on-demand (~$5/hr Spot); a full
-  ~7.5M-tile pass ≈ 3–9 h ≈ **$30–90**. Spot for the bulk pass (resume via `inference_log.json`),
-  on-demand for finals; **stop when idle** (L4 low-stockout). Quota ask: `NVIDIA_L4_GPUS=16` + g2 vCPU,
-  us-west1. Outputs → `gs://woodwell-rts-inference-arts-south`.
+- **Inference fleet `rts-infer-usw1` — 4× `g2-standard-96` = 32× NVIDIA L4, us-west1** (decided
+  2026-06-17, `inference.md §2.1`; **quota granted 2026-06-23**, creatable now). Pan-arctic inference
+  (forward-only bf16, GCS-I/O-bound → no A100 needed); co-located with `pdg-planet-data` (us-west1).
+  ~$15/hr on-demand (~$5/hr Spot). Spot for the bulk pass (resume via `inference_log.json`), on-demand
+  for finals; **stop when idle** (L4 low-stockout). Outputs → `gs://woodwell-rts-inference-arts-south`.
+  **Creation deferred to inference-time** (avoid idle GPU billing; a stopped VM does not hold L4 stock,
+  so a reservation would be the only true capacity hedge — not worth the standing cost yet).
+- **S2 download VM `rts-s2-download` — CPU-only (e.g. `c2d-standard-32`), Spot, us-west1** (doc
+  `docs/s2_extra_data_prep.md §7`). GEE export is server-side → no GPU. Drives the Sentinel-2 RGB +
+  NDVI-EXTRA download; stop-when-idle. Created fresh (the existing `download-vm` is not ours). Created
+  at the bulk-run step, after the visual-QC gate.
 - **8×H100 upgrade (`a3-highgpu-8g`) when quota lands** — the 2×H100 (`a3-highgpu-2g`) spin-retry
   was stopped 2026-06-12 after the 8×A100 node landed.
   - Still required for multi-node scale-out: a parallel-experiment orchestrator and a
@@ -181,6 +204,11 @@ over stopping for short idles (`experiments.md §13`).
 - **Built locally on the L4 VM**, not via Cloud Build — the org project's Cloud Build SA lacks
   Artifact Registry push permission (§8). Auth via ADC (`docker login us-west1-docker.pkg.dev`).
 - Build/run details: [docker_training.md](docker_training.md).
+- **`earthengine-api` is NOT in the current `:v2` image** (it post-dates the build) — the 2024 EXTRA
+  + tiling were done in Colab. The Sentinel-2 download (`scripts/export_s2_composites.py`,
+  `generate_extra_tiles.py`, `qc_s2_preview.py`) needs it; for now `pip install earthengine-api` at
+  container start (CPU-only, not latency-sensitive). **TODO:** rebuild the image with current
+  `requirements.txt` (which already pins `earthengine-api>=1.0`) and bump the tag.
 
 ---
 
@@ -208,10 +236,13 @@ The PDG project is organization-managed; we cannot edit its IAM. Consequences:
 - **IAP tunneling is not authorized** — connect to VMs over their **external IP** (managed by
   `vmup.ps1`, see vm_instruction.md). `gcloud compute start-iap-tunnel` returns `4033 not
   authorized`.
-- **GCS auth from VMs/containers** uses Application Default Credentials — run
+- **GCS + Earth Engine auth from VMs/containers** use Application Default Credentials — run
   `gcloud auth application-default login` once, then mount
   `~/.config/gcloud/application_default_credentials.json` into the container
-  (`GOOGLE_APPLICATION_CREDENTIALS`).
+  (`GOOGLE_APPLICATION_CREDENTIALS`). On `a100-8x-train` ADC was (re)created **2026-06-23** as
+  `yyang@woodwellclimate.org` (the prior path was a broken empty *directory* — writes/EE silently
+  failed; remove it before re-login). Same ADC powers `ee.Initialize(project='pdg-project-406720',
+  opt_url='https://earthengine-highvolume.googleapis.com')`.
 - **Authorized networks** — after a network change, your SSH source IP may need re-authorizing
   (vm_instruction.md Appendix A.2).
 - Some credentials lack `compute.instances.list` / bucket `storage.objects.list` — use your own

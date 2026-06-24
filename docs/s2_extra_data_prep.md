@@ -106,6 +106,15 @@ If the visual check passed, download runs:
 
 ## 4. Track 2 — Planet-model inference EXTRA channels
 
+> **Implementation update (2026-06-24).** Benchmarking killed the per-tile route at inference scale:
+> `generate_extra_tiles.py` runs at **~2.5 tiles/s** (64 workers) and ~1.1 MB/tile → **~192 VM-days and
+> ~45 TB** for all 41.57M tiles. The 45 TB is pure redundancy (33% tile overlap × millions of tiny
+> poorly-compressing float files), not information. **New plan: derive NDVI from the bulk S2 composites
+> (Track 1) and window it on-the-fly at inference** — exactly how inference already reads RGB from the
+> Planet quads. No per-tile GEE, no 45 TB. The CSV-bbox generator change below still stands and is the
+> right tool for **training** EXTRA / small AOIs, just not the 41.57M inference set. Follow-up (inference
+> component): add an "NDVI from S2-composite window" reader alongside the RGB-quad reader.
+
 **Reuse, don't rebuild.** `scripts/generate_extra_tiles.py` + `data/extra_channels.py` (already merged)
 produce the per-tile EXTRA stack in EPSG:3857 from each PLANET-RGB footprint, querying GEE
 (Sentinel-2 + Google Satellite Embedding). It is resumable, multi-threaded, and parameterized by
@@ -170,18 +179,23 @@ proceed to the next step after confirmation with the desired label matchness.
 | 6.1 | **2024 South extent** | label-bearing Planet South only *vs* full Planet South | Label regions only (cheaper; 2024 is training-side) |
 | 6.2 | **Final S2 bands** | — | **Placeholder — lock after channel-selection experiments** |
 | 6.3 | **North-2024 CRS fix** | re-export in 3857 *vs* reproject existing 3413 tiles | Re-export (avoids resampling artifacts; cheap via GEE) |
-| 6.4 | **Bucket** | keep `gs://pdg-storage-default/sentinel2/…` *vs* co-locate in PDG `gs://rts-mapping-v2` (VM region) | Co-locate in `rts-mapping-v2` to cut cross-project/region egress |
+| 6.4 | **Bucket** | keep `gs://pdg-storage-default/sentinel2/…` *vs* co-locate in PDG `gs://rts-mapping-v2` (VM region) | **DECIDED 2026-06-24:** created **`gs://rts-mapping-v2-usw1`** (us-west1 *single-region*) — refines the original (multi-region `rts-mapping-v2`) so the us-west1 inference fleet reads egress-free. S2 imagery under `S2_RGB/<job>/`. |
 | 6.5 | **Track-2 footprint source** | materialize 41.5M per-tile Planet-RGB GeoTIFFs to disk *vs* drive EXTRA generation from the existing 2025 inference tile-grid CSV bboxes | Drive from `tiles_2025q3_domain_full.csv` — the generator needs only bounds, which the CSV already has. Avoids a phantom multi-TB RGB-tile ingest; costs only a small generator change |
 | 6.6 | **Pure-S2 North model CRS** (74–84°N) | EPSG:3857 (shared pipeline, ~5–6× distortion) *vs* EPSG:3413 (polar-stereographic, low distortion, second pipeline) | EPSG:3857 — single pipeline shared with the South. Unlike the Planet model, 3857 is *not* forced here (no Planet to co-register against), so this is a deliberate accept of the distortion, sign off explicitly |
 
 ---
 
-## 7. Compute 
+## 7. Compute
 
-- **VM:** one dedicated **CPU** VM (the GEE export runs server-side; EXTRA generation and tiling are
-  embarrassingly parallel I/O + light CPU). High-vCPU, **Spot/preemptible**, no GPU; stopped when idle.
-  Provision per [computing/vm_instruction.md](../computing/vm_instruction.md). Claude code can decide the
-  VM type and report quota to request manually, then create the VM automatically.
+- **Bulk composite export needs no VM.** The GEE `Export.image.toCloudStorage` jobs run **server-side**
+  and write COGs straight to GCS; the launcher (`scripts/export_s2_composites.py`) only submits tasks, so
+  it runs in a container on the existing **`a100-8x-train` control node** (`gcloud`-driven, no new VM).
+  **Run status (2026-06-24):** launched 2025 South (1799 cells) + 2025 North (272) + 2024 train footprint
+  (1063, label-region §6.1) → `gs://rts-mapping-v2-usw1/S2_RGB/`; ~5–6 TB total; resumable.
+- **A CPU VM is only needed later for *local* post-processing** (S2-RGB model tiling / any local NDVI
+  windowing) — provision a fresh **`rts-`-prefixed** Spot CPU VM in us-west1 then, per
+  [computing/infrastructure.md](../computing/infrastructure.md). (The pre-existing `download-vm` is **not
+  ours** — don't use it.)
 
 ---
 

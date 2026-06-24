@@ -98,6 +98,27 @@ EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine 
 | `test_se_bands_projection_and_cosine` | With `fetch_se_raw` mocked: `se_bands` returns {2,3,4,5} of shape (H,W); SE_PROTO ∈ [-1,1]; SE_PCA1 == manual `flat @ component[0]` projection | real — SE derivation math |
 | `test_se_bands_nan_propagates` | A no-coverage (NaN) SE pixel yields NaN SE bands; finite pixels stay finite (matches S2 NaN handling) | real |
 
+### [test_generate_extra_tiles.py](test_generate_extra_tiles.py)
+
+Covers the CSV-bbox footprint source added for the 2025 inference EXTRA handoff (doc §6.5) — pure logic only; the GEE fetch is not exercised.
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_load_ids_and_bounds_inference_schema` | `tile_id,minx,miny,maxx,maxy` CSV → ids + correct `{id: bounds}` map | real |
+| `test_load_ids_training_schema_has_no_bounds` | Legacy `Tile_ID` CSV (no bbox cols) → ids only, bounds `None` (falls back to `--rgb-dir`) | real |
+| `test_profile_from_bounds_coregisters` | Profile is EPSG:3857, 512², 8-band float32; transform maps pixel (0,0)→(minx,maxy) and (512,512)→(maxx,miny) | real — co-registration contract |
+| `test_write_bands_creates_then_resumes` | First write creates 8-band NaN stack + fills NDVI; tile "done" for `--groups s2` only once {0,1,6,7} all non-NaN | real — resumability |
+
+### [test_export_s2_composites.py](test_export_s2_composites.py)
+
+Covers the bulk S2 export grid/domain geometry (doc §3); EE + GCS not exercised.
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_latlon_grid_aligns_and_covers` | `latlon_grid` cells are origin-aligned `dlon×dlat` and cover the bbox corners | real |
+| `test_cell_id_deterministic_and_sign_safe` | `cell_id` stable + sign-safe (`W1500_N0740`, `E0000_S0025`); distinct corners → distinct ids | real |
+| `test_domain_cells_keeps_only_intersecting` | Cells filtered to those intersecting the (reprojected) domain polygon; clip ⊆ domain ∩ cell; far cell excluded | real |
+
 ### [test_sampler.py](test_sampler.py)
 
 | Test | Checks | Strictness |

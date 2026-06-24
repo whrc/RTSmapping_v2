@@ -102,24 +102,36 @@ def _fetch(image, grid: dict, band_names: list[str]) -> dict[str, np.ndarray]:
     return {b: np.asarray(arr[b], dtype="float32") for b in band_names}
 
 
-def s2_image(bounds, year: int):
-    """ee.Image with bands ndvi, nbr, tcb, tcw — Jul–Sep `year` median composite."""
+def s2_sr_composite(geom, year: int):
+    """Cloud-masked Jul–Sep `year` median S2 surface-reflectance composite.
+
+    The single source of truth for the Sentinel-2 recipe (collection, window,
+    cloud filter, QA60 mask, median, /10000 → reflectance) over `S2_BANDS`.
+    `geom` is an ``ee.Geometry`` (e.g. a tile bbox or a grid cell). Both the EXTRA
+    index derivation (``s2_image``) and the bulk RGB+NIR export
+    (``scripts/export_s2_composites.py``) build on this so the two products match
+    (CLAUDE Rule 3/5)."""
     import ee
-    bbox = _bbox(bounds)
 
     def mask_clouds(img):
         qa = img.select("QA60")
         m = qa.bitwiseAnd(1 << 10).eq(0).And(qa.bitwiseAnd(1 << 11).eq(0))
         return img.updateMask(m)
 
-    s2 = (ee.ImageCollection(S2_COLLECTION)
-          .filterBounds(bbox)
-          .filterDate(f"{year}{S2_WINDOW[0]}", f"{year}{S2_WINDOW[1]}")
-          .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", S2_CLOUD_PCT))
-          .map(mask_clouds)
-          .select(S2_BANDS)
-          .median()
-          .divide(10000))
+    return (ee.ImageCollection(S2_COLLECTION)
+            .filterBounds(geom)
+            .filterDate(f"{year}{S2_WINDOW[0]}", f"{year}{S2_WINDOW[1]}")
+            .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", S2_CLOUD_PCT))
+            .map(mask_clouds)
+            .select(S2_BANDS)
+            .median()
+            .divide(10000))
+
+
+def s2_image(bounds, year: int):
+    """ee.Image with bands ndvi, nbr, tcb, tcw — Jul–Sep `year` median composite."""
+    import ee
+    s2 = s2_sr_composite(_bbox(bounds), year)
     b4, b8, b12 = s2.select("B4"), s2.select("B8"), s2.select("B12")
     ndvi = b8.subtract(b4).divide(b8.add(b4)).rename("ndvi")
     nbr = b8.subtract(b12).divide(b8.add(b12)).rename("nbr")
