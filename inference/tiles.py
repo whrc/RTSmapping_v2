@@ -39,6 +39,28 @@ S2_NIR_BAND = 4   # B8
 _READ_ATTEMPTS = 4
 _RETRY_BASE_DELAY_S = 1.0
 
+# A quad/cell listed in the index but ABSENT from the bucket is a real data gap
+# (e.g. pdg-planet-data quad 1459-1437, whose neighbours all exist) — GDAL raises
+# an open error whose message says the object "does not exist". Such a gap must
+# degrade to NoData for its footprint (§5.3), NOT crash the whole run, and must
+# not burn the transient-error retry budget. Distinct from a transient GCS/network
+# error, which still gets retried.
+_MISSING_OBJECTS: set[str] = set()
+
+
+def _is_missing_object(exc: Exception) -> bool:
+    """True if a rasterio error means the object does not exist (a data gap)."""
+    msg = str(exc).lower()
+    return "does not exist" in msg or "no such file" in msg
+
+
+def _note_missing_object(path: str) -> None:
+    """Log each absent object once per worker (one quad spans ~36 overlapping tiles)."""
+    if path not in _MISSING_OBJECTS:
+        _MISSING_OBJECTS.add(path)
+        logger.warning("Object absent from bucket — treating as no-coverage (NoData) "
+                       "for its footprint: %s", path)
+
 # --- Per-worker open-dataset cache (inference.md §11.3 quad-cache) -----------
 # At stride 344 each quad is re-opened by ~36 overlapping tiles; over /vsigs/
 # every open is a GCS auth + COG-header round-trip that dominated throughput
@@ -88,6 +110,8 @@ class _OpenDatasetCache:
             try:
                 return rasterio.open(path)
             except rasterio.errors.RasterioIOError as exc:
+                if _is_missing_object(exc):
+                    raise  # real gap: don't spend the retry budget; the caller skips it
                 last_exc = exc
                 delay = _RETRY_BASE_DELAY_S * 2 ** attempt
                 logger.warning("Open failed (%s) attempt %d/%d: %s; retrying in %.0fs",
@@ -107,6 +131,8 @@ def _read_with_cache(path: str, read_fn):
         try:
             return read_fn(_DATASET_CACHE.get(path))
         except rasterio.errors.RasterioIOError as exc:
+            if _is_missing_object(exc):
+                raise  # real gap: surface immediately so the caller can skip it
             last_exc = exc
             _DATASET_CACHE.evict(path)
             delay = _RETRY_BASE_DELAY_S * 2 ** attempt
@@ -228,8 +254,14 @@ def read_tile(
     res_y = (maxy - miny) / tile_size_px
 
     for _, quad in hits.iterrows():
-        data = _read_window_with_retry(quad["gcs_path"], bbox,
-                                       out_size=None if scale == 1.0 else tile_size_px)
+        try:
+            data = _read_window_with_retry(quad["gcs_path"], bbox,
+                                           out_size=None if scale == 1.0 else tile_size_px)
+        except rasterio.errors.RasterioIOError as exc:
+            if _is_missing_object(exc):  # §5.3: absent quad → no coverage here (stays NoData)
+                _note_missing_object(quad["gcs_path"])
+                continue
+            raise
         if data.shape[1] != tile_size_px or data.shape[2] != tile_size_px:
             raise ValueError(
                 f"Quad {quad['quad_id']} window is {data.shape[1:]} for a "
@@ -295,7 +327,13 @@ def read_ndvi_tile(
 
     ndvi = np.full((tile_size_px, tile_size_px), np.nan, dtype=np.float32)
     for _, cell in hits.iterrows():
-        bands = _read_with_cache(cell["gcs_path"], _read)
+        try:
+            bands = _read_with_cache(cell["gcs_path"], _read)
+        except rasterio.errors.RasterioIOError as exc:
+            if _is_missing_object(exc):  # absent S2 cell → no NDVI coverage (stays NaN)
+                _note_missing_object(cell["gcs_path"])
+                continue
+            raise
         red, nir = bands[0], bands[1]
         denom = nir + red
         with np.errstate(invalid="ignore", divide="ignore"):

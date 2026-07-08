@@ -165,6 +165,38 @@ def test_read_tile_outside_coverage_is_all_nodata(quad_setup):
     assert nodata.all()
 
 
+def test_is_missing_object_distinguishes_gap_from_transient():
+    from rasterio.errors import RasterioIOError
+
+    from inference.tiles import _is_missing_object
+    assert _is_missing_object(RasterioIOError(
+        "'/vsigs/pdg-planet-data/.../1459-1437_quad_file_format.tif' does not exist "
+        "in the file system, and is not recognized as a supported dataset name."))
+    assert _is_missing_object(RasterioIOError("file.tif: No such file or directory"))
+    assert not _is_missing_object(RasterioIOError("HTTP response code: 503"))  # transient → retry
+
+
+def test_read_tile_missing_quad_degrades_to_nodata(tmp_path):
+    """A quad listed in the index but absent from the bucket must yield NoData for
+    its footprint (§5.3), not crash — the pan-Arctic gap that stalled the South run."""
+    minx, miny, maxx, maxy = quad_bounds(QX, QY)
+    idx = pd.DataFrame([{"quad_id": f"{QX}-{QY}", "x": QX, "y": QY,
+                         "gcs_path": str(tmp_path / "absent_quad_file_format.tif"),
+                         "udm2_path": "", "minx": minx, "miny": miny,
+                         "maxx": maxx, "maxy": maxy}])
+    rgb, nodata = read_tile((minx, miny, maxx, maxy), idx)  # must not raise
+    assert nodata.all() and (rgb == 0).all()
+
+
+def test_read_ndvi_missing_cell_degrades_to_nan(tmp_path):
+    """Absent S2 cell → NDVI stays NaN for its footprint, no crash."""
+    minx, miny, maxx, maxy = quad_bounds(QX, QY)
+    idx = pd.DataFrame([{"gcs_path": str(tmp_path / "absent.tif"),
+                         "minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy}])
+    ndvi = read_ndvi_tile((minx, miny, maxx, maxy), idx)  # must not raise
+    assert np.isnan(ndvi).all()
+
+
 def test_read_tile_scale05_expands_fov(quad_setup):
     # bbox covering the WHOLE quad at scale 0.5 with tile_size 256: the quad's
     # 512 native px decimate to 256 -> uniform fill survives bilinear.

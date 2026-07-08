@@ -458,6 +458,9 @@ Inference pipeline (`inference/` + grid/merge entry scripts), GPU-free. Fixtures
 | `test_read_tile_interior` | full-quad window read, no NoData | real |
 | `test_read_tile_straddles_quads` | tile spanning 2 quads mosaics correctly; alpha=0 → NoData | real — §4.1 quad-straddling |
 | `test_read_tile_outside_coverage_is_all_nodata` | no indexed quad → all-NoData | real — §5.3 |
+| `test_is_missing_object_distinguishes_gap_from_transient` | "does not exist"/"no such file" → gap (skip); "HTTP 503" → transient (retry) | real — the missing-quad classifier |
+| `test_read_tile_missing_quad_degrades_to_nodata` | quad in the index but absent from the bucket → NoData footprint, no crash (the gap that stalled South) | real — §5.3 robustness |
+| `test_read_ndvi_missing_cell_degrades_to_nan` | absent S2 cell → NDVI stays NaN, no crash | real — §5.3 robustness |
 | `test_dataset_normalizes_and_mean_substitutes` | NoData pixels mean-substituted pre-z-score (normalize to 0); valid pixels z-scored | real — §5.3/§4.4 parity |
 | `test_dataset_flags_all_nodata` | all-NoData tile flagged for skip+manifest | real |
 | `test_dataset_rejects_missing_columns` | tile-list schema guard | shallow |
