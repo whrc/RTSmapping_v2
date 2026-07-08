@@ -95,14 +95,17 @@ with a crash-loop guard; a silent single-GPU failure self-heals. Plus **sharded 
 (`assemble_region --cog-tile-px`) for the ~40× South extent (parallel super-tile COGs + `.vrt`; Banks path
 unchanged).
 
-**MEASURED + TUNED throughput.** At the launch default (8 workers) the run was **I/O-bound on
-cross-region reads** (us-central1 master ← us-west1 data) at ~12 t/s/A100 → ~5 d — *not* the 1.8 d the
-write-fix note projected (that 33 t/s was an **in-region** rate). With **~61 idle vCPUs**, raising
-`--num-workers 8→16` hid the read latency and **~doubled throughput to ~24 t/s/A100 (~217 t/s aggregate)
-→ ETA ~2.3 days**, GPU util now dense 68–100% (near the in-region ceiling). 16 is now the launcher
-default. (Higher isn't free — per-worker §11.3 quad-cache fragmentation eventually re-inflates opens.)
-SSoT corrected: `infrastructure.md` §region/throughput + `inference.md`. **Post-run:** assemble (sharded
-COG) → vectorize → products; delete stale `rts-mapping-v2-usc1`.
+**MEASURED + TUNED throughput + a mid-run hotfix.** 8 workers was **I/O-bound on cross-region reads**
+(us-central1 master ← us-west1 data) at ~12 t/s/A100; with ~61 idle vCPUs, `--num-workers 8→16` hid the
+read latency (16 is the launcher default; higher regresses via §11.3 per-worker quad-cache fragmentation
+— confirmed reasoning, not tried). **Hotfix `0a263f6`:** the run hit `pdg-planet-data` quad **1459-1437**,
+listed in the index but genuinely **missing** (neighbours present) — the read path retried the "does not
+exist" error as transient then crashed the DataLoader worker (28 restarts in 16.5 h, and the poison shard
+could never complete). Fixed: an absent quad/cell degrades to NoData (§5.3), not a crash; skips the retry
+budget; +3 tests. Rebuilt `rts-infer:v1` + redeployed (503 done shards preserved). **Now clean:
+~28 t/s/A100 (~224 t/s aggregate) → ETA ~2 days, 0 crashes, util ~100%; the one gap logged once per
+worker for the coverage audit.** SSoT: `infrastructure.md` §region/throughput + `inference.md`.
+**Post-run:** assemble (sharded COG) → vectorize → products; delete stale `rts-mapping-v2-usc1`.
 
 **Master `a100-8x-train` never stop/rename (A100 scarcity, ~500-retry acquire; on inference ~5 d → no v3
 training meanwhile); shared PDG project — only touch our `rts-`/`rts-infer-*` resources.** Branch
