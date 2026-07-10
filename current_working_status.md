@@ -95,17 +95,23 @@ with a crash-loop guard; a silent single-GPU failure self-heals. Plus **sharded 
 (`assemble_region --cog-tile-px`) for the ~40× South extent (parallel super-tile COGs + `.vrt`; Banks path
 unchanged).
 
-**MEASURED + TUNED throughput + a mid-run hotfix.** 8 workers was **I/O-bound on cross-region reads**
-(us-central1 master ← us-west1 data) at ~12 t/s/A100; with ~61 idle vCPUs, `--num-workers 8→16` hid the
-read latency (16 is the launcher default; higher regresses via §11.3 per-worker quad-cache fragmentation
-— confirmed reasoning, not tried). **Hotfix `0a263f6`:** the run hit `pdg-planet-data` quad **1459-1437**,
-listed in the index but genuinely **missing** (neighbours present) — the read path retried the "does not
-exist" error as transient then crashed the DataLoader worker (28 restarts in 16.5 h, and the poison shard
-could never complete). Fixed: an absent quad/cell degrades to NoData (§5.3), not a crash; skips the retry
-budget; +3 tests. Rebuilt `rts-infer:v1` + redeployed (503 done shards preserved). **Now clean:
-~28 t/s/A100 (~224 t/s aggregate) → ETA ~2 days, 0 crashes, util ~100%; the one gap logged once per
-worker for the coverage audit.** SSoT: `infrastructure.md` §region/throughput + `inference.md`.
-**Post-run:** assemble (sharded COG) → vectorize → products; delete stale `rts-mapping-v2-usc1`.
+**SOUTH INFERENCE COMPLETE + reconciled (2026-07-10).** All **2079/2079 shards done**, 0 outstanding
+claims, all 8 GPUs exited 0 (queue drained). **Coverage reconciled exactly:** the per-shard manifests sum
+to **41,567,572 tiles** (41,551,451 prob COGs + 16,121 all-NoData off-coverage) — every domain tile
+accounted for exactly once. ~2.1 d wall on the fixed image, **0 crashes post-fix**. **Only 3 coverage
+gaps** — `pdg-planet-data` quads `1459-1437`, `1153-1566`, `1189-1531` genuinely absent (3 of 309,101 ≈
+0.001%), each skipped gracefully to NoData by the hotfix. Output at `…/2025q3_south/probs/<shard>/`.
+
+Throughput history: 8 workers was I/O-bound on cross-region reads (~12 t/s/A100); `--num-workers 8→16`
+→ ~24; the mid-run missing-quad **hotfix `0a263f6`** (absent quad/cell → NoData §5.3, not a crash; the
+gap that caused 28 restarts + a poison shard) cleared the churn → steady **~28 t/s/A100 (~224 agg)**.
+16 workers is the launcher default (higher regresses via §11.3 quad-cache fragmentation).
+
+**NEXT — post-inference products:** assemble (`assemble_region.py`, **sharded `--cog-tile-px`** for the
+~40× South extent) → vectorize (`vectorize_region.py`) → South RTS polygons + prob COG mosaic. Needs a
+prob-COG bulk-rsync local first (~0.3 TB scaled_uint8; windowed cross-region reads of ~41 M tiny COGs are
+too slow). Then delete stale `rts-mapping-v2-usc1`. **Master `a100-8x-train` now free** (v3 training
+unblocked). SSoT: `infrastructure.md` §region/throughput + `inference.md`.
 
 **Master `a100-8x-train` never stop/rename (A100 scarcity, ~500-retry acquire; on inference ~5 d → no v3
 training meanwhile); shared PDG project — only touch our `rts-`/`rts-infer-*` resources.** Branch
