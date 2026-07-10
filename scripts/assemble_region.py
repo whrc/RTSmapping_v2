@@ -49,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from inference.quad_index import RESOLUTION_M  # noqa: E402
 from inference.tiles import TILE_SIZE_PX  # noqa: E402
 from inference.writer import (  # noqa: E402
-    NODATA_MASK, NODATA_PROB, read_probability_tile, write_binary_mask,
+    NODATA_MASK, NODATA_PROB, NODATA_SCALED_U8, read_probability_tile, write_binary_mask,
     write_probability_tile,
 )
 from scripts.merge_predictions import gaussian_center_weights  # noqa: E402
@@ -142,7 +142,8 @@ def _process_block(spec: dict):
         return None
     prob_path = f"{spec['blocks_dir']}/prob_{spec['r0']:07d}_{spec['c0']:07d}.tif"
     mask_path = f"{spec['blocks_dir']}/mask_{spec['r0']:07d}_{spec['c0']:07d}.tif"
-    write_probability_tile(prob_path, merged, win_bounds, dtype="float32")
+    write_probability_tile(prob_path, merged, win_bounds,
+                           dtype=spec.get("output_dtype", "float32"))
     mask = np.where(merged == NODATA_PROB, NODATA_MASK,
                     (merged >= spec["threshold"]).astype(np.uint8)).astype(np.uint8)
     write_binary_mask(mask_path, mask, win_bounds)
@@ -231,7 +232,7 @@ def _build_cog_grid(entries: list[tuple[int, int, str]], out_dir: Path, name: st
 def assemble(tiles: pd.DataFrame, tile_paths: dict[str, str], out_dir: Path,
              threshold: float, sigma_px: float, block_px: int,
              resolution_m: float = RESOLUTION_M, workers: int = 1,
-             cog_tile_px: int = 0) -> dict:
+             cog_tile_px: int = 0, output_dtype: str = "float32") -> dict:
     """Blocked merge → per-block prob+mask COGs → mosaicked region product.
 
     Block merges are independent, so they run across a process pool (`workers`);
@@ -239,7 +240,14 @@ def assemble(tiles: pd.DataFrame, tile_paths: dict[str, str], out_dir: Path,
     mosaic is a single COG when ``cog_tile_px == 0`` (Banks-scale), or a grid of
     parallel super-tile COGs + a ``.vrt`` when ``cog_tile_px > 0`` (South-scale,
     where one monolithic COG-translate is the bottleneck / unwieldy).
+
+    ``output_dtype`` sets the probability encoding of both the intermediate block
+    COGs and the final product: ``"float32"`` (exact, NoData -1) or
+    ``"scaled_uint8"`` (prob×250, NoData 255 — the deploy encoding; ~4× smaller,
+    essential at circumpolar scale where float32 intermediates run to TBs). The
+    mask is always uint8. ``read_probability_tile`` decodes either transparently.
     """
+    prob_nodata = NODATA_SCALED_U8 if output_dtype == "scaled_uint8" else NODATA_PROB
     bounds, width, height = canvas_bounds(tiles, resolution_m)
     minx, miny, maxx, maxy = bounds
     logger.info("Region canvas %d x %d px over (%.0f, %.0f, %.0f, %.0f)",
@@ -247,28 +255,42 @@ def assemble(tiles: pd.DataFrame, tile_paths: dict[str, str], out_dir: Path,
     blocks_dir = out_dir / "blocks"
     blocks_dir.mkdir(parents=True, exist_ok=True)
 
-    tx0 = tiles["minx"].to_numpy()
-    tx1 = tiles["maxx"].to_numpy()
     ty0 = tiles["miny"].to_numpy()
     ty1 = tiles["maxy"].to_numpy()
 
-    specs = []
+    # Row-banded pre-filtering: a naive per-block scan intersects every one of the
+    # (up to tens of millions of) tiles per block — O(blocks x tiles), ~hours at the
+    # circumpolar 8.4M-px canvas. Group blocks by row-band, mask tiles to the band
+    # once, then intersect columns against that small subset. Same strict-inequality
+    # result, orders of magnitude faster.
+    from collections import OrderedDict
+    rows: "OrderedDict[tuple[int, int], list[tuple[int, int]]]" = OrderedDict()
     for r0, r1, c0, c1 in iter_blocks(width, height, block_px):
-        w_minx = minx + c0 * resolution_m
-        w_maxx = minx + c1 * resolution_m
+        rows.setdefault((r0, r1), []).append((c0, c1))
+
+    specs = []
+    for (r0, r1), cols in rows.items():
         w_maxy = maxy - r0 * resolution_m
         w_miny = maxy - r1 * resolution_m
-        # Strict-inequality footprint intersection with the block window.
-        sel = (tx1 > w_minx) & (tx0 < w_maxx) & (ty1 > w_miny) & (ty0 < w_maxy)
-        if not sel.any():
+        band = (ty1 > w_miny) & (ty0 < w_maxy)
+        if not band.any():
             continue
-        sub = tiles.iloc[sel]
-        specs.append(dict(
-            r0=r0, c0=c0, win_bounds=(w_minx, w_miny, w_maxx, w_maxy),
-            tiles=sub, tile_paths={str(t): tile_paths[str(t)]
-                                   for t in sub["tile_id"] if str(t) in tile_paths},
-            threshold=threshold, sigma_px=sigma_px, resolution_m=resolution_m,
-            blocks_dir=str(blocks_dir)))
+        b_tiles = tiles.iloc[band]
+        bx0 = b_tiles["minx"].to_numpy()
+        bx1 = b_tiles["maxx"].to_numpy()
+        for c0, c1 in cols:
+            w_minx = minx + c0 * resolution_m
+            w_maxx = minx + c1 * resolution_m
+            sel = (bx1 > w_minx) & (bx0 < w_maxx)  # y already satisfied by the band
+            if not sel.any():
+                continue
+            sub = b_tiles.iloc[sel]
+            specs.append(dict(
+                r0=r0, c0=c0, win_bounds=(w_minx, w_miny, w_maxx, w_maxy),
+                tiles=sub, tile_paths={str(t): tile_paths[str(t)]
+                                       for t in sub["tile_id"] if str(t) in tile_paths},
+                threshold=threshold, sigma_px=sigma_px, resolution_m=resolution_m,
+                blocks_dir=str(blocks_dir), output_dtype=output_dtype))
     logger.info("%d candidate blocks; merging with %d workers", len(specs), workers)
 
     prob_entries, mask_entries = [], []
@@ -290,7 +312,7 @@ def assemble(tiles: pd.DataFrame, tile_paths: dict[str, str], out_dir: Path,
         logger.info("Mosaicking %d prob + %d mask blocks into super-tile COG grids",
                     len(prob_entries), len(mask_entries))
         prob_out, prob_shards = _build_cog_grid(
-            prob_entries, out_dir, "probability", NODATA_PROB, cog_tile_px, block_px, workers)
+            prob_entries, out_dir, "probability", prob_nodata, cog_tile_px, block_px, workers)
         mask_out, mask_shards = _build_cog_grid(
             mask_entries, out_dir, "mask", NODATA_MASK, cog_tile_px, block_px, workers)
         n_cog_shards = len(prob_shards)
@@ -300,7 +322,7 @@ def assemble(tiles: pd.DataFrame, tile_paths: dict[str, str], out_dir: Path,
         prob_out = out_dir / "probability.tif"
         mask_out = out_dir / "mask.tif"
         _build_cog([e[2] for e in prob_entries], str(out_dir / "probability.vrt"),
-                   str(prob_out), NODATA_PROB)
+                   str(prob_out), prob_nodata)
         _build_cog([e[2] for e in mask_entries], str(out_dir / "mask.vrt"),
                    str(mask_out), NODATA_MASK)
         n_cog_shards = 1
@@ -344,6 +366,10 @@ def main() -> int:
                    help="0 = one monolithic region COG (Banks-scale); >0 = a grid of "
                         "super-tile COGs of this edge (rounded to a block multiple) built "
                         "in parallel + a .vrt mosaic (South-scale). e.g. 65536")
+    p.add_argument("--output-dtype", default="float32",
+                   choices=["float32", "scaled_uint8"],
+                   help="probability encoding of the blocks + final product; scaled_uint8 "
+                        "(deploy encoding, ~4x smaller) is required at circumpolar scale")
     args = p.parse_args()
     setup_logging()
 
@@ -362,7 +388,7 @@ def main() -> int:
     summary = assemble(tiles, tile_paths, args.out_dir, threshold,
                        sigma_px=cfg["inference"]["fusion_sigma_px"],
                        block_px=args.block_px, workers=args.workers,
-                       cog_tile_px=args.cog_tile_px)
+                       cog_tile_px=args.cog_tile_px, output_dtype=args.output_dtype)
     summary["assemble_time_hours"] = round((time.time() - t0) / 3600, 3)
     (args.out_dir / "region_log.json").write_text(json.dumps(summary, indent=2))
     logger.info("Wrote %s and %s (%.2f h)", summary["probability_cog"],

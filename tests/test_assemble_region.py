@@ -97,6 +97,24 @@ def test_cog_grid_mosaic_matches_single_cog(tmp_path):
     np.testing.assert_allclose(pa[both], pb[both], atol=1e-5)
 
 
+@pytest.mark.skipif(shutil.which("gdal_translate") is None
+                    or shutil.which("gdalbuildvrt") is None,
+                    reason="GDAL CLI not available")
+def test_scaled_uint8_output_matches_float_within_quantization(tmp_path):
+    """The scaled_uint8 product (blocks + COG, NoData 255) must decode back to the
+    float32 product within the 1/250 encoding step — the circumpolar-scale encoding."""
+    from inference.writer import read_probability_tile
+    tiles, tile_paths = _synthetic_tiles(tmp_path, n=3)
+    common = dict(threshold=0.65, sigma_px=SIGMA, block_px=256, workers=2, cog_tile_px=512)
+    f = assemble(tiles, tile_paths, tmp_path / "f32", output_dtype="float32", **common)
+    u = assemble(tiles, tile_paths, tmp_path / "u8", output_dtype="scaled_uint8", **common)
+    pf = read_probability_tile(f["probability_cog"])
+    pu = read_probability_tile(u["probability_cog"])
+    both = (pf != -1.0) & (pu != -1.0)
+    assert both.any()
+    assert np.abs(pf[both] - pu[both]).max() <= 1.0 / 250 + 1e-6  # within one quantum
+
+
 def test_iter_blocks_tiles_the_canvas_without_gaps():
     covered = np.zeros((37, 41), dtype=int)
     for r0, r1, c0, c1 in iter_blocks(41, 37, 16):
