@@ -45,6 +45,7 @@ from shapely.ops import unary_union
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from inference.writer import NODATA_SCALED_U8, SCALE_U8  # noqa: E402
 from scripts.vectorize_predictions import _GEOD, _TO_WGS84  # noqa: E402
 from utils.config import load_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
@@ -92,7 +93,10 @@ def _record(rts_id: int, geom, prb, tiles: pd.DataFrame, scales: list[float]) ->
     local = features.rasterize([mapping(geom)], out_shape=(r1 - r0, c1 - c0),
                                transform=windows.transform(win, transform))
     pvals = prb.read(1, window=win)[local == 1]
-    pvals = pvals[pvals >= 0]
+    if prb.dtypes[0] == "uint8":  # scaled_uint8 product: prob×250, NoData 255
+        pvals = pvals[pvals != NODATA_SCALED_U8].astype(np.float32) / SCALE_U8
+    else:  # float32 product: prob in [0,1], NoData -1
+        pvals = pvals[pvals >= 0]
     geom_wgs = gpd.GeoSeries([geom], crs="EPSG:3857").to_crs("EPSG:4326").iloc[0]
     area, perim = _GEOD.geometry_area_perimeter(geom_wgs)
     lon, lat = _TO_WGS84.transform(geom.centroid.x, geom.centroid.y)

@@ -69,6 +69,23 @@ def test_seam_split_slump_reassembles_and_survives_min_blob(tmp_path):
     assert abs(gdf["mean_prob"].iloc[0] - 0.8) < 1e-3
 
 
+def test_scaled_uint8_prob_raster_decodes_mean_prob(tmp_path):
+    """With a scaled_uint8 prob COG (the South product encoding), mean_prob must
+    decode back to the true 0.8 — not read the raw 0-250 pixel value."""
+    _write_blocks(tmp_path)
+    prob = np.full((100, 200), -1.0, np.float32)
+    prob[70:90, 10:30] = 0.8
+    prob[50:55, 50:55] = 0.8
+    prob[40:60, 90:110] = 0.8
+    write_probability_tile(str(tmp_path / "prob_u8.tif"), prob,
+                           (0.0, 0.0, 200.0, 100.0), dtype="scaled_uint8")
+    gdf = vectorize_region(str(tmp_path), str(tmp_path / "prob_u8.tif"),
+                           str(tmp_path / "t.csv"), scales=[1.0],
+                           min_blob_px=300, workers=2)
+    assert len(gdf) == 2
+    assert abs(gdf["mean_prob"].iloc[0] - 0.8) < 1.0 / 250 + 1e-6  # decoded, not 200
+
+
 def test_min_blob_zero_keeps_all_including_tiny(tmp_path):
     _write_blocks(tmp_path)
     gdf = vectorize_region(str(tmp_path), str(tmp_path / "prob.tif"),
