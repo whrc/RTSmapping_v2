@@ -8,6 +8,16 @@ ensemble, threshold 0.65, T 0.512321). All layers are **EPSG:3857 (Web Mercator)
 slump areas 0.27–72 ha (median ≈1.3 ha). Probability raster: 1,633 super-tile COGs
 (8.4 M × 1.6 M px canvas, sparse).
 
+**Two ways to view this in ArcGIS Pro:** the manual steps below (add each layer
+yourself, use a generic Imagery basemap for context), or the automated pair of
+scripts (`scripts/build_rgb_chips.py` + `scripts/build_arcgis_project.py`) that
+also generates real RGB "underlying tile" context chips — the actual Planet
+imagery the model saw for each detection, not a generic basemap — and builds
+the whole `.aprx` with layers + symbology in one run. Region-generic (works for
+Banks and South, `.tif` or sharded `.vrt` alike). See the scripts' own
+docstrings for invocation; the manual path below still works standalone if you
+just want the polygons/rasters without the RGB chips.
+
 ## 1. The products (in GCS)
 
 Bucket prefix: `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`

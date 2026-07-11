@@ -1,6 +1,13 @@
-"""Load the Banks Island QC package into ArcGIS Pro (post-inference.md's
-review step): the merged probability/mask rasters, the RTS polygon layer, and
-the RGB "underlying tile" context chips built by scripts/build_rgb_chips.py.
+"""Load a region's QC package into ArcGIS Pro (post-inference.md's review
+step): the merged probability/mask rasters, the RTS polygon layer, and the RGB
+"underlying tile" context chips built by scripts/build_rgb_chips.py.
+
+Region-generic: probability/mask are read as `.tif` (single-COG regions like
+Banks) or `.vrt` (sharded regions like the full South run — continental-scale
+rasters are assembled as many COG shards tied together by a VRT, see
+`scripts/assemble_region.py --cog-tile-px`), whichever is present. The RTS
+polygon layer is whatever single `*.gpkg` is in the products dir (`banks_rts.
+gpkg`, `south_rts.gpkg`, ...) — auto-discovered, not hardcoded.
 
 **Windows-only, run inside ArcGIS Pro's own Python environment** (arcpy is not
 importable anywhere else — there is no Linux/CI path for this script). Two
@@ -25,10 +32,11 @@ ways to run it:
      `python build_arcgis_project.py --products-dir D:\rts_qc\banks --project D:\rts_qc\banks.aprx`
 
 Either way, pass `--products-uri` to have it pull the whole products/ prefix
-(probability.tif, mask.tif, banks_rts.gpkg, region_log.json, rgb_chips/,
-rgb_chips.vrt) down to `--products-dir` first via `gcloud storage rsync`
-(requires the Google Cloud SDK on the Windows machine — the same one you
-already use to reach this project's buckets).
+(probability.{tif,vrt}, mask.{tif,vrt} [+ shard dirs for the .vrt case],
+<region>_rts.gpkg, region_log.json, rgb_chips/, rgb_chips.vrt) down to
+`--products-dir` first via `gcloud storage rsync` (requires the Google Cloud
+SDK on the Windows machine — the same one you already use to reach this
+project's buckets).
 
 Usage:
     python build_arcgis_project.py --products-dir D:\\rts_qc\\banks ^
@@ -77,8 +85,18 @@ def download_products(products_uri: str, products_dir: Path) -> None:
     logger.info("Synced %s -> %s", products_uri, products_dir)
 
 
-def find_rts_layer_source(gpkg_path: Path) -> str:
-    """Discover the RTS feature class inside the gpkg (name varies by region)."""
+def find_rts_layer_source(products_dir: Path) -> str:
+    """Discover the region's RTS gpkg + feature class (filename varies by
+    region: banks_rts.gpkg, south_rts.gpkg, ...) — there must be exactly one
+    .gpkg in the products dir; more than one is an ambiguity worth surfacing
+    rather than guessing."""
+    gpkgs = sorted(products_dir.glob("*.gpkg"))
+    if not gpkgs:
+        raise RuntimeError(f"No .gpkg found in {products_dir}")
+    if len(gpkgs) > 1:
+        raise RuntimeError(f"Multiple .gpkg files in {products_dir}: "
+                           f"{[g.name for g in gpkgs]} — expected exactly one")
+    gpkg_path = gpkgs[0]
     arcpy.env.workspace = str(gpkg_path)
     fcs = arcpy.ListFeatureClasses()
     if not fcs:
@@ -86,12 +104,22 @@ def find_rts_layer_source(gpkg_path: Path) -> str:
     return f"{gpkg_path}\\{fcs[0]}"
 
 
+def find_raster(products_dir: Path, stem: str) -> str:
+    """Resolve `{stem}.tif` (single-COG regions, e.g. Banks) or `{stem}.vrt`
+    (sharded regions, e.g. South's cog_tile_px shards) — whichever exists."""
+    for ext in (".tif", ".vrt"):
+        candidate = products_dir / f"{stem}{ext}"
+        if candidate.exists():
+            return str(candidate)
+    raise RuntimeError(f"Neither {stem}.tif nor {stem}.vrt found in {products_dir}")
+
+
 def add_layers(m, products_dir: Path):
     """Add the 4 QC layers bottom -> top; returns the RTS polygon layer."""
     rgb_lyr = m.addDataFromPath(str(products_dir / "rgb_chips.vrt"))
-    prob_lyr = m.addDataFromPath(str(products_dir / "probability.tif"))
-    mask_lyr = m.addDataFromPath(str(products_dir / "mask.tif"))
-    rts_source = find_rts_layer_source(products_dir / "banks_rts.gpkg")
+    prob_lyr = m.addDataFromPath(find_raster(products_dir, "probability"))
+    mask_lyr = m.addDataFromPath(find_raster(products_dir, "mask"))
+    rts_source = find_rts_layer_source(products_dir)
     rts_lyr = m.addDataFromPath(rts_source)
 
     try:
@@ -103,9 +131,9 @@ def add_layers(m, products_dir: Path):
         prob_lyr.symbology = prob_sym
         prob_lyr.transparency = 40
     except Exception:
-        logger.warning("Could not set probability.tif symbology (Pro-version "
-                        "API drift) — layer added with default symbology.",
-                        exc_info=True)
+        logger.warning("Could not set the probability layer's symbology "
+                        "(Pro-version API drift) — layer added with default "
+                        "symbology.", exc_info=True)
 
     mask_lyr.visible = False  # redundant with the vector layer; kept for QC
 
@@ -117,9 +145,9 @@ def add_layers(m, products_dir: Path):
         rts_sym.renderer.symbol.size = 0
         rts_lyr.symbology = rts_sym
     except Exception:
-        logger.warning("Could not set banks_rts.gpkg symbology (Pro-version "
-                        "API drift) — layer added with default symbology.",
-                        exc_info=True)
+        logger.warning("Could not set the RTS polygon layer's symbology "
+                        "(Pro-version API drift) — layer added with default "
+                        "symbology.", exc_info=True)
 
     logger.info("Added layers: %s, %s, %s, %s", rgb_lyr.name, prob_lyr.name,
                 mask_lyr.name, rts_lyr.name)
@@ -141,8 +169,9 @@ def zoom_to_layer(aprx, layer) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--products-dir", required=True, type=Path,
-                   help="local dir to hold/read probability.tif, mask.tif, "
-                        "banks_rts.gpkg, rgb_chips/, rgb_chips.vrt")
+                   help="local dir to hold/read probability.{tif,vrt}, "
+                        "mask.{tif,vrt}, <region>_rts.gpkg, rgb_chips/, "
+                        "rgb_chips.vrt")
     p.add_argument("--products-uri", default=None,
                    help="gs:// products prefix to sync down first; omit to "
                         "use --products-dir as already-downloaded")
