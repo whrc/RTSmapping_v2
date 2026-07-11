@@ -107,11 +107,17 @@ Throughput history: 8 workers was I/O-bound on cross-region reads (~12 t/s/A100)
 gap that caused 28 restarts + a poison shard) cleared the churn → steady **~28 t/s/A100 (~224 agg)**.
 16 workers is the launcher default (higher regresses via §11.3 quad-cache fragmentation).
 
-**NEXT — post-inference products:** assemble (`assemble_region.py`, **sharded `--cog-tile-px`** for the
-~40× South extent) → vectorize (`vectorize_region.py`) → South RTS polygons + prob COG mosaic. Needs a
-prob-COG bulk-rsync local first (~0.3 TB scaled_uint8; windowed cross-region reads of ~41 M tiny COGs are
-too slow). Then delete stale `rts-mapping-v2-usc1`. **Master `a100-8x-train` now free** (v3 training
-unblocked). SSoT: `infrastructure.md` §region/throughput + `inference.md`.
+**SOUTH PRODUCTS DELIVERED (2026-07-11).** Full post-inference pipeline complete →
+`gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`: **`south_rts.gpkg` = 10,984 RTS polygons /
+238.08 km²** (thr 0.65, min_blob 2000, seam-dissolved; mean_prob 0.66–0.98, areas 0.27–72 ha), plus
+`probability.vrt` + `mask.vrt` over **1,633 scaled_uint8 super-tile COGs** (8.4 M × 1.6 M-px sparse
+circumpolar canvas). Open guide: `post-inference/arcgis_south_products.md`. Pipeline: 41.5 M prob COGs
+bulk-rsync'd to a local NVMe (root disk too small) → `assemble_region.py` (row-banded selection +
+scaled_uint8 blocks, 64 workers, ~11 h) → `vectorize_region.py` (48 workers). Fixes this phase: assemble
+row-prefilter + `output_dtype` (`6c06f45`), vectorize scaled_uint8 decode (`de981b2`).
+
+**Remaining housekeeping:** release the NVMe scratch (ephemeral); delete stale `rts-mapping-v2-usc1`.
+**Master `a100-8x-train` now free** (v3 training unblocked). SSoT: `infrastructure.md` §region/throughput.
 
 **Master `a100-8x-train` never stop/rename (A100 scarcity, ~500-retry acquire; on inference ~5 d → no v3
 training meanwhile); shared PDG project — only touch our `rts-`/`rts-infer-*` resources.** Branch
