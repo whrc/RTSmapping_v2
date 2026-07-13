@@ -18,6 +18,13 @@ Banks and South, `.tif` or sharded `.vrt` alike). See the scripts' own
 docstrings for invocation; the manual path below still works standalone if you
 just want the polygons/rasters without the RGB chips.
 
+**No ArcGIS license? Use Google Earth Engine instead:** `post-inference/ee_south_viewer.js`
+is a ready-to-paste Code Editor script (`south_rts` + `south_mask` are ingested
+as real EE assets under `projects/pdg-project-406720/assets/`; the probability
+layer is mosaicked live from its 1,633 source COG shards via `loadGeoTIFF` —
+EE's ingestion pipeline repeatedly failed on that specific layer, see the
+script's header comment for why). No install, no download, opens in a browser.
+
 ## 1. The products (in GCS)
 
 Bucket prefix: `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`
