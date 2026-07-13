@@ -1666,7 +1666,11 @@ var probRaw = ee.ImageCollection(probUris.map(function(uri) {
 var probability = probRaw.updateMask(probRaw.neq(255)).divide(250);
 
 // --- Visualization ---
-Map.centerObject(rts, 4);
+// Not Map.centerObject(rts, ...): south_rts is 10,984 polygons and fitting to
+// their unioned geometry blows EE's 2M-edge cap (3,354,240 edges). The domain
+// is circumpolar (~50-76N, all longitudes) anyway, so a fixed wide view over
+// the band is equivalent to "fit to extent" here.
+Map.setCenter(0, 65, 3);
 
 Map.addLayer(
   probability,
