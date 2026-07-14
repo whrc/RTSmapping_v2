@@ -1,0 +1,30 @@
+# 3-seed confirm of the honestly-tuned sat-7B frozen winner. See fm_dinov3sat_7b_tuned_b.yaml.
+base: base_v2_fast.yaml
+seed: 43
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_dinov3sat.json
+channels:
+  rgb: true
+  extra: []
+model:
+  architecture: foundation
+  backbone: vit_7b_patch16_dinov3.sat493m
+  pretrained: true
+training:
+  batch_size: 4
+optimizer:
+  weight_decay: 5.0e-2
+lr_schedule:
+  frozen_lr: 1.0e-4
+  base_lr: 2.0e-4
+  backbone_lr_multiplier: 1.0
+  llrd_decay: null
+  freeze_backbone_epochs: 999
+  decoder_phase2_start_epoch: 20
+  warmup_epochs: 5
+  warmup_start_lr: 1.0e-6
+  min_lr: 1.0e-6
+  backbone_warmup_epochs: 5
+mlflow:
+  run_name: fm_dinov3sat_7b_tuned_b_seed43

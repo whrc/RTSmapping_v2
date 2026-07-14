@@ -8,9 +8,22 @@ import torch.nn as nn
 from training.checkpoint import CheckpointManager, TrainedWith
 
 
+class _ToyModel(nn.Module):
+    """Minimal encoder/decoder model — real models all expose `.encoder`
+    (training/freeze.py), which save_resume's frozen-encoder exclusion relies on."""
+
+    def __init__(self):
+        super().__init__()
+        self.encoder = nn.Linear(4, 4)
+        self.decoder = nn.Linear(4, 1)
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
+
+
 def _tiny_model() -> nn.Module:
     torch.manual_seed(0)
-    return nn.Sequential(nn.Linear(4, 4), nn.Linear(4, 1))
+    return _ToyModel()
 
 
 def test_save_deployment_contains_contracted_fields(tmp_path):
@@ -69,6 +82,43 @@ def test_save_resume_contains_full_state(tmp_path):
     assert "optimizer_state_dict" in loaded
     assert loaded["scheduler_state"] == {"phase": 1}
     assert loaded["early_stopping_state"]["best_epoch"] == 4
+
+
+def test_save_resume_omits_encoder_when_frozen(tmp_path):
+    """A permanently-frozen encoder (e.g. a linear-probed multi-billion-param ViT)
+    must not be re-serialized on every resume snapshot — those weights are the
+    untouched pretrained load, restored for free by build_model on resume."""
+    model = _tiny_model()
+    for p in model.encoder.parameters():
+        p.requires_grad_(False)
+    optim = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    mgr = CheckpointManager(tmp_path)
+
+    mgr.save_resume(
+        model=model, ema_state_dict=None, optimizer=optim,
+        scheduler_state=None, scaler_state=None, epoch=1,
+        early_stopping_state={}, rng_states={},
+    )
+    loaded = torch.load(tmp_path / "resume_latest-0001.pth", weights_only=False)
+    live = loaded["live_state_dict"]
+    assert not any(k.startswith("encoder.") for k in live)
+    assert any(k.startswith("decoder.") for k in live)
+
+
+def test_save_resume_keeps_encoder_when_trainable(tmp_path):
+    """Once unfrozen, the encoder has diverged from pretrained and must be saved."""
+    model = _tiny_model()  # requires_grad=True by default
+    optim = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    mgr = CheckpointManager(tmp_path)
+
+    mgr.save_resume(
+        model=model, ema_state_dict=None, optimizer=optim,
+        scheduler_state=None, scaler_state=None, epoch=1,
+        early_stopping_state={}, rng_states={},
+    )
+    loaded = torch.load(tmp_path / "resume_latest-0001.pth", weights_only=False)
+    live = loaded["live_state_dict"]
+    assert any(k.startswith("encoder.") for k in live)
 
 
 def test_resume_rotation_keeps_last_n(tmp_path):

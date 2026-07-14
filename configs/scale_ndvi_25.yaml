@@ -1,0 +1,28 @@
+# Phase 2 data-scaling, corrected split — 25% positive subset. experiments.md §5.
+# Reruns family B (phase2_scale_25, leaky-split 0.7636) on the corrected leakage-free split
+# with the locked v2 recipe (RGB+NDVI, ignore_w2, drop-RandomScale, TrivialAugment), so the
+# data-scaling curve sits on the same footing as the headline 0.9218 EffB5 number. The 100%
+# endpoint is not rerun here — aug_trivialaugment_deploy (+seed43/44) already is exactly this
+# recipe at 100% data (train_positive_subset_pct is a no-op at 100).
+# NOTE: base configs may not chain (loader rejects it), so the aug_trivialaugment_deploy
+# deltas are inlined here directly on top of base_v2_fast.yaml rather than via base:.
+base: base_v2_fast.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+  auto_policy:
+    mode: trivialaugment
+    magnitude: 1.0
+splits:
+  train_positive_subset_pct: 25
+mlflow:
+  run_name: scale_ndvi_25

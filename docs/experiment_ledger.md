@@ -51,6 +51,11 @@ sign-flipped → rejected).
 | phase2_scale_25 | B | leaky | 0.7636 | done | data-scale 25% |
 | phase2_scale_50 | B | leaky | 0.7720 | done | data-scale 50% |
 | phase2_scale_75 | B | leaky | 0.7916 | done | data-scale 75% → plateau (slope flat) |
+| scale_ndvi_25 | B | corrected | 0.7429 | done | data-scale 25%, locked recipe (RGB+NDVI) |
+| scale_ndvi_25_seed43 | B | corrected | 0.8412 | done | seed-confirm |
+| scale_ndvi_25_seed44 | B | corrected | 0.7946 | done | seed-confirm → 3-seed mean 0.7929, σ=0.0402 |
+| scale_ndvi_50 | B | corrected | 0.8628 | done | data-scale 50%, locked recipe |
+| scale_ndvi_75 | B | corrected | 0.8732 | done | data-scale 75%, locked recipe |
 | phase3_loss_compound_1to1 | C | leaky | 0.7878 | done | loss sweep |
 | phase3_loss_compound_2to1 | C | leaky | 0.7933 | done | loss sweep |
 | phase3_loss_compound_1to2 | C | leaky | 0.7998 | done | near-miss (Δ<G) → carried to boundary factorial |
@@ -109,6 +114,11 @@ sign-flipped → rejected).
 | phase4_fm_dinov3_ndvi | E | corrected | 0.9121 | done | web-DINOv3+NDVI **ties EffB5** → generic FM not the lever |
 | fm_sam2_rgb | E | corrected | 0.5558 | done | SAM2/Hiera — non-competitive |
 | fm_dinov3sat_7b_frozen | E | corrected | 0.4747 | killed | sat-7B frozen — diverged, non-competitive |
+| fm_dinov3sat_7b_lrtest | E | corrected | — | lr-test | decoder LR range test — clean up to ~2e-4, explodes ~4e-4 |
+| fm_dinov3sat_7b_tuned_a | E | corrected | 0.7435 | done | honest re-tune, decoder_phase2_start_epoch=10 (scheduler fix) |
+| fm_dinov3sat_7b_tuned_b | E | corrected | 0.7585 | done | honest re-tune, decoder_phase2_start_epoch=20 — winner |
+| fm_dinov3sat_7b_tuned_b_seed43 | E | corrected | 0.7508 | done | seed-confirm |
+| fm_dinov3sat_7b_tuned_b_seed44 | E | corrected | 0.7588 | done | seed-confirm → 3-seed mean 0.7561 |
 | fm_dinov3sat_l_rgb | E | corrected | 0.9200 | done | sat-DINOv3 ViT-L RGB, 3-seed |
 | fm_dinov3sat_l_rgb_seed43 | E | corrected | 0.9195 | done | seed-confirm |
 | fm_dinov3sat_l_rgb_seed44 | E | corrected | 0.9003 | done | seed-confirm (mean 0.9133 ≈ EffB5) |
@@ -201,10 +211,27 @@ distance-from-center Gaussian σ=128 px; NDVI windowed on-the-fly from S2 compos
 G=0.0112. Re-measured on the corrected split, σ≈0.012 (~2×) → every lock needs mean Δ≥G **and** 3-seed
 sign-consistency. Normalization Arm A (per-dataset z-score) locked.
 
-**B — Data scaling.** More labeled data is **not** the near-term lever: v1.0 is on a data plateau
-(25→100%: 0.764→0.792, flat slope) and the model is well-matched to its data (train/val IoU gap
-0.05/0.17 ≪ 0.4). No new labels are coming → squeeze the fixed ~1.5k positives via representation, not
-volume. This is the central diagnosis: **representation-limited, not data-volume- or capacity-limited.**
+**B — Data scaling (leaky split, relative-only).** More labeled data is **not** the near-term lever: v1.0
+is on a data plateau (25→100%: 0.764→0.792, flat slope) and the model is well-matched to its data
+(train/val IoU gap 0.05/0.17 ≪ 0.4). No new labels are coming → squeeze the fixed ~1.5k positives via
+representation, not volume. This is the central diagnosis: **representation-limited, not data-volume- or
+capacity-limited.**
+
+**B — Data scaling, corrected split + locked recipe (2026-07-11 — softens the finding above).**
+Rerunning the same data-scaling sweep on the corrected leakage-free split with the locked RGB+NDVI
+recipe (`scale_ndvi_25/50/75` vs the existing `aug_trivialaugment_deploy` 100% point) gives a
+**materially rising curve, not a plateau**: 25%→50%→75%→100% = **0.7929 (3-seed mean, σ=0.0402) → 0.8628
+→ 0.8732 → 0.9218 (3-seed mean, σ=0.0042)**. End-to-end Δ = **+0.1289 ≈ 11.5× G** — far outside seed noise.
+The rise is uneven: 25→50% (+0.070 mean / +0.120 seed42-only) and 75→100% (+0.049 mean / +0.044
+seed42-only) are large; only 50→75% (+0.010) sits near-flat at-gate. The train/val pixel-IoU gap
+(same §8.1 methodology) **shrinks monotonically** with more data — at the best checkpoint: 25%≈0.32
+(mean of 3 seeds: 0.345/0.293/0.328) → 50%=0.226 → 75%=0.155 → 100%=0.080 (at final epoch: ≈0.39 →
+0.330 → 0.293 → 0.190) — the opposite of "well-matched"; the low-data models measurably overfit more.
+Seed variance at 25% (σ=0.040) is also ~3.6× the 100%-point's σ=0.0042, another data-volume-linked
+signal. **Verdict: the "representation-limited, not data-volume-limited" claim from the leaky split
+does not hold on the honest split — data volume is a real, substantial lever, especially 25→50% and
+75→100%.** The leaky-split row above is kept for the relative/gate-history record but is superseded as
+the honest data-scaling read.
 
 **C — Loss & boundary.** The win is the **boundary treatment, not the loss.** Focal alone is the loss
 winner; precision-skewed Tversky collapses (2:8 → 0.073). Adding a boundary-ignore band clears the gate
@@ -238,6 +265,41 @@ drop-RandomScale + TrivialAugment, *identical* val labels) settles it — **a de
 > labels — a textbook confound, caught by the fair A/B. SAM2 (0.556) and sat-7B-frozen (0.475)
 > non-competitive. The sat re-run (`fm_dinov3sat_l_ndvi_locked*`) ran to ep60, peaked ep35–40
 > (best_smoothed 0.9221/0.9286/0.9067), terminated in the overfit tail — a complete verdict.
+
+**E — sat-7B frozen, honestly re-tuned (2026-07-12 — the original 0.4747 was a bug, not a capacity
+verdict).** Root-caused the original `fm_dinov3sat_7b_frozen` failure from raw MLflow history: no NaNs
+(`train_nan_steps=0` throughout), but `lr_decoder` sat flat at 1e-3 for all 29 logged epochs — the
+scheduler's frozen-phase branch (`freeze_backbone_epochs≥max_epochs`, the only way to keep a 6.7B-param
+encoder permanently frozen on an A100-80GB) also silences the decoder's own warmup/cosine schedule for
+the *entire* run, so the decoder never annealed; it collapsed to background-only prediction (pixel_iou→
+0.0002) right after the epoch-11 curriculum hardening. Fixed `training/scheduler.py` with a new
+`decoder_phase2_start_epoch` key that lets the decoder anneal on its own early timeline while the
+backbone stays permanently frozen (fully backward-compatible — defaults to the old behavior). Also fixed
+a **second, unrelated disk-bloat bug** in `training/checkpoint.py::save_resume`: it serialized the full
+model including the frozen 6.7B-param encoder on every rotation (`keep_last_n=3`) — harmless for small
+encoders but ~40GB/run for this one; now omits `encoder.*` when the encoder is currently frozen (restored
+for free by `build_model`'s pretrained load on resume). An LR range test (`fm_dinov3sat_7b_lrtest`) showed
+the decoder loss is clean up to ~2e-4 and explodes from ~4e-4 — validating `base_lr=2e-4` (unchanged) and
+motivating a lower `frozen_lr=1e-4` (down from the original buggy 1e-3). A 2-point sweep over
+`decoder_phase2_start_epoch` (10 vs 20, seed 42) gave stable training with **no collapse** in both:
+**0.7435** (start=10) and **0.7585** (start=20, winner) — both ran to `max_epochs=120` without early
+stopping (still slowly improving, no_improve 1–3). 3-seed confirm of the winner (seeds 42/43/44 → **0.7585 / 0.7508 / 0.7588, mean 0.7561**) plus the fair
+matched-recipe table (identical val labels, same as the sat-ViT-L-vs-EffB5 table above):
+
+| 3-seed, locked recipe (identical val labels) | PR-AUC | pixel-IoU | obj-F1 | train wall-clock (h/seed) |
+|---|---:|---:|---:|---:|
+| EffB5 (= `aug_trivialaugment_deploy`) | **0.9218** | 0.612 | 0.438 | ≈8.65 |
+| sat-DINOv3 7B frozen, honestly tuned (= `fm_dinov3sat_7b_tuned_b*`) | 0.7561 | 0.343 | 0.382 | ≈28.48 |
+| Δ (7B tuned − EffB5) | **−0.1657** | −0.269 | −0.056 | ≈3.3× slower |
+
+Δ is sign-consistent and enormous across all 3 seeds individually (−0.163 / −0.171 / −0.163) — nowhere
+near the gate in either direction.
+
+> **Verdict: fixed and honestly tuned, this sat-7B frozen linear-probe now trains stably (no collapse,
+> clears the old 0.556/0.4747 floor by a wide margin) but loses decisively to EffB5 on every metric —
+> PR-AUC, pixel-IoU, and object-F1 — while costing ~3.3× more wall-clock to train. This was not a
+> training artifact (the original 0.4747 was); with the bug fixed, honest tuning gives the encoder every
+> fair chance, and the capacity-null still holds — now on a referee-proof basis. DEPLOY EffB5 stands.**
 
 **F — Augmentation.** Not a plateau-breaker, but two cheap wins lock in: **drop RandomScale** (+0.016,
 3/3 seeds) and replace the hand-tuned color stack with **TrivialAugment** (3-seed mean 0.9218, 3/3 >

@@ -28,7 +28,13 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**Pre-launch full audit (branch `audit-prelaunch`, `docs/inference_launch_audit.md`).** Comprehensive
+**South pan-Arctic inference + products delivered (2026-07-07 to 2026-07-11, see `docs/archive/` for
+full detail).** Full South inference run completed (2,079/2,079 shards, 41,567,572 tiles reconciled
+exactly, 3 quad-level coverage gaps ≈0.001%) after three fork/stall/crash-loop fixes shipped; post-
+inference pipeline delivered `south_rts.gpkg` (10,984 polygons / 238.08 km²) + probability/mask VRTs
+over 1,633 super-tile COGs. Master `a100-8x-train` freed for the manuscript-gap work below.
+
+Prior: **Pre-launch full audit (branch `audit-prelaunch`, `docs/inference_launch_audit.md`).** Comprehensive
 audit before the pan-Arctic inference launch, against two goals: (1) past decisions rest on solid facts,
 (2) model + machinery are scientifically & engineering sound. **Science side: clean** — every headline
 number re-derived from primary artifacts (3-seed 0.9218, ensemble 0.9393/T 0.512321, test 0.584/0.437/0.500,
@@ -79,49 +85,47 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**FULL SOUTH INFERENCE LAUNCHED (2026-07-07) — Banks approved by the user.** All **8 A100s** on the master
-are draining the GCS shard-claim queue (**2,079 shards / 41,567,572 tiles**, `scripts/shard_tiles.py`);
-distinct shards claimed, **zero restarts**, self-balancing. Launched via the new supervised launcher
-`scripts/launch_south_inference.sh` (one `rts-infer:v1` worker/GPU, git_sha `7b7d74c`). Monitor:
-`bash scripts/monitor_jobs.sh rts-infer` · logs `/mnt/outputs/inference/south/{launch.log,logs/gpu_*.log}`
-· **stop cleanly:** `touch /mnt/outputs/inference/south/STOP`.
+**Two manuscript-gap experiments closed out (branch `corrected-scaling-and-7b-tuning`, 2026-07-10 to
+2026-07-14).** Both closed the honest way — either outcome was a valid result; here both **overturned/
+softened** the number they were meant to referee-proof.
 
-**Three South-readiness fixes shipped (`7b7d74c`, 364 tests green):** (1) **forkserver DataLoader**
-(`runner._make_loader`) — the root-cause fix for the Banks GPU-0 fork/gRPC deadlock (workers no longer
-inherit the parent's gRPC threads); **verified live** — all 8 GPUs produce tiles, no hang. (2) **stall
-watchdog** (`runner._start_stall_watchdog`, `stall_timeout_s=900`) — `os._exit(3)`s a wedged worker so its
-shard is reclaimed. (3) **host supervisor** — restarts any worker that exits non-zero (crash/OOM/watchdog)
-with a crash-loop guard; a silent single-GPU failure self-heals. Plus **sharded region-COG**
-(`assemble_region --cog-tile-px`) for the ~40× South extent (parallel super-tile COGs + `.vrt`; Banks path
-unchanged).
+**1. Data-scaling curve, corrected split + locked recipe (family B).** The old "plateau" finding
+(leaky split, off-recipe: 25→100% = 0.764→0.792, flat) does **not replicate** on the corrected split with
+the locked RGB+NDVI recipe: **25%→50%→75%→100% = 0.7929 (3-seed, σ=0.040) → 0.8628 → 0.8732 → 0.9218
+(3-seed, σ=0.004)**. End-to-end Δ=**+0.1289 (≈11.5×G)** — a real, seed-noise-swamping rise, steepest
+25→50% and 75→100%, near-flat only in the 50→75% middle. Train/val pixel-IoU gap **shrinks** with more
+data (best-epoch: 0.32→0.23→0.16→0.08) — the opposite of "well-matched." **Verdict: data volume is a
+real lever on the honest split; the "representation-limited, not volume-limited" claim needs softening.**
+Ledger family B (corrected block) + `/mnt/outputs/v1.0/analysis/family_b_corrected_scale_curve.{csv,png}`.
 
-**SOUTH INFERENCE COMPLETE + reconciled (2026-07-10).** All **2079/2079 shards done**, 0 outstanding
-claims, all 8 GPUs exited 0 (queue drained). **Coverage reconciled exactly:** the per-shard manifests sum
-to **41,567,572 tiles** (41,551,451 prob COGs + 16,121 all-NoData off-coverage) — every domain tile
-accounted for exactly once. ~2.1 d wall on the fixed image, **0 crashes post-fix**. **Only 3 coverage
-gaps** — `pdg-planet-data` quads `1459-1437`, `1153-1566`, `1189-1531` genuinely absent (3 of 309,101 ≈
-0.001%), each skipped gracefully to NoData by the hotfix. Output at `…/2025q3_south/probs/<shard>/`.
+**2. Honestly-tuned sat-DINOv3-7B frozen (family E).** Root-caused the original 0.4747 "diverged" result
+to a real scheduler bug, not a capacity limit: `freeze_backbone_epochs≥max_epochs` (needed to keep a
+6.7B-param encoder permanently frozen) also silenced the decoder's own LR anneal for the *whole* run,
+so it collapsed once the sampling curriculum hardened. Fixed `training/scheduler.py`
+(`decoder_phase2_start_epoch`, fully backward-compatible) — also fixed a second bug in
+`training/checkpoint.py` that re-serialized the frozen 6.7B-param encoder on every resume rotation
+(harmless for small models, ~40 GB/run for this one; this **and a separate pre-existing disk-bloat
+across 8 completed foundation-model runs (~130 GB, already GCS-mirrored)** briefly filled the VM's disk
+to 0 bytes free mid-run — cleaned up, verified byte-identical against `gs://rts-mapping-v2/RTS_MODEL_V2/
+runs/` first). LR range test → clean to ~2e-4, explodes ~4e-4. 3-seed confirm of the winning config
+(`decoder_phase2_start_epoch=20`): **0.7585 / 0.7508 / 0.7588, mean 0.7561** — stable, no collapse, far
+above the old 0.556/0.4747 floor, but **loses decisively to EffB5 on every metric** (PR-AUC −0.166,
+pixel-IoU −0.269, obj-F1 −0.056, sign-consistent across all 3 seeds) at **~3.3× the training wall-clock**.
+**Verdict: capacity-null holds, now on a referee-proof (bug-free, honestly-tuned) basis — DEPLOY EffB5
+stands.** Ledger family E (2026-07-12 block) has the full matched-recipe table.
 
-Throughput history: 8 workers was I/O-bound on cross-region reads (~12 t/s/A100); `--num-workers 8→16`
-→ ~24; the mid-run missing-quad **hotfix `0a263f6`** (absent quad/cell → NoData §5.3, not a crash; the
-gap that caused 28 restarts + a poison shard) cleared the churn → steady **~28 t/s/A100 (~224 agg)**.
-16 workers is the launcher default (higher regresses via §11.3 quad-cache fragmentation).
+**Numbers for the manuscript:**
+- §4.1 data-scaling sentence: corrected-split 25→50→75→100% = 0.793→0.863→0.873→0.922 (Δ=+0.129,
+  ≈11.5×G) — rises materially, does not plateau; soften/retract the "not volume-limited" framing.
+- Encoder table (04_results.tex): add a row — sat-DINOv3-7B frozen, honestly tuned: PR-AUC 0.7561,
+  pixel-IoU 0.343, obj-F1 0.382, ≈28.5 GPU-h/seed (vs EffB5 0.9218/0.612/0.438/≈8.65 GPU-h/seed;
+  sat-ViT-L fair-recipe 0.9191/0.612/0.437 tie; SAM2 0.556 non-competitive).
+- fig:capacity: four honest points now — SAM2 0.556, sat-7B-frozen-tuned 0.756, sat-ViT-L 0.919
+  (ties EffB5), EffB5 0.922 — capacity does not help past EffB5-scale, and even a large frozen encoder
+  given a fair, bug-free tuning shot falls well short.
 
-**SOUTH PRODUCTS DELIVERED (2026-07-11).** Full post-inference pipeline complete →
-`gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`: **`south_rts.gpkg` = 10,984 RTS polygons /
-238.08 km²** (thr 0.65, min_blob 2000, seam-dissolved; mean_prob 0.66–0.98, areas 0.27–72 ha), plus
-`probability.vrt` + `mask.vrt` over **1,633 scaled_uint8 super-tile COGs** (8.4 M × 1.6 M-px sparse
-circumpolar canvas). Open guide: `post-inference/arcgis_south_products.md`. Pipeline: 41.5 M prob COGs
-bulk-rsync'd to a local NVMe (root disk too small) → `assemble_region.py` (row-banded selection +
-scaled_uint8 blocks, 64 workers, ~11 h) → `vectorize_region.py` (48 workers). Fixes this phase: assemble
-row-prefilter + `output_dtype` (`6c06f45`), vectorize scaled_uint8 decode (`de981b2`).
-
-**Remaining housekeeping:** release the NVMe scratch (ephemeral); delete stale `rts-mapping-v2-usc1`.
-**Master `a100-8x-train` now free** (v3 training unblocked). SSoT: `infrastructure.md` §region/throughput.
-
-**Master `a100-8x-train` never stop/rename (A100 scarcity, ~500-retry acquire; on inference ~5 d → no v3
-training meanwhile); shared PDG project — only touch our `rts-`/`rts-infer-*` resources.** Branch
-`region-assembly-vectorize`.
+**Housekeeping:** disk healed 470G→~386G used (139 GB reclaimed, all pre-verified against the GCS
+mirror before deletion); `a100-8x-train` free again for whatever's next.
 <!-- NOW:END -->
 
 ### Future plans (inference phase — full plan in `.claude/plans/elegant-exploring-lemur.md`)

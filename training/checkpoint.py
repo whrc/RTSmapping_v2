@@ -118,9 +118,22 @@ class CheckpointManager:
         early_stopping_state: dict,
         rng_states: dict,
     ) -> Path:
-        """Write resume_latest-<epoch>.pth and rotate old snapshots."""
+        """Write resume_latest-<epoch>.pth and rotate old snapshots.
+
+        Omits `encoder.*` keys from `live_state_dict` when the encoder is currently
+        entirely frozen (requires_grad=False on every encoder param): those weights
+        are just the unmodified `pretrained=True` load, which `build_model` restores
+        for free on resume, so persisting them is pure waste — for a permanently-frozen
+        multi-billion-parameter encoder (e.g. a linear-probed 7B ViT), that waste is
+        multiplied `keep_last_n` times over and can exhaust disk. Once the encoder
+        unfreezes, its weights have diverged from pretrained and are saved in full.
+        """
+        frozen_encoder = not any(p.requires_grad for p in model.encoder.parameters())
+        live_state = model.state_dict()
+        if frozen_encoder:
+            live_state = {k: v for k, v in live_state.items() if not k.startswith("encoder.")}
         payload = {
-            "live_state_dict": model.state_dict(),
+            "live_state_dict": live_state,
             "ema_state_dict": ema_state_dict,
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state": scheduler_state,
