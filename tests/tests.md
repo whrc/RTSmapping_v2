@@ -559,6 +559,17 @@ synthetic scaled_uint8 shards with analytic ground truth.
 | `test_multi_shard_sums_are_additive` | 2 shards sum; 3857 and 0.5° grids agree on the canvas total | real — the plan's independent-total check |
 | `test_write_grids_products_and_per_class_join` | cell GPKGs (valid cells only) + GeoTIFFs written; `n_<class>`/`rts_m2_<class>` joined into the centroid's cell | real — product writer |
 
+### [test_downsample_max.py](test_downsample_max.py)
+
+`scripts/downsample_max.py` — exact block-max downsample for the browse
+likelihood surface (replaces `gdalwarp -r max`, which bled NoData-edge values
+251–254 > the 250 ceiling onto coverage seams). GPU-free; synthetic rasters.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_block_max_and_nodata_semantics` | per-block max of valid pixels; all-NoData block stays 255; mixed block ignores 255; valid output ≤ 250 | real — the artifact regression |
+| `test_non_divisible_edges_are_padded` | 50×30 @ factor 20 → 3×2; partial blocks don't fabricate values; transform scales by factor | real — edge handling |
+
 ### [test_export_south_products.py](test_export_south_products.py)
 
 `scripts/export_south_products.py` — packages the raw thr-0.30 candidates into

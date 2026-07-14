@@ -21,7 +21,9 @@ git `7b7d74c`, 41,567,572 tiles / 2,079 shards, completed 2026-07-10; canvas
 ### D1 — RTS Inventory (vector)
 
 One dataset — the **tiered candidate inventory**, vectorized at threshold
-**0.30** (min_blob 2000 px, seam-dissolved) — in four access forms:
+**0.30** (min_blob 2000 px, seam-dissolved): **25,716 polygons / 639.4 km²**
+(high 17,239 / 522.3 km² · medium 6,765 · low 1,712; built 2026-07-14) — in
+four access forms:
 
 | File | Form | For |
 |---|---|---|
@@ -70,7 +72,12 @@ The probability map at three scales:
 Because probabilities are temperature-calibrated, this is an *expectation no
 threshold choice can bias* — the honest abundance statistic. Built by
 `scripts/aggregate_probability.py` (one streaming pass, cos²lat Mercator
-correction).
+correction). Canvas total: **1,037.4 km²** (both grids agree exactly) —
+note this integrates *all* probability mass, including diffuse
+sub-min_blob/sub-0.30 signal no polygon product carries, so it exceeds the
+639.4 km² candidate-outline total by design (abundance estimate ≠ inventory
+area; the mass ordering is 238 km² @0.65 mask < 639 km² @0.30 outlines <
+1,037 km² expectation).
 
 ### D3 — Documentation & communication
 
