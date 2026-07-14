@@ -1004,7 +1004,13 @@ def _resume_from(
     sd = torch.load(resume_path, map_location="cpu", weights_only=False)
     if sd.get("checkpoint_type") != "resume":
         raise ValueError(f"Not a resume checkpoint: {resume_path}")
-    model.load_state_dict(sd["live_state_dict"])
+    # strict=False: save_resume omits encoder.* keys when the encoder is frozen (those
+    # weights are the untouched pretrained load, already in `model` from build_model).
+    missing, unexpected = model.load_state_dict(sd["live_state_dict"], strict=False)
+    non_encoder_missing = [k for k in missing if not k.startswith("encoder.")]
+    if non_encoder_missing or unexpected:
+        logger.warning("Unexpected resume state_dict mismatch: missing=%s unexpected=%s",
+                        non_encoder_missing, unexpected)
     optimizer.load_state_dict(sd["optimizer_state_dict"])
     if sd.get("scaler_state") and precision.scaler is not None:
         precision.scaler.load_state_dict(sd["scaler_state"])

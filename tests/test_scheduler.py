@@ -195,6 +195,49 @@ def test_unknown_scheduler_raises():
         make_lr_setter(cfg)
 
 
+def test_decoder_phase2_start_epoch_defaults_to_freeze_epochs():
+    """Omitting decoder_phase2_start_epoch reproduces today's flat-frozen behavior
+    exactly (both groups pinned at frozen_lr through freeze_backbone_epochs)."""
+    cfg = _base_cfg()
+    set_lrs = make_lr_setter(cfg)
+    optim = _make_optimizer()
+    for epoch in [1, 5, 10]:
+        set_lrs(optim, epoch)
+        assert _lr(optim, "decoder") == pytest.approx(1e-3)
+        assert _lr(optim, "backbone") == pytest.approx(1e-3)
+    # And phase 2 still starts right after freeze_backbone_epochs, as before.
+    set_lrs(optim, 11)
+    assert _lr(optim, "decoder") == pytest.approx(1e-6, rel=1e-6)
+
+
+def test_decoder_anneals_early_while_backbone_stays_permanently_frozen():
+    """A permanently-frozen encoder (freeze_backbone_epochs >= max_epochs, the
+    only way to keep a huge ViT frozen for the whole run) must not also freeze
+    the decoder's own warmup/cosine schedule. decoder_phase2_start_epoch lets
+    the decoder anneal on its own early timeline while the backbone group
+    stays pinned at frozen_lr for the entire run (harmless: no gradients flow
+    to a requires_grad=False backbone regardless of its nominal LR)."""
+    cfg = _base_cfg(freeze_backbone_epochs=999, decoder_phase2_start_epoch=10)
+    cfg["training"]["max_epochs"] = 50
+    set_lrs = make_lr_setter(cfg)
+    optim = _make_optimizer()
+
+    # Decoder phase 1 (epochs 1..10): flat frozen_lr.
+    set_lrs(optim, 5)
+    assert _lr(optim, "decoder") == pytest.approx(1e-3)
+    # Decoder phase 2 starts at epoch 11 (dec_start_epoch=10, p2_epoch=1) → warmup_start_lr.
+    set_lrs(optim, 11)
+    assert _lr(optim, "decoder") == pytest.approx(1e-6, rel=1e-6)
+    # Decoder anneals down toward min_lr by the final epoch.
+    set_lrs(optim, 50)
+    assert _lr(optim, "decoder") == pytest.approx(1e-6, abs=1e-9)
+
+    # Backbone stays at frozen_lr for the whole run — it never reaches freeze_backbone_epochs=999.
+    for epoch in [1, 11, 25, 50]:
+        set_lrs(optim, epoch)
+        assert _lr(optim, "backbone") == pytest.approx(1e-3)
+
+
 def test_phase2_backbone_lr_scale_applied():
     """LLRD: a backbone group's per-epoch LR is multiplied by its lr_scale; groups
     without lr_scale (decoder, legacy 2-group runs) are unaffected."""

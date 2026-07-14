@@ -294,6 +294,8 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_lr_range_test_applies_same_lr_to_all_groups` | All param groups receive the same LR under range-test mode | real |
 | `test_lr_range_test_rejects_invalid_bounds` | lr_min ≥ lr_max → `ValueError` | shallow — guard |
 | `test_unknown_scheduler_raises` | Unknown `scheduler:` value → `ValueError` | shallow — dispatch guard |
+| `test_decoder_phase2_start_epoch_defaults_to_freeze_epochs` | Omitting `decoder_phase2_start_epoch` reproduces the pre-existing flat-frozen behavior exactly | real — backward-compat guard |
+| `test_decoder_anneals_early_while_backbone_stays_permanently_frozen` | With `freeze_backbone_epochs≥max_epochs` (permanent freeze, e.g. a 7B ViT), setting `decoder_phase2_start_epoch` lets the decoder warmup/anneal on its own early timeline while the backbone group stays pinned at frozen_lr | real — fixes the fm_dinov3sat_7b_frozen flat-LR collapse (2026-07-10) |
 
 ### [test_early_stopping.py](test_early_stopping.py)
 
@@ -312,6 +314,8 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 |---|---|---|
 | `test_save_deployment_contains_contracted_fields` | best_deployment.pth has model_state_dict, channel_names, git_sha, trained_with, etc. (no separate stats hash; channel-name binding is the integrity guarantee per training.md §4.5) | real — training.md §4.3 |
 | `test_save_resume_contains_full_state` | resume_latest-*.pth carries live+ema+optimizer+scheduler+scaler+epoch+es+rng | real |
+| `test_save_resume_omits_encoder_when_frozen` | `encoder.*` keys dropped from `live_state_dict` when the whole encoder is frozen (untouched pretrained weights — avoids re-serializing a multi-billion-param encoder every rotation) | real — 2026-07-10 disk-exhaustion fix |
+| `test_save_resume_keeps_encoder_when_trainable` | Once unfrozen (diverged from pretrained), `encoder.*` keys are saved in full | real — regression guard |
 | `test_resume_rotation_keeps_last_n` | Beyond keep_last_n=2, only newest 2 snapshots survive | real |
 | `test_update_best_tracks_smoothed_monotone` | update_best returns True only on strict improvement | real |
 

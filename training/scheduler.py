@@ -12,6 +12,18 @@ Two modes, selected by `cfg["lr_schedule"]["scheduler"]`:
     - Backbone: separate linear warmup `0 -> base_lr * backbone_lr_multiplier`
       over `backbone_warmup_epochs`, then cosine matching the decoder shape.
 
+  An optional `decoder_phase2_start_epoch` (default: `freeze_backbone_epochs`)
+  decouples the decoder's phase-2 timeline from the backbone's freeze
+  boundary. This matters for a permanently-frozen encoder
+  (`freeze_backbone_epochs >= max_epochs`, e.g. a 7B ViT too large to
+  fine-tune): without this, the decoder is pinned at a flat `frozen_lr` for
+  the *entire* run (phase 2 never starts) with no warmup/decay, which starves
+  it of annealing right when the sampling curriculum hardens. Setting
+  `decoder_phase2_start_epoch` below `freeze_backbone_epochs` lets the decoder
+  anneal on schedule while the backbone param group stays at `frozen_lr`
+  (harmless — those params have `requires_grad=False` and never receive
+  gradients) until its own, possibly much later, unfreeze epoch.
+
 - `"lr_range_test"` (Phase 0 §3.2): logarithmic per-step ramp from
   `lr_range_min` to `lr_range_max` across the full run. All param groups receive
   the same LR. Caller drives this per-step rather than per-epoch (see train.py).
@@ -76,6 +88,7 @@ def _make_warmup_cosine_setter(cfg: dict) -> Callable[..., None]:
     max_epochs = int(cfg["training"]["max_epochs"])
 
     freeze_epochs = int(sched["freeze_backbone_epochs"])
+    dec_start_epoch = int(sched.get("decoder_phase2_start_epoch", freeze_epochs))
     frozen_lr = float(sched["frozen_lr"])
     base_lr = float(sched["base_lr"])
     backbone_mult = float(sched["backbone_lr_multiplier"])
@@ -89,6 +102,11 @@ def _make_warmup_cosine_setter(cfg: dict) -> Callable[..., None]:
     phase2_total = max(1, max_epochs - freeze_epochs)
     cosine_tmax = max(1, phase2_total - warmup_epochs)
 
+    # Decoder's own phase-2 timeline (independent of freeze_epochs when
+    # decoder_phase2_start_epoch < freeze_epochs — see module docstring).
+    dec_phase2_total = max(1, max_epochs - dec_start_epoch)
+    dec_cosine_tmax = max(1, dec_phase2_total - warmup_epochs)
+
     # Linear warmup spans p2_epoch ∈ [1..warmup_epochs] mapped to t ∈ [0..warmup_epochs-1]
     # so that p2_epoch=1 → warmup_start_lr and p2_epoch=warmup_epochs → base_lr.
     warmup_tmax = max(1, warmup_epochs - 1)
@@ -97,7 +115,7 @@ def _make_warmup_cosine_setter(cfg: dict) -> Callable[..., None]:
     def _decoder_lr(p2_epoch: int) -> float:
         if p2_epoch <= warmup_epochs:
             return _linear(p2_epoch - 1, warmup_tmax, warmup_start_lr, base_lr)
-        return _cosine(p2_epoch - warmup_epochs, cosine_tmax, base_lr, min_lr)
+        return _cosine(p2_epoch - warmup_epochs, dec_cosine_tmax, base_lr, min_lr)
 
     def _backbone_lr(p2_epoch: int) -> float:
         if backbone_warmup > 0 and p2_epoch <= backbone_warmup:
@@ -108,14 +126,13 @@ def _make_warmup_cosine_setter(cfg: dict) -> Callable[..., None]:
 
     def set_lrs(optimizer: optim.Optimizer, epoch: int, *, step: int = 0, total_steps: int = 1) -> None:
         del step, total_steps  # unused in this mode
-        if epoch <= freeze_epochs:
-            for group in optimizer.param_groups:
-                group["lr"] = frozen_lr
-            return
 
-        p2_epoch = epoch - freeze_epochs
-        dec_lr = _decoder_lr(p2_epoch)
-        bb_lr = _backbone_lr(p2_epoch)
+        # Decoder LR: flat frozen_lr until its own (possibly earlier) phase-2 start.
+        dec_lr = frozen_lr if epoch <= dec_start_epoch else _decoder_lr(epoch - dec_start_epoch)
+
+        # Backbone LR: flat frozen_lr until it actually unfreezes at freeze_epochs.
+        # Harmless while requires_grad=False (no gradient ever reaches it).
+        bb_lr = frozen_lr if epoch <= freeze_epochs else _backbone_lr(epoch - freeze_epochs)
 
         # `lr_scale` (default 1.0) lets LLRD give each encoder layer its own LR
         # (training/freeze.build_llrd_param_groups); non-LLRD groups carry no scale.
@@ -124,9 +141,9 @@ def _make_warmup_cosine_setter(cfg: dict) -> Callable[..., None]:
             group["lr"] = base * group.get("lr_scale", 1.0)
 
     logger.info(
-        "LR setter built (warmup_cosine): freeze_epochs=%d, base_lr=%g, backbone_mult=%g, "
-        "warmup=%d, backbone_warmup=%d, min_lr=%g",
-        freeze_epochs, base_lr, backbone_mult, warmup_epochs, backbone_warmup, min_lr,
+        "LR setter built (warmup_cosine): freeze_epochs=%d, dec_start_epoch=%d, base_lr=%g, "
+        "backbone_mult=%g, warmup=%d, backbone_warmup=%d, min_lr=%g",
+        freeze_epochs, dec_start_epoch, base_lr, backbone_mult, warmup_epochs, backbone_warmup, min_lr,
     )
     return set_lrs
 
