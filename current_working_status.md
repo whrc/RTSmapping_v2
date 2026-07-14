@@ -85,7 +85,26 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Two manuscript-gap experiments closed out (branch `corrected-scaling-and-7b-tuning`, 2026-07-10 to
+**Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
+probability canvas is now a three-package product family (catalog SSoT: `post-inference/south_products.md`;
+plan `now-the-final-product-delegated-locket.md`). **D1 tiered inventory:** `south_rts_candidates.gpkg` —
+**25,716 polygons / 639.4 km²** at thr 0.30 (`vectorize_region --threshold`, windowed polygonize of the
+1,633 prob COG shards, no re-assemble), classed by max_prob (**high ≥0.65: 17,239 / 522.3 km²** · medium
+6,765 · low 1,712) + `area_m2_t45/t65/t80` per-object boundary bands; plus high-only / centroids /
+csv+parquet forms. Reconciliation: all 10,984 delivered thr-0.65 polygons intersect a high candidate
+(0 orphans). **D2:** `likelihood_95m.tif` browse surface (exact block-max via new `downsample_max.py` —
+`gdalwarp -r max` bled NoData-edge values 251–254 onto coverage seams, fixed); `density_10km` + `density_0.5deg`
+grids with threshold-free **expected RTS area = 1,037.4 km²** (Σ calibrated P × geodesic px area; both grids
+agree exactly; expectation > 639 km² outlines > 238 km² @0.65 mask — integrates diffuse sub-detection mass).
+**D3:** catalog + `south_rts_summary.{md,html}` factsheet (hotspot map reproduces known RTS geography).
+All uploaded to `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`.
+
+**Blocked on user: Phase-B QC rating** — `qc_sample.gpkg` (180 polygons, 60/band, longitude×area strata)
++ 542 RGB chips (`qc_chips/`) await rating (`qc_verdict`: rts/false/unsure) in ArcGIS Pro; the resulting
+per-tier precision replaces the val anchors in the catalog. Optional Phase E (static PMTiles threshold-
+explorer viewer) awaits a go. 15+2 new tests across 5 files; suite green.
+
+Prior: **Two manuscript-gap experiments closed out (branch `corrected-scaling-and-7b-tuning`, 2026-07-10 to
 2026-07-14).** Both closed the honest way — either outcome was a valid result; here both **overturned/
 softened** the number they were meant to referee-proof.
 
