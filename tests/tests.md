@@ -535,7 +535,12 @@ synthetic adjacent block masks sharing a seam.
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_seam_split_slump_reassembles_and_survives_min_blob` | a slump split into two 200px halves (each < min_blob 300) reassembles to one 400px polygon and is KEPT — proves min_blob is applied AFTER the dissolve, no double-count | real — the core seam-stitch invariant |
+| `test_scaled_uint8_prob_raster_decodes_mean_prob` | with a scaled_uint8 prob COG, `mean_prob` decodes to 0.8 (not raw 200) | real — regression of `de981b2` |
 | `test_min_blob_zero_keeps_all_including_tiny` | min_blob=0 → interior + tiny + reassembled seam slump all kept | real — filter-off path |
+| `test_threshold_mode_matches_mask_mode` | `threshold=0.65` on `probability_*.tif` shards reproduces the mask-mode result, incl. window seams (`window_px=50` splits the seam slump) | real — threshold-mode ≡ mask-mode equivalence |
+| `test_threshold_mode_scaled_u8_nodata_not_above_threshold` | scaled_uint8 NoData 255 (> any scaled thr) excluded — no polygons over the NoData sea | real — the NoData-vs-threshold trap |
+| `test_threshold_mode_lower_threshold_recovers_lower_prob_blob` | prob-0.5 blob invisible at thr 0.65, present at 0.30 with decoded `max_prob` | real — the permissive-product path |
+| `test_multi_threshold_area_attributes` | `area_m2_t45/t65/t80` = geodesic area × fraction of in-polygon pixels ≥ t (half-0.9/half-0.5 blob) | real — boundary-uncertainty attributes |
 
 ### [test_prob_writer.py](test_prob_writer.py)
 

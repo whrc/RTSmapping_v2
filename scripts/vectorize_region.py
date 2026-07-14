@@ -53,19 +53,36 @@ from utils.logging import setup_logging  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-def _polygonize_block(spec: tuple[str, int]):
-    """Polygonize one block mask → (interior WKB list, edge-touching WKB list).
+def _polygonize_block(spec: dict):
+    """Polygonize one block/window → (interior WKB list, edge-touching WKB list).
 
-    Interior polygons are min_blob-filtered here; edge-touching ones are deferred
-    to the cross-block dissolve. Returned as WKB so they pickle across the pool.
+    Two modes: mask (``threshold`` absent — block is a 0/1/255 mask, take ==1)
+    and threshold (``threshold`` set — block is a probability window; binarize
+    at the decoded threshold, scaled_uint8 NoData 255 excluded explicitly since
+    it is numerically above any scaled threshold). Interior polygons are
+    min_blob-filtered here; edge-touching ones are deferred to the cross-block
+    dissolve. Returned as WKB so they pickle across the pool.
     """
-    mask_path, min_blob_px = spec
-    with rasterio.open(mask_path) as src:
-        m = src.read(1)
-        transform = src.transform
-        left, bottom, right, top = src.bounds
+    min_blob_px = spec["min_blob_px"]
+    with rasterio.open(spec["path"]) as src:
+        if "window" in spec:
+            win = windows.Window(*spec["window"])
+            m = src.read(1, window=win)
+            transform = windows.transform(win, src.transform)
+            left, bottom, right, top = windows.bounds(win, src.transform)
+        else:
+            m = src.read(1)
+            transform = src.transform
+            left, bottom, right, top = src.bounds
         xres, yres = src.res
-    binm = m == 1
+        dtype = src.dtypes[0]
+    thr = spec.get("threshold")
+    if thr is None:
+        binm = m == 1
+    elif dtype == "uint8":  # scaled_uint8: prob×250, NoData 255
+        binm = (m != NODATA_SCALED_U8) & (m >= int(round(thr * SCALE_U8)))
+    else:  # float32: NoData -1 is below any positive threshold
+        binm = m >= thr
     if not binm.any():
         return [], []
     px_area = xres * yres
@@ -103,6 +120,12 @@ def _record(rts_id: int, geom, prb, tiles: pd.DataFrame, scales: list[float]) ->
     b = geom.bounds
     hit = tiles[(tiles["minx"] < b[2]) & (tiles["maxx"] > b[0])
                 & (tiles["miny"] < b[3]) & (tiles["maxy"] > b[1])]
+
+    def _area_frac(t: float) -> float:
+        # geodesic area × in-polygon fraction of pixels ≥ t (keeps the multi-
+        # threshold areas geodesically consistent with area_m2)
+        return abs(area) * float((pvals >= t).mean()) if pvals.size else float("nan")
+
     return {
         "rts_id": rts_id,
         "area_m2": abs(area),
@@ -111,6 +134,9 @@ def _record(rts_id: int, geom, prb, tiles: pd.DataFrame, scales: list[float]) ->
         "centroid_lon": lon,
         "mean_prob": float(pvals.mean()) if pvals.size else float("nan"),
         "max_prob": float(pvals.max()) if pvals.size else float("nan"),
+        "area_m2_t45": _area_frac(0.45),
+        "area_m2_t65": _area_frac(0.65),
+        "area_m2_t80": _area_frac(0.80),
         "detection_scale": ",".join(str(s) for s in scales),
         "tile_ids": ",".join(hit["tile_id"].astype(str)),
     }
@@ -128,12 +154,36 @@ def dissolve_edges(edge_wkb: list[bytes], min_blob_px: int,
 
 def vectorize_region(blocks_dir: str, prob_path: str, tile_list: str,
                      scales: list[float], min_blob_px: int,
-                     workers: int) -> gpd.GeoDataFrame:
-    """Parallel polygonize of block masks → dissolved, min_blob-filtered polygons."""
-    mask_blocks = sorted(glob.glob(f"{blocks_dir.rstrip('/')}/mask_*.tif"))
-    if not mask_blocks:
-        raise RuntimeError(f"no mask_*.tif under {blocks_dir}")
-    specs = [(mb, min_blob_px) for mb in mask_blocks]
+                     workers: int, threshold: float | None = None,
+                     window_px: int = 8192) -> gpd.GeoDataFrame:
+    """Parallel polygonize of block masks → dissolved, min_blob-filtered polygons.
+
+    With ``threshold`` set, polygonizes the probability super-tile COGs
+    (``probability_*.tif``, the delivered product shards) at that decoded
+    probability instead of the pre-thresholded ``mask_*.tif`` blocks — each COG
+    is processed in ``window_px``² windows so a full super-tile never has to fit
+    in RAM; the existing edge-dissolve stitches polygons across window and COG
+    seams alike.
+    """
+    if threshold is None:
+        mask_blocks = sorted(glob.glob(f"{blocks_dir.rstrip('/')}/mask_*.tif"))
+        if not mask_blocks:
+            raise RuntimeError(f"no mask_*.tif under {blocks_dir}")
+        specs = [dict(path=mb, min_blob_px=min_blob_px) for mb in mask_blocks]
+    else:
+        prob_blocks = sorted(glob.glob(f"{blocks_dir.rstrip('/')}/probability_*.tif"))
+        if not prob_blocks:
+            raise RuntimeError(f"no probability_*.tif under {blocks_dir}")
+        specs = []
+        for pb in prob_blocks:
+            with rasterio.open(pb) as src:
+                w, h = src.width, src.height
+            for r0 in range(0, h, window_px):
+                for c0 in range(0, w, window_px):
+                    specs.append(dict(
+                        path=pb, min_blob_px=min_blob_px, threshold=threshold,
+                        window=(c0, r0, min(window_px, w - c0),
+                                min(window_px, h - r0))))
 
     interior_wkb, edge_wkb = [], []
     with ProcessPoolExecutor(max_workers=workers) as ex:
@@ -162,12 +212,18 @@ def vectorize_region(blocks_dir: str, prob_path: str, tile_list: str,
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--blocks-dir", required=True,
-                   help="dir of assemble_region.py mask_*.tif block COGs")
+                   help="dir of assemble_region.py mask_*.tif block COGs "
+                        "(or probability_*.tif shards with --threshold)")
     p.add_argument("--prob", required=True, help="region probability COG")
     p.add_argument("--tile-list", required=True)
     p.add_argument("--package", required=True)
     p.add_argument("--output", required=True, type=Path)
     p.add_argument("--workers", type=int, default=16)
+    p.add_argument("--threshold", type=float, default=None,
+                   help="polygonize probability_*.tif at this decoded prob "
+                        "instead of the pre-thresholded mask blocks")
+    p.add_argument("--window-px", type=int, default=8192,
+                   help="processing window size for --threshold mode")
     args = p.parse_args()
     setup_logging()
 
@@ -175,7 +231,8 @@ def main() -> int:
     gdf = vectorize_region(args.blocks_dir, args.prob, args.tile_list,
                            scales=dep_cfg.get("scales", [1.0]),
                            min_blob_px=int(dep_cfg.get("min_blob_size_px", 0)),
-                           workers=args.workers)
+                           workers=args.workers, threshold=args.threshold,
+                           window_px=args.window_px)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(args.output, driver="GPKG")
     logger.info("Wrote %s", args.output)
