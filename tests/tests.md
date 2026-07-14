@@ -570,6 +570,18 @@ csv+parquet attribute table). GPU-free; 3-polygon synthetic GPKG.
 | `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
 | `test_export_products_writes_four_access_forms` | 4 files; high-only filtered; representative points INSIDE a C-shaped polygon (where the raw centroid falls outside); csv/parquet without geometry | real — packaging correctness |
 
+### [test_sample_qc_polygons.py](test_sample_qc_polygons.py)
+
+`scripts/sample_qc_polygons.py` — fixed-seed stratified QC sample (n per
+conf_class band, longitude × area strata) with an empty `qc_verdict` column
+for the ArcGIS rating pass. GPU-free; synthetic 600-polygon gdf.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_sample_counts_and_verdict_column` | exactly n per band, empty verdicts, seed-reproducible | real — sample contract |
+| `test_sample_spreads_across_longitude` | each band hits ≥5 of 6 longitude bins | real — the cross-region-variation guard |
+| `test_small_band_returns_all_its_polygons` | band smaller than quota returned whole | real — degenerate band |
+
 ### [test_prob_writer.py](test_prob_writer.py)
 
 `inference/runner.py::_ProbWriter` — background thread-pool prob-COG writer that
