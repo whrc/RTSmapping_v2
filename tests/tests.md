@@ -542,6 +542,34 @@ synthetic adjacent block masks sharing a seam.
 | `test_threshold_mode_lower_threshold_recovers_lower_prob_blob` | prob-0.5 blob invisible at thr 0.65, present at 0.30 with decoded `max_prob` | real — the permissive-product path |
 | `test_multi_threshold_area_attributes` | `area_m2_t45/t65/t80` = geodesic area × fraction of in-polygon pixels ≥ t (half-0.9/half-0.5 blob) | real — boundary-uncertainty attributes |
 
+### [test_aggregate_probability.py](test_aggregate_probability.py)
+
+`scripts/aggregate_probability.py` — one-pass streaming aggregation of the
+probability shards into threshold-free density grids (D2 products): per-cell
+expected RTS area Σ decoded P × geodesic pixel area (cos²lat Mercator
+correction) on a metric 3857 grid and a 0.5° WGS84 grid. GPU-free; tiny
+synthetic scaled_uint8 shards with analytic ground truth.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_expected_area_near_equator_matches_analytic` | Σ expected ≈ 0.5·100·res² for a P=0.5 blob at lat≈0; NoData sea contributes 0 | real — the core expectation math |
+| `test_expected_area_at_60N_applies_cos2_correction` | same blob at 60°N shrinks by cos²(60°)=0.25 | real — geodesic correction |
+| `test_blobs_land_in_their_own_cells` | blobs 2 cells apart occupy exactly 2 cells at the right offsets | real — metric binning |
+| `test_half_degree_grid_bins_by_lonlat` | blob at (0.3°E, 0.1°N) lands in the containing 0.5° cell, analytic total | real — WGS84 binning |
+| `test_multi_shard_sums_are_additive` | 2 shards sum; 3857 and 0.5° grids agree on the canvas total | real — the plan's independent-total check |
+| `test_write_grids_products_and_per_class_join` | cell GPKGs (valid cells only) + GeoTIFFs written; `n_<class>`/`rts_m2_<class>` joined into the centroid's cell | real — product writer |
+
+### [test_export_south_products.py](test_export_south_products.py)
+
+`scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
+the four D1 access forms (flagship tiered GPKG / high-only / centroids /
+csv+parquet attribute table). GPU-free; 3-polygon synthetic GPKG.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
+| `test_export_products_writes_four_access_forms` | 4 files; high-only filtered; representative points INSIDE a C-shaped polygon (where the raw centroid falls outside); csv/parquet without geometry | real — packaging correctness |
+
 ### [test_prob_writer.py](test_prob_writer.py)
 
 `inference/runner.py::_ProbWriter` — background thread-pool prob-COG writer that
