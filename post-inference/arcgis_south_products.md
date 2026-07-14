@@ -8,6 +8,23 @@ ensemble, threshold 0.65, T 0.512321). All layers are **EPSG:3857 (Web Mercator)
 slump areas 0.27–72 ha (median ≈1.3 ha). Probability raster: 1,633 super-tile COGs
 (8.4 M × 1.6 M px canvas, sparse).
 
+**Two ways to view this in ArcGIS Pro:** the manual steps below (add each layer
+yourself, use a generic Imagery basemap for context), or the automated pair of
+scripts (`scripts/build_rgb_chips.py` + `scripts/build_arcgis_project.py`) that
+also generates real RGB "underlying tile" context chips — the actual Planet
+imagery the model saw for each detection, not a generic basemap — and builds
+the whole `.aprx` with layers + symbology in one run. Region-generic (works for
+Banks and South, `.tif` or sharded `.vrt` alike). See the scripts' own
+docstrings for invocation; the manual path below still works standalone if you
+just want the polygons/rasters without the RGB chips.
+
+**No ArcGIS license? Use Google Earth Engine instead:** `post-inference/ee_south_viewer.js`
+is a ready-to-paste Code Editor script (`south_rts` + `south_mask` are ingested
+as real EE assets under `projects/pdg-project-406720/assets/`; the probability
+layer is mosaicked live from its 1,633 source COG shards via `loadGeoTIFF` —
+EE's ingestion pipeline repeatedly failed on that specific layer, see the
+script's header comment for why). No install, no download, opens in a browser.
+
 ## 1. The products (in GCS)
 
 Bucket prefix: `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`

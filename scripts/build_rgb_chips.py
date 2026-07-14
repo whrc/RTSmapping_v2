@@ -4,16 +4,23 @@ RGB mosaic is persisted at deployment scale — inference only windows tiles
 on the fly from Planet quads).
 
 Only the tiles that actually intersect a detection are chipped (not the whole
-region — that's the same 200k x 310k px problem `assemble_region.py` already
-solves for prob/mask), reusing the exact windowed-read path real inference
-uses (`inference.tiles.read_tile`) so the chip imagery matches what the model
-saw (CLAUDE Rule 3 — no duplicated tile-reading logic).
+region — that's the same region-canvas-scale problem `assemble_region.py`
+already solves for prob/mask, whether that's Banks' 200k x 310k px or the full
+South run's continental canvas), reusing the exact windowed-read path real
+inference uses (`inference.tiles.read_tile`) so the chip imagery matches what
+the model saw (CLAUDE Rule 3 — no duplicated tile-reading logic).
 
-Usage:
+Usage (Banks):
     python scripts/build_rgb_chips.py \
         --gpkg banks_rts.gpkg --tile-list banks_tiles.csv \
         --quad-index quad_index_banks_usc1.csv \
         --out-dir /local/banks/products/rgb_chips
+
+Usage (full South):
+    python scripts/build_rgb_chips.py \
+        --gpkg south_rts.gpkg --tile-list tiles_2025q3_domain_full.csv \
+        --quad-index quad_index_2025q3.csv \
+        --out-dir /local/south/products/rgb_chips
 """
 
 from __future__ import annotations
