@@ -96,10 +96,18 @@ has no timm MIM weights). DINOv3-L is already integrated (family E, `models/foun
 baselined (0.9191, ties EffB5); the untested lever is *domain-adapted* ViT weights. Corpus scope:
 **4-ch RGB+NDVI south-only** (NDVI S2 coverage is south-only today). Gate arms: (a) EffB5 0.9218 · (b)
 DINOv3-L sat493m 0.9191 [both existing, no rerun] · (c) DINOv3-L + arctic-MAE, 3 seeds; SSL helped iff
-(c)−(b) ≥ G=0.0112 sign-consistent. **Done so far:** Phase 1 (docs + v2.0 K-list fix) committed;
-corpus builder + `_load_encoder_init` hook coded, unit-tested (11 green), and verified end-to-end
-(100-tile GCS smoke, 0 rejected; encoder_init round-trips through the DINOv3 Eva ViT). **Next:** write
-`scripts/pretrain.py` + `pretraining/mim_model.py` (ViT-MAE), full corpus build, then the 8×A100 run.
+(c)−(b) ≥ G=0.0112 sign-consistent. **All code done + smoke-verified (7 commits on `v2.1-pretraining`):**
+corpus builder, `_load_encoder_init` hook, ViT-MAE (`pretraining/mim_model.py`, SimMIM via patch_embed
+hook), DDP trainer (`scripts/pretrain.py`), 3 fine-tune arm configs, `sync_experiments.py --ledger`.
+Full pipeline verified at smoke scale: corpus→MAE pretrain→`encoder_final.pt`→loads into fine-tune model
+(318/318 tensors). 16 unit tests green. **Caught + fixed a leakage bug:** exclusion polygons were
+EPSG:3413 (polar stereo) but compared against 3857 tiles → 0 exclusions; now reprojected (eval regions
+verified at 54.7–76.8°N, overlapping S2 footprint). **Build strategy (measured):** 0.649 MB/tile →
+materialize ~300k tiles (~195 GB) to local disk; do NOT stream-from-GCS (multi-epoch would starve the
+A100s re-reading every epoch). Two-step parallel build (plan→N materialize shards→merge; exact stats
+pooling). **Now:** node disk was at 33 GB free (94%) — user freeing to ~255 GB (holds ~350k tiles, ✓);
+the disk-safe `--plan-only` step (→ `sample_manifest.csv`, 300k) is running. **Remaining = compute:**
+materialize shards, 8×A100 `torchrun` pretrain, 3-seed fine-tune gate.
 
 **Still blocked on user: Phase-B QC rating** (see below).
 
