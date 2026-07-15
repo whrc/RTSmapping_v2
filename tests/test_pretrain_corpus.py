@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 from shapely import STRtree
 from shapely.geometry import box as shp_box
+from shapely.ops import unary_union
 
 from pretraining import corpus
 
@@ -71,6 +74,42 @@ def test_stratified_sample_oversamples_marked_tiles():
                                       oversample_mask=mask, oversample_factor=2.0)
     picked_marked = mask[[int(t.split("_")[0][1:]) for t in sample["tile_id"]]].sum()
     assert picked_marked >= 8                    # heavily favoured
+
+
+def _write_geojson(tmp_path, epsg, coords, name="Canadian Low Arctic tundra"):
+    gj = {"type": "FeatureCollection",
+          "crs": {"type": "name", "properties": {"name": f"urn:ogc:def:crs:EPSG::{epsg}"}},
+          "features": [{"type": "Feature", "properties": {"ECO_NAME": name},
+                        "geometry": {"type": "Polygon", "coordinates": [coords]}}]}
+    p = tmp_path / "regions.geojson"
+    p.write_text(json.dumps(gj))
+    return p
+
+
+def test_load_exclusion_polygons_reprojects_from_3413(tmp_path):
+    # A polar-stereographic (EPSG:3413) box near the pole must come back in EPSG:3857
+    # Arctic-latitude coordinates — not left in raw 3413 metres (the leakage bug).
+    coords = [[-1_800_000, -2_700_000], [-1_700_000, -2_700_000],
+              [-1_700_000, -2_600_000], [-1_800_000, -2_600_000], [-1_800_000, -2_700_000]]
+    tree = corpus.load_exclusion_polygons(_write_geojson(tmp_path, 3413, coords), ["Canadian Low Arctic tundra"])
+    poly = unary_union(list(tree.geometries))
+    assert poly.bounds[1] > 5_000_000, f"not reprojected to 3857 (miny={poly.bounds[1]})"
+
+    # A tile at the reprojected polygon's centroid is dropped; a far-away one is kept.
+    cx, cy = poly.centroid.x, poly.centroid.y
+    tiles = pd.DataFrame([
+        {"tile_id": "hit", "minx": cx - 500, "miny": cy - 500, "maxx": cx + 500, "maxy": cy + 500},
+        {"tile_id": "miss", "minx": 0, "miny": 0, "maxx": 100, "maxy": 100},
+    ])
+    kept = set(corpus.drop_excluded(tiles, tree)["tile_id"])
+    assert "hit" not in kept and "miss" in kept
+
+
+def test_load_exclusion_polygons_no_reproject_when_already_3857(tmp_path):
+    coords = [[0, 8_000_000], [100_000, 8_000_000], [100_000, 8_100_000], [0, 8_100_000], [0, 8_000_000]]
+    tree = corpus.load_exclusion_polygons(_write_geojson(tmp_path, 3857, coords), ["Canadian Low Arctic tundra"])
+    (minx, miny, _, _) = unary_union(list(tree.geometries)).bounds
+    assert abs(minx - 0) < 1 and abs(miny - 8_000_000) < 1   # unchanged
 
 
 def test_quality_ok_rejects_high_nodata_and_empty_ndvi():

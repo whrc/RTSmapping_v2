@@ -722,6 +722,8 @@ v2.1 SSL corpus sampling/exclusion/quality logic (`pretraining/corpus.py`), CPU-
 | `test_filter_to_s2_footprint_keeps_only_intersecting` | Envelope pre-filter + STRtree exact-intersect keeps only tiles over an S2 cell | real — defines the south-covered corpus domain |
 | `test_drop_excluded_removes_tiles_over_polygons` | Tiles intersecting a val/test polygon are dropped | real — leakage hygiene |
 | `test_drop_excluded_empty_tree_is_noop` | No exclusion polygons → all tiles kept | shallow |
+| `test_load_exclusion_polygons_reprojects_from_3413` | Subregions GeoJSON is EPSG:3413 (polar stereo); polygons reprojected to 3857 before the tree, else intersections silently miss → eval-region leakage | real — leakage-hygiene regression (caught pre-build 2026-07-15) |
+| `test_load_exclusion_polygons_no_reproject_when_already_3857` | CRS already 3857 → geometry unchanged | shallow |
 | `test_stratified_sample_balances_across_strata` | Two far-apart clusters → roughly even draw per stratum | real |
 | `test_stratified_sample_returns_all_when_target_exceeds_pool` | `n_target ≥ pool` → returns everything | shallow |
 | `test_stratified_sample_oversamples_marked_tiles` | `oversample_mask` tiles drawn first within a stratum | real — near-label oversampling |

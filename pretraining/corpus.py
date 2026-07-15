@@ -70,25 +70,43 @@ def filter_to_s2_footprint(
     return pre.iloc[keep]
 
 
+def _geojson_epsg(gj: dict) -> int:
+    """EPSG code from a GeoJSON ``crs`` member; GeoJSON default is 4326 if absent."""
+    name = gj.get("crs", {}).get("properties", {}).get("name")
+    if not name:
+        return 4326
+    return int(name.rsplit(":", 1)[-1].rsplit("::", 1)[-1])
+
+
 def load_exclusion_polygons(
     regions_geojson: str | Path,
     split_names: list[str],
     name_key: str = "ECO_NAME",
+    target_epsg: int = 3857,
 ) -> STRtree:
-    """STRtree over the val/test region polygons to exclude from the corpus.
+    """STRtree (in EPSG:3857) over the val/test region polygons to exclude.
 
     ``split_names`` are the region names listed under val/test in splits.yaml; the
-    GeoJSON features are matched on ``name_key`` (subregions use ECO_NAME). Polygons
-    are reprojected assumption-free: the domain GeoJSON is already EPSG:3857 (project
-    CRS constraint), same frame as the tile bounds.
+    GeoJSON features are matched on ``name_key`` (subregions use ECO_NAME).
+
+    The subregions GeoJSON is **EPSG:3413** (polar stereographic), not the 3857 the
+    tile bounds use — so the polygons are reprojected to ``target_epsg`` before the
+    tree is built. Skipping this makes every intersection test miss (mismatched
+    coordinate spaces) and silently leaks eval-region tiles into the corpus.
     """
     with _open_text(regions_geojson) as f:
         gj = json.load(f)
+    src_epsg = _geojson_epsg(gj)
     wanted = set(split_names)
     geoms = [shape(feat["geometry"]) for feat in gj["features"]
              if feat.get("properties", {}).get(name_key) in wanted]
-    logger.info("Exclusion polygons: %d regions matched of %d requested names",
-                len(geoms), len(wanted))
+    if src_epsg != target_epsg:
+        from pyproj import Transformer
+        from shapely.ops import transform
+        tf = Transformer.from_crs(src_epsg, target_epsg, always_xy=True).transform
+        geoms = [transform(tf, g) for g in geoms]
+    logger.info("Exclusion polygons: %d regions matched of %d requested names "
+                "(reprojected EPSG:%d → %d)", len(geoms), len(wanted), src_epsg, target_epsg)
     return STRtree(geoms)
 
 
