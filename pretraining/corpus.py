@@ -47,6 +47,16 @@ def _envelope(index: pd.DataFrame) -> tuple[float, float, float, float]:
             index["maxx"].max(), index["maxy"].max())
 
 
+def _boxes(df: pd.DataFrame) -> np.ndarray:
+    """Vectorized shapely box geometries from a bounds DataFrame.
+
+    ``shapely.box`` broadcasts over numpy arrays in C — orders of magnitude faster
+    than a Python ``[box(...) for r in df.itertuples()]`` at the 40M-row domain scale.
+    """
+    return box(df["minx"].to_numpy(), df["miny"].to_numpy(),
+               df["maxx"].to_numpy(), df["maxy"].to_numpy())
+
+
 def filter_to_s2_footprint(
     tiles: pd.DataFrame, s2_index: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -61,11 +71,8 @@ def filter_to_s2_footprint(
                 & (tiles["maxy"] > ex[1]) & (tiles["miny"] < ex[3])]
     if pre.empty:
         return pre
-    tree = STRtree([box(r.minx, r.miny, r.maxx, r.maxy)
-                    for r in s2_index.itertuples()])
-    left, _ = tree.query(
-        [box(r.minx, r.miny, r.maxx, r.maxy) for r in pre.itertuples()],
-        predicate="intersects")
+    tree = STRtree(_boxes(s2_index))
+    left, _ = tree.query(_boxes(pre), predicate="intersects")
     keep = np.unique(left)
     return pre.iloc[keep]
 
@@ -114,9 +121,7 @@ def drop_excluded(tiles: pd.DataFrame, exclusion: STRtree) -> pd.DataFrame:
     """Drop tiles whose bbox intersects any val/test exclusion polygon."""
     if len(exclusion.geometries) == 0:
         return tiles
-    left, _ = exclusion.query(
-        [box(r.minx, r.miny, r.maxx, r.maxy) for r in tiles.itertuples()],
-        predicate="intersects")
+    left, _ = exclusion.query(_boxes(tiles), predicate="intersects")
     excluded = np.unique(left)
     mask = np.ones(len(tiles), dtype=bool)
     mask[excluded] = False
