@@ -736,6 +736,7 @@ v2.1 MAE masking + item loading (`pretraining/mim_dataset.py`), CPU-only.
 | `test_random_patch_mask_ratio_and_shape` | Exactly `round(ratio·N)` patches masked, right shape/dtype | real |
 | `test_random_patch_mask_varies_with_generator` | Different RNG → different mask | shallow |
 | `test_expand_mask_upsamples_to_pixels` | Patch mask → pixel mask block-upsampled correctly | real |
+| `test_mae_patchify_shape_and_layout` | `MaskedAutoencoderViT.patchify` shape + per-patch pixel layout (top-left patch → row 0) | real — target-construction correctness (full ViT forward/backward is GPU-smoke-covered, not in the CPU suite) |
 | `test_dataset_item_shapes_and_nan_neutralization` | 4-ch image + patch mask shapes; NaN NDVI neutralized to 0 by `apply_norm` | real — training/inference norm parity |
 
 ### [test_train_smoke.py](test_train_smoke.py)

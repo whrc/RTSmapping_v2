@@ -55,6 +55,23 @@ def _write_corpus(tmp_path, n=3, tile_px=32):
     return ids
 
 
+def test_mae_patchify_shape_and_layout():
+    # Construction works with any timm ViT (no forward → no size assert); patchify is
+    # a pure tensor op independent of the backbone. Full-model forward/backward is
+    # covered by the GPU pretrain smoke (pretraining.md §3), not the fast CPU suite.
+    import torch
+
+    from pretraining.mim_model import MaskedAutoencoderViT
+    m = MaskedAutoencoderViT(backbone="vit_tiny_patch16_384", pretrained=False,
+                             in_channels=4, patch_px=16)
+    img = torch.zeros(1, 4, 64, 64)          # 4×4 = 16 patches
+    img[:, :, :16, :16] = 1.0                # only the top-left patch is nonzero
+    patches = m.patchify(img)                # (1, 16, 4*16*16)
+    assert patches.shape == (1, 16, 4 * 16 * 16)
+    assert patches[0, 0].eq(1.0).all()       # patch (0,0) row all ones
+    assert patches[0, 1:].eq(0.0).all()      # every other patch row all zeros
+
+
 def test_dataset_item_shapes_and_nan_neutralization(tmp_path):
     _write_corpus(tmp_path, n=3, tile_px=32)
     ds = MIMCorpusDataset(tmp_path, patch_px=8, mask_ratio=0.5, tile_px=32)

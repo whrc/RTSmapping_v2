@@ -1,0 +1,29 @@
+# v2.1 — MAE continue-pretraining of DINOv3-L on the arctic corpus (produces arm-(c) encoder init).
+# Single DDP job across all 8 GPUs of a100-8x-train:
+#   torchrun --nproc_per_node=8 scripts/pretrain.py --config configs/v21/pretrain_dinov3l_arctic.yaml
+# Output encoder_final.pt is consumed by configs/v21/ft_dinov3l_arctic_seed*.yaml (model.encoder_init).
+seed: 42
+
+pretrain:
+  backbone: vit_large_patch16_dinov3.sat493m
+  pretrained: true                 # continue-pretrain from the sat493m init (not from scratch)
+  patch_px: 16
+  mask_ratio: 0.75
+  corpus_dir: /outputs/v2.1/PRETRAIN_CORPUS      # full corpus (built by build_pretrain_corpus.py)
+  out_dir: /outputs/v2.1/RTS_MODEL_V21/pretrain_dinov3l_arctic
+  batch_size_per_gpu: 64           # global batch 512 = 64 x 8 GPUs
+  base_lr_per_256: 1.5e-4          # scaled by global_batch/256 in pretrain.py
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+  grad_clip: 1.0
+  epochs: 200                      # continue-pretrain; sat493m is a strong init
+  warmup_epochs: 10
+  min_lr: 1.0e-6
+  num_workers: 8
+  log_every: 50
+  ckpt_every_epochs: 20
+
+mlflow:
+  tracking_uri: "file:///outputs/mlflow"
+  experiment_name: "rts-segmentation-v2.1"
+  run_name: pretrain_dinov3l_arctic
