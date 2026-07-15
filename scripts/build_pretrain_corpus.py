@@ -1,24 +1,33 @@
 """Build the v2.1 SSL pretraining corpus (spec: pretraining/pretraining.md §2).
 
 Samples 4-ch (RGB+NDVI) 512x512 tiles over the S2-covered south footprint, writes one
-.npz per tile + manifest.csv + normalization_stats.json. Tile reads reuse the inference
-readers verbatim (CLAUDE Rule 3). Materialization is embarrassingly parallel; this script
-does a single-process build (use --shard/--n-shards to fan out across processes/VMs).
+.npz per tile + manifest + normalization_stats.json. Tile reads reuse the inference readers
+verbatim (CLAUDE Rule 3).
 
-Usage (5k pilot):
-  python scripts/build_pretrain_corpus.py \
-    --quad-index /mnt/outputs/inference/quad_index_2025q3.csv \
-    --s2-index   /mnt/outputs/inference/s2_index_2025_south.csv \
-    --domain-tiles /mnt/outputs/inference/tiles_2025q3_domain_full.csv \
-    --regions-geojson gs://rts-mapping-v2/training/v1.0/circumpolar_subregions.geojson \
-    --splits-yaml     gs://rts-mapping-v2/training/v1.0/splits.yaml \
-    --out-dir /mnt/outputs/v2.1/PRETRAIN_CORPUS_PILOT --n-target 5000
+Two-step build so the expensive candidate step (3.6 GB domain CSV load + S2 footprint filter
++ eval-region exclusion, ~13 min, GBs of RAM) runs ONCE, not per shard:
+
+  # 1. plan (once): sample tiles → sample_manifest.csv, then exit
+  python scripts/build_pretrain_corpus.py --plan-only --n-target 300000 \
+    --quad-index …/quad_index_2025q3.csv --s2-index …/s2_index_2025_south.csv \
+    --domain-tiles …/tiles_2025q3_domain_full.csv \
+    --regions-geojson gs://…/circumpolar_subregions.geojson \
+    --splits-yaml gs://…/splits.yaml --out-dir /mnt/outputs/v2.1/PRETRAIN_CORPUS
+
+  # 2. materialize (parallel, N shards): each reads sample_manifest.csv + writes its slice
+  for k in $(seq 0 63); do python scripts/build_pretrain_corpus.py --from-sample \
+      --shard $k --n-shards 64 --quad-index … --s2-index … \
+      --out-dir /mnt/outputs/v2.1/PRETRAIN_CORPUS & done; wait
+
+Single-process build (pilot): omit --plan-only/--from-sample and pass --n-target.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -34,7 +43,7 @@ if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from data.normalization import WelfordStats, build_stats_dict, save_stats  # noqa: E402
+from data.normalization import WelfordStats, save_stats  # noqa: E402
 from data.splits import load_splits_yaml  # noqa: E402
 from inference.quad_index import load_quad_index  # noqa: E402
 from inference.s2_index import load_s2_index  # noqa: E402
@@ -66,36 +75,24 @@ def build_candidates(args) -> pd.DataFrame:
     return tiles
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--quad-index", required=True)
-    p.add_argument("--s2-index", required=True)
-    p.add_argument("--domain-tiles", required=True)
-    p.add_argument("--regions-geojson", required=True)
-    p.add_argument("--splits-yaml", required=True)
-    p.add_argument("--out-dir", required=True, type=Path)
-    p.add_argument("--n-target", type=int, default=5000)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--max-nodata-frac", type=float, default=0.5)
-    p.add_argument("--shard", type=int, default=0, help="this shard index")
-    p.add_argument("--n-shards", type=int, default=1, help="total shards")
-    args = p.parse_args()
-
-    setup_logging()
-    tiles_dir = args.out_dir / "tiles"
-    tiles_dir.mkdir(parents=True, exist_ok=True)
-
+def plan(args) -> int:
+    """Build candidates, stratified-sample, write sample_manifest.csv (tile_id + bbox)."""
     candidates = build_candidates(args)
     sample = corpus_mod.stratified_sample(candidates, args.n_target, seed=args.seed)
-    logger.info("Sampled %d tiles across %d strata",
-                len(sample), len(np.unique(corpus_mod.stratum_labels(sample))))
+    sample = sample[["tile_id", "minx", "miny", "maxx", "maxy"]].copy()
+    sample["stratum"] = corpus_mod.stratum_labels(sample)
+    out = args.out_dir / "sample_manifest.csv"
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    sample.to_csv(out, index=False)
+    logger.info("Planned %d tiles across %d strata → %s",
+                len(sample), sample["stratum"].nunique(), out)
+    return 0
 
-    # Shard split for multi-process builds (deterministic by row order).
-    if args.n_shards > 1:
-        sample = sample.iloc[args.shard::args.n_shards]
-        logger.info("Shard %d/%d → %d tiles", args.shard, args.n_shards, len(sample))
 
+def materialize(args, sample: pd.DataFrame) -> int:
+    """Read + write the npz for each tile in ``sample``; write shard manifest + partial stats."""
+    tiles_dir = args.out_dir / "tiles"
+    tiles_dir.mkdir(parents=True, exist_ok=True)
     quad_index = load_quad_index(args.quad_index)
     s2_index = load_s2_index(args.s2_index)
     quad_bbox = _BBoxIndex(quad_index)
@@ -113,37 +110,110 @@ def main() -> int:
         if not corpus_mod.quality_ok(rgb, nodata, ndvi, args.max_nodata_frac):
             n_rejected += 1
             continue
-        rgb_u8 = np.clip(rgb, 0, 255).astype(np.uint8)
         np.savez_compressed(tiles_dir / f"{row.tile_id}.npz",
-                            rgb=rgb_u8, ndvi=ndvi.astype(np.float16))
-        # Stats over valid pixels only (NoData RGB is 0; NaN NDVI excluded).
-        valid = ~nodata
-        rgb_stats.update(rgb[:, valid])          # (3, N_valid)
-        fin = np.isfinite(ndvi)
-        ndvi_stats.update(ndvi[fin][None, :])    # (1, N_finite)
-        manifest_rows.append({
-            "tile_id": row.tile_id, "minx": row.minx, "miny": row.miny,
-            "maxx": row.maxx, "maxy": row.maxy,
-            "stratum": int(corpus_mod.stratum_labels(pd.DataFrame([{
-                "minx": row.minx, "miny": row.miny,
-                "maxx": row.maxx, "maxy": row.maxy}]))[0]),
-            "nodata_frac": float(nodata.mean()),
-        })
+                            rgb=np.clip(rgb, 0, 255).astype(np.uint8),
+                            ndvi=ndvi.astype(np.float16))
+        valid = ~nodata                          # stats over valid pixels only
+        rgb_stats.update(rgb[:, valid])
+        ndvi_stats.update(ndvi[np.isfinite(ndvi)][None, :])
+        manifest_rows.append({"tile_id": row.tile_id, "minx": row.minx, "miny": row.miny,
+                              "maxx": row.maxx, "maxy": row.maxy,
+                              "stratum": getattr(row, "stratum", 0),
+                              "nodata_frac": float(nodata.mean())})
         n_written += 1
 
-    manifest = pd.DataFrame(manifest_rows)
     suffix = "" if args.n_shards == 1 else f".shard{args.shard:03d}"
-    manifest.to_csv(args.out_dir / f"manifest{suffix}.csv", index=False)
-    stats = build_stats_dict(rgb_stats, ndvi_stats, dataset_version="v2.1-pretrain",
-                             n_tiles_used=n_written)
-    save_stats(stats, args.out_dir / f"normalization_stats{suffix}.json")
-
-    logger.info("Wrote %d tiles (%d rejected) → %s", n_written, n_rejected, tiles_dir)
-    logger.info("RGB mean %s std %s; NDVI mean %.4f std %.4f",
-                [round(m, 2) for m in rgb_stats.means()],
-                [round(s, 2) for s in rgb_stats.stds()],
-                ndvi_stats.means()[0], ndvi_stats.stds()[0])
+    pd.DataFrame(manifest_rows).to_csv(args.out_dir / f"manifest{suffix}.csv", index=False)
+    # Partial stats as {n, mean, std} per channel-group → merge() pools them exactly.
+    partial = {"n": n_written,
+               "rgb": {"mean": rgb_stats.means(), "std": rgb_stats.stds()},
+               "ndvi": {"mean": ndvi_stats.means(), "std": ndvi_stats.stds()}}
+    (args.out_dir / f"partial_stats{suffix}.json").write_text(json.dumps(partial))
+    logger.info("Shard %s: wrote %d tiles (%d rejected) → %s",
+                suffix or "single", n_written, n_rejected, tiles_dir)
+    if args.n_shards == 1:
+        _write_final_stats(args.out_dir, [partial])
     return 0
+
+
+def _pool(groups: list[dict], key: str, n_ch: int) -> tuple[list[float], list[float]]:
+    """Pool per-shard (n, mean, std) into a global (mean, std) per channel."""
+    total = sum(g["n"] for g in groups) or 1
+    means, stds = [], []
+    for c in range(n_ch):
+        m = sum(g["n"] * g[key]["mean"][c] for g in groups) / total
+        ex2 = sum(g["n"] * (g[key]["std"][c] ** 2 + g[key]["mean"][c] ** 2) for g in groups) / total
+        means.append(m)
+        stds.append(math.sqrt(max(ex2 - m * m, 0.0)))
+    return means, stds
+
+
+def _write_final_stats(out_dir: Path, partials: list[dict]) -> None:
+    """Pool per-shard partial stats into the normalization_stats.json schema."""
+    from datetime import datetime, timezone
+    rgb_m, rgb_s = _pool(partials, "rgb", 3)
+    nd_m, nd_s = _pool(partials, "ndvi", 1)
+    n = sum(g["n"] for g in partials)
+    stats = {
+        "dataset_version": "v2.1-pretrain",
+        "computed_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "n_tiles_used": n,
+        "rgb": {"channel_names": ["R", "G", "B"], "mean": rgb_m, "std": rgb_s},
+        "extra": {"channel_names": ["ndvi"], "mean": nd_m, "std": nd_s},
+    }
+    save_stats(stats, out_dir / "normalization_stats.json")
+    logger.info("Final stats over %d tiles: RGB mean %s; NDVI mean %.4f",
+                n, [round(v, 2) for v in rgb_m], nd_m[0])
+
+
+def merge(args) -> int:
+    """Combine all shard manifests + partial stats → manifest.csv + normalization_stats.json."""
+    parts = sorted(args.out_dir.glob("manifest.shard*.csv"))
+    pd.concat([pd.read_csv(p) for p in parts], ignore_index=True).to_csv(
+        args.out_dir / "manifest.csv", index=False)
+    partials = [json.loads(p.read_text()) for p in sorted(args.out_dir.glob("partial_stats.shard*.json"))]
+    _write_final_stats(args.out_dir, partials)
+    logger.info("Merged %d shards → manifest.csv + normalization_stats.json", len(parts))
+    return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--out-dir", required=True, type=Path)
+    p.add_argument("--quad-index")
+    p.add_argument("--s2-index")
+    p.add_argument("--domain-tiles")
+    p.add_argument("--regions-geojson")
+    p.add_argument("--splits-yaml")
+    p.add_argument("--n-target", type=int, default=5000)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--max-nodata-frac", type=float, default=0.5)
+    p.add_argument("--shard", type=int, default=0)
+    p.add_argument("--n-shards", type=int, default=1)
+    p.add_argument("--plan-only", action="store_true", help="write sample_manifest.csv and exit")
+    p.add_argument("--from-sample", action="store_true",
+                   help="materialize a shard from an existing sample_manifest.csv")
+    p.add_argument("--merge", action="store_true", help="combine shard outputs, then exit")
+    args = p.parse_args()
+    setup_logging()
+
+    if args.merge:
+        return merge(args)
+    if args.plan_only:
+        return plan(args)
+    if args.from_sample:
+        sample = pd.read_csv(args.out_dir / "sample_manifest.csv")
+        sample = sample.iloc[args.shard::args.n_shards]
+        logger.info("Shard %d/%d → %d tiles", args.shard, args.n_shards, len(sample))
+        return materialize(args, sample)
+
+    # Single-process default: plan + materialize in one go.
+    candidates = build_candidates(args)
+    sample = corpus_mod.stratified_sample(candidates, args.n_target, seed=args.seed)
+    sample = sample[["tile_id", "minx", "miny", "maxx", "maxy"]].copy()
+    sample["stratum"] = corpus_mod.stratum_labels(sample)
+    return materialize(args, sample)
 
 
 if __name__ == "__main__":

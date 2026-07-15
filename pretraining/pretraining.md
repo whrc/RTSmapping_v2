@@ -45,6 +45,17 @@ collapses the earlier two-stage (convnet→ViT) plan into one ViT program.
   stats travel with each dataset; verify the two are near-identical and record in the v2.1 ledger).
 - **Layout:** `gs://rts-mapping-v2/RTS_MODEL_V21/PRETRAIN_CORPUS/{tiles/, manifest.csv,
   normalization_stats.json}`; pilot (5k tiles) under `PRETRAIN_CORPUS_PILOT/`.
+- **Size + storage (decided 2026-07-15):** target **~300k tiles**, **materialized to local disk**.
+  Measured **0.649 MB/tile** compressed → ~300k ≈ 195 GB (255 GB free holds ~350k). Materialize, don't
+  stream-from-GCS: pretraining is multi-epoch, so streaming re-pays the ~2 s/tile cross-region read
+  cost *every* epoch and starves the A100s; the build pays it once and every epoch then reads local.
+  ~300k is ample for domain-adaptive *continue*-pretraining of the strong sat493m init (the 1–2M figure
+  was sized for from-scratch FCMAE, now moot).
+- **Parallel build (two-step, `scripts/build_pretrain_corpus.py`):** `--plan-only` runs the expensive
+  candidate step once (3.6 GB domain CSV + S2 filter + eval exclusion) → `sample_manifest.csv`; then N
+  `--from-sample --shard k --n-shards N` processes materialize disjoint slices across the 96 CPUs
+  (I/O-bound, so high N is fine); `--merge` pools the per-shard manifests + stats (exact pooling,
+  unit-tested). One-time build ≈ a few hours at high shard count.
 
 ## 3. Method — MAE on DINOv3-L (`pretraining/mim_model.py`, `scripts/pretrain.py`)
 
