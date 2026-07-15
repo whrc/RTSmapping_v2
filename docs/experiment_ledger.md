@@ -3,6 +3,7 @@
 **This file is the experiments SSoT.** Every training run, the locked recipe, the findings, and the
 dropped ideas live here and nowhere else. `docs/report.html` is the generated analytical/visual view of
 this file; `current_working_status.md` is the project diary. To update, follow the ritual in `CLAUDE.md`.
+**v2.0 is locked/frozen.** The v2.1 SSL-pretraining program has its own ledger: `docs/experiment_ledger_v21.md`.
 
 **Metric:** `val_realistic_pr_auc_geomean` = `best_smoothed` (higher is better). The **`score` column of
 the run table is machine-harvested** from each run's `run_summary.json` by `scripts/sync_experiments.py`
@@ -505,6 +506,8 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 | Pseudo-labeling / self-training | K | backup only (confirmation-bias risk) |
 | Soft-label boundary handling | C | deferred (ignore covers annotation noise for v2) |
 
-**Deferred to v3 (K):** v1.0 re-stage (+28 pos / −49 black) · hard-negative mining (post first
-inference) · MAE SSL pretraining (user-go, end-stage). **Conditional:** scale-TTA · ensemble (decided
-at final lock) · context-expansion multi-scale (post-inference map review).
+**Deferred to v3 (K):** hard-negative mining (post first inference). **Conditional:** scale-TTA ·
+ensemble (decided at final lock). **Done since this list was written:** v1.0 re-stage → executed as
+data-v1.1 (family N, ability wash — see N-retrain finding) · context-expansion multi-scale → executed
+as the 0.5x POC (family M). **MAE SSL pretraining → active as the v2.1 program:**
+`docs/experiment_ledger_v21.md`.

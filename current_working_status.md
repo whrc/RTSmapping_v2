@@ -85,7 +85,19 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
+**v2.1 SSL-pretraining program STARTED (branch `v2.1-pretraining`, 2026-07-15).** v2.0 training is
+officially done and frozen; the idle `a100-8x-train` node goes to the MAE-family program (plan
+`now-all-the-training-agile-puffin.md`). Scope: SSL pretraining only — Stage 1 = FCMAE-lite
+continue-pretrain of ConvNeXt-B on a ~1–2M-tile unlabeled pan-arctic corpus (2025-Q3 quads + S2 NDVI),
+Stage 2 = ViT-MAE conditional on Stage-1 gate. Isolation: new `pretraining/` component
+(`pretraining/pretraining.md`), own ledger `docs/experiment_ledger_v21.md` (arms a–d + decision rules),
+MLflow `rts-segmentation-v2.1`, `configs/v21/`, `/mnt/outputs/v2.1/`, `gs://rts-mapping-v2/RTS_MODEL_V21/`.
+Phase 1 (docs bootstrap + v2.0 ledger K-list correction: re-stage & multi-scale marked done, hard-neg
+mining stays deferred) is committed; next: corpus builder + 5k pilot.
+
+**Still blocked on user: Phase-B QC rating** (see below).
+
+Prior: **Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
 probability canvas is now a three-package product family (catalog SSoT: `post-inference/south_products.md`;
 plan `now-the-final-product-delegated-locket.md`). **D1 tiered inventory:** `south_rts_candidates.gpkg` —
 **25,716 polygons / 639.4 km²** at thr 0.30 (`vectorize_region --threshold`, windowed polygonize of the
