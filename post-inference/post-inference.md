@@ -62,6 +62,19 @@ pixel is NoData in the fused output only if NoData in every scale.
 > gates 1+2 but **failed gate 3** (mean-fusion recall). Multi-scale at inference is gated by
 > `inference.md §6.4`; until that gate passes, `scales=[1.0]` and both fusion paths are no-ops.
 
+## 4b. Tiered products (decision 2026-07-14)
+
+The single-threshold product family is extended with a **tiered candidate
+inventory** cut at threshold 0.30 (`vectorize_region.py --threshold`, windowed
+polygonize of the probability COG shards — no mask re-assemble), classed
+`high ≥ 0.65 / medium ≥ 0.45 / low ≥ 0.30` by `max_prob`. Rationale: object
+precision *peaks* at the deployed 0.65 (residual FPs are confident
+look-alikes), while 11.4% of val GT slumps carry sub-0.65 signal — so the
+conservative view comes from attribute filtering, not a higher cut, and the
+permissive view recovers real misses. Threshold-free density grids
+(Σ calibrated P × geodesic px area, `aggregate_probability.py`) summarize the
+canvas without any threshold. Catalog + caveats: `south_products.md` (SSoT).
+
 ## 5. Thresholding → Binary Mask
 
 Apply the **calibrated** threshold (`deployment_config.yaml.threshold`, from

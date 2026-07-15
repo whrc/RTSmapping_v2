@@ -1,7 +1,19 @@
 # Opening the pan-Arctic South RTS products in ArcGIS Pro
 
+> **Product catalog SSoT: [`south_products.md`](south_products.md)** — the full
+> product family (tiered inventory, density grids, likelihood surface),
+> provenance, tier definitions, and caveats live there. This page is the
+> how-to-open guide.
+
 Deliverables from the 2025 Q3 pan-Arctic South inference run (model v2, 3-seed EffB5
 ensemble, threshold 0.65, T 0.512321). All layers are **EPSG:3857 (Web Mercator)**.
+
+**Tiered inventory quick start:** add `south_rts_candidates.gpkg`, then a
+definition query `conf_class = 'high'` gives the zero-decision fact map
+(equivalently, add `south_rts_high.gpkg`); relax to include `'medium'`/`'low'`
+for the likelihood view, or filter continuously with `max_prob >= x`. Symbolize
+Unique Values on `conf_class` (high solid red, medium orange outline, low pale
+dashed) — see the catalog for what each tier means quantitatively.
 
 **Headline:** **10,984 RTS polygons, 238.08 km²** across the pan-Arctic South band
 (≈50–76°N), from 41,567,572 inferred tiles. `mean_prob` 0.66–0.98 (median 0.84);

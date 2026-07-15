@@ -535,7 +535,63 @@ synthetic adjacent block masks sharing a seam.
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_seam_split_slump_reassembles_and_survives_min_blob` | a slump split into two 200px halves (each < min_blob 300) reassembles to one 400px polygon and is KEPT — proves min_blob is applied AFTER the dissolve, no double-count | real — the core seam-stitch invariant |
+| `test_scaled_uint8_prob_raster_decodes_mean_prob` | with a scaled_uint8 prob COG, `mean_prob` decodes to 0.8 (not raw 200) | real — regression of `de981b2` |
 | `test_min_blob_zero_keeps_all_including_tiny` | min_blob=0 → interior + tiny + reassembled seam slump all kept | real — filter-off path |
+| `test_threshold_mode_matches_mask_mode` | `threshold=0.65` on `probability_*.tif` shards reproduces the mask-mode result, incl. window seams (`window_px=50` splits the seam slump) | real — threshold-mode ≡ mask-mode equivalence |
+| `test_threshold_mode_scaled_u8_nodata_not_above_threshold` | scaled_uint8 NoData 255 (> any scaled thr) excluded — no polygons over the NoData sea | real — the NoData-vs-threshold trap |
+| `test_threshold_mode_lower_threshold_recovers_lower_prob_blob` | prob-0.5 blob invisible at thr 0.65, present at 0.30 with decoded `max_prob` | real — the permissive-product path |
+| `test_multi_threshold_area_attributes` | `area_m2_t45/t65/t80` = geodesic area × fraction of in-polygon pixels ≥ t (half-0.9/half-0.5 blob) | real — boundary-uncertainty attributes |
+
+### [test_aggregate_probability.py](test_aggregate_probability.py)
+
+`scripts/aggregate_probability.py` — one-pass streaming aggregation of the
+probability shards into threshold-free density grids (D2 products): per-cell
+expected RTS area Σ decoded P × geodesic pixel area (cos²lat Mercator
+correction) on a metric 3857 grid and a 0.5° WGS84 grid. GPU-free; tiny
+synthetic scaled_uint8 shards with analytic ground truth.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_expected_area_near_equator_matches_analytic` | Σ expected ≈ 0.5·100·res² for a P=0.5 blob at lat≈0; NoData sea contributes 0 | real — the core expectation math |
+| `test_expected_area_at_60N_applies_cos2_correction` | same blob at 60°N shrinks by cos²(60°)=0.25 | real — geodesic correction |
+| `test_blobs_land_in_their_own_cells` | blobs 2 cells apart occupy exactly 2 cells at the right offsets | real — metric binning |
+| `test_half_degree_grid_bins_by_lonlat` | blob at (0.3°E, 0.1°N) lands in the containing 0.5° cell, analytic total | real — WGS84 binning |
+| `test_multi_shard_sums_are_additive` | 2 shards sum; 3857 and 0.5° grids agree on the canvas total | real — the plan's independent-total check |
+| `test_write_grids_products_and_per_class_join` | cell GPKGs (valid cells only) + GeoTIFFs written; `n_<class>`/`rts_m2_<class>` joined into the centroid's cell | real — product writer |
+
+### [test_downsample_max.py](test_downsample_max.py)
+
+`scripts/downsample_max.py` — exact block-max downsample for the browse
+likelihood surface (replaces `gdalwarp -r max`, which bled NoData-edge values
+251–254 > the 250 ceiling onto coverage seams). GPU-free; synthetic rasters.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_block_max_and_nodata_semantics` | per-block max of valid pixels; all-NoData block stays 255; mixed block ignores 255; valid output ≤ 250 | real — the artifact regression |
+| `test_non_divisible_edges_are_padded` | 50×30 @ factor 20 → 3×2; partial blocks don't fabricate values; transform scales by factor | real — edge handling |
+
+### [test_export_south_products.py](test_export_south_products.py)
+
+`scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
+the four D1 access forms (flagship tiered GPKG / high-only / centroids /
+csv+parquet attribute table). GPU-free; 3-polygon synthetic GPKG.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
+| `test_export_products_writes_four_access_forms` | 4 files; high-only filtered; representative points INSIDE a C-shaped polygon (where the raw centroid falls outside); csv/parquet without geometry | real — packaging correctness |
+
+### [test_sample_qc_polygons.py](test_sample_qc_polygons.py)
+
+`scripts/sample_qc_polygons.py` — fixed-seed stratified QC sample (n per
+conf_class band, longitude × area strata) with an empty `qc_verdict` column
+for the ArcGIS rating pass. GPU-free; synthetic 600-polygon gdf.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_sample_counts_and_verdict_column` | exactly n per band, empty verdicts, seed-reproducible | real — sample contract |
+| `test_sample_spreads_across_longitude` | each band hits ≥5 of 6 longitude bins | real — the cross-region-variation guard |
+| `test_small_band_returns_all_its_polygons` | band smaller than quota returned whole | real — degenerate band |
 
 ### [test_prob_writer.py](test_prob_writer.py)
 
