@@ -18,24 +18,29 @@ only encoder backbone + init.
 **Corpus hygiene:** pretraining tiles are label-free, and tiles intersecting val/test region footprints
 are excluded at corpus build time anyway, so no evaluation pixel is ever seen during SSL.
 
+**Corpus scope limitation (decided 2026-07-15):** the corpus is **4-ch RGB+NDVI, south-only** —
+restricted to the S2-covered footprint because pan-arctic NDVI does not yet exist. Channel-identical to
+the v2/fine-tune input; geographically narrower than pan-arctic (no high-arctic / Siberian-north terrain).
+Alternatives (RGB-only pan-arctic; export pan-arctic NDVI first) were considered and deferred.
+
 <!-- GATE:BEGIN -->
 ## Gate
 
 Inherited from v2.0: **G = 0.0112**, single-seed screen; lock/verdict needs 3-seed **mean Δ ≥ G** *and*
 3/3 sign consistency.
 
-**Arms & decision rules (Stage 1):**
+**Arms & decision rules (DINOv3-L MAE):**
 | arm | encoder init |
 |---|---|
 | (a) | EffB5 locked baseline = **0.9218** (existing, no rerun) |
-| (b) | ConvNeXt-B ImageNet (control: encoder-swap effect) |
-| (c) | ConvNeXt-B FCMAE-IN (off-the-shelf `convnextv2_base.fcmae`) |
-| (d) | ConvNeXt-B arctic continue-pretrain (FCMAE-lite on the corpus) |
+| (b) | DINOv3-L sat493m, fair recipe = **0.9191** (existing family-E run `fm_dinov3sat_l_ndvi_locked`, no rerun) |
+| (c) | DINOv3-L + **arctic MAE continue-pretrain** (this program), 3 seeds |
 
-- **SSL helped** iff (d) − (c) ≥ G, 3/3 signs.
-- **Deployable for v3** iff (d) also beats 0.9218 by ≥ G, 3/3 signs.
-- **Stage-2 (ViT-MAE) go/no-go:** GO if SSL helped; weak-GO (single-seed screen only) if (d) − (c) > 0
-  on 3/3 seeds but < G; NO-GO if (d) ≤ (c) — record the null and stop.
+- **SSL helped** iff (c) − (b) ≥ G (0.0112), 3/3 seed signs. (Isolates the domain-adaptation effect:
+  same encoder + recipe, only the init differs.)
+- **Deployable for v3** iff (c) also beats 0.9218 by ≥ G, 3/3 signs.
+- A clean null is a recorded finding: it extends the family-E capacity/encoder null to *domain-adapted*
+  ViT pretraining — the one lever family E never tested.
 <!-- GATE:END -->
 
 ---
@@ -57,5 +62,6 @@ Inherited from v2.0: **G = 0.0112**, single-seed screen; lock/verdict needs 3-se
 
 | Idea | Verdict / why |
 |---|---|
-| EffB5-native masked pretraining | rejected at design time — SE global pooling leaks mask info; no reference implementation; ConvNeXt swap is the standard path |
-| ViT-MAE from scratch | rejected at design time — 1–2M tiles too small; continue-pretrain from satellite/IN MAE weights instead |
+| EffB5-native masked pretraining | rejected at design time — SE global pooling leaks mask info |
+| ConvNeXt / ResNet convnet MIM | rejected 2026-07-15 — locked UNet++ decoder is incompatible with ConvNeXt (stride-4 stem → 0-channel skip stage at every depth); ResNet works with UNet++ but has no timm MIM weights. Pivoted to DINOv3-L (ViT-native masking, already integrated + baselined) |
+| MAE from scratch | rejected — corpus (south-only) too small; continue-pretrain from the sat493m init instead |

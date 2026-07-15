@@ -86,14 +86,20 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 <!-- NOW:BEGIN -->
 ### Now
 **v2.1 SSL-pretraining program STARTED (branch `v2.1-pretraining`, 2026-07-15).** v2.0 training is
-officially done and frozen; the idle `a100-8x-train` node goes to the MAE-family program (plan
-`now-all-the-training-agile-puffin.md`). Scope: SSL pretraining only — Stage 1 = FCMAE-lite
-continue-pretrain of ConvNeXt-B on a ~1–2M-tile unlabeled pan-arctic corpus (2025-Q3 quads + S2 NDVI),
-Stage 2 = ViT-MAE conditional on Stage-1 gate. Isolation: new `pretraining/` component
-(`pretraining/pretraining.md`), own ledger `docs/experiment_ledger_v21.md` (arms a–d + decision rules),
-MLflow `rts-segmentation-v2.1`, `configs/v21/`, `/mnt/outputs/v2.1/`, `gs://rts-mapping-v2/RTS_MODEL_V21/`.
-Phase 1 (docs bootstrap + v2.0 ledger K-list correction: re-stage & multi-scale marked done, hard-neg
-mining stays deferred) is committed; next: corpus builder + 5k pilot.
+officially done and frozen; the idle `a100-8x-train` node goes to the MAE program (plan
+`now-all-the-training-agile-puffin.md`). Scope: SSL pretraining only. Isolation: new `pretraining/`
+component (`pretraining/pretraining.md`), own ledger `docs/experiment_ledger_v21.md`, MLflow
+`rts-segmentation-v2.1`, `configs/v21/`, `/mnt/outputs/v2.1/`, `gs://rts-mapping-v2/RTS_MODEL_V21/`.
+**Direction (pivoted mid-session): MAE continue-pretrain DINOv3-Large, NOT a convnet** — the locked
+UNet++ decoder is incompatible with ConvNeXt (stride-4 stem → 0-channel skip stage; ResNet works but
+has no timm MIM weights). DINOv3-L is already integrated (family E, `models/foundation.py`) and already
+baselined (0.9191, ties EffB5); the untested lever is *domain-adapted* ViT weights. Corpus scope:
+**4-ch RGB+NDVI south-only** (NDVI S2 coverage is south-only today). Gate arms: (a) EffB5 0.9218 · (b)
+DINOv3-L sat493m 0.9191 [both existing, no rerun] · (c) DINOv3-L + arctic-MAE, 3 seeds; SSL helped iff
+(c)−(b) ≥ G=0.0112 sign-consistent. **Done so far:** Phase 1 (docs + v2.0 K-list fix) committed;
+corpus builder + `_load_encoder_init` hook coded, unit-tested (11 green), and verified end-to-end
+(100-tile GCS smoke, 0 rejected; encoder_init round-trips through the DINOv3 Eva ViT). **Next:** write
+`scripts/pretrain.py` + `pretraining/mim_model.py` (ViT-MAE), full corpus build, then the 8×A100 run.
 
 **Still blocked on user: Phase-B QC rating** (see below).
 

@@ -200,6 +200,36 @@ class CrossModalAttentionFusion(_DualEncoder):
         return [fr[0]] + [blk(a, b) for blk, a, b in zip(self.blocks, fr[1:], fe[1:])]
 
 
+def _load_encoder_init(model: nn.Module, path: str) -> None:
+    """Load a self-supervised-pretrained encoder state_dict into ``model.encoder``.
+
+    Used by the v2.1 SSL program to swap the encoder init (ImageNet → FCMAE/arctic
+    weights) while keeping the rest of the locked recipe fixed. Loads after the
+    encoder is built (so it overrides ``encoder_weights``), non-strict so a decoder-
+    less checkpoint is fine, but **raises if nothing matched** — a silent no-op here
+    would invalidate the whole arm. The checkpoint's stem must already match the
+    model's in_channels (the pretraining stem is inflated to 4-ch, spec §3).
+    """
+    local = path
+    if path.startswith("gs://"):
+        import tempfile
+        from google.cloud import storage
+        bucket, _, key = path[len("gs://"):].partition("/")
+        local = tempfile.NamedTemporaryFile(suffix=".pt", delete=False).name
+        storage.Client().bucket(bucket).blob(key).download_to_filename(local)
+    ckpt = torch.load(local, map_location="cpu")
+    state = ckpt.get("encoder", ckpt.get("state_dict", ckpt)) if isinstance(ckpt, dict) else ckpt
+    result = model.encoder.load_state_dict(state, strict=False)
+    n_loaded = len(state) - len(result.unexpected_keys)
+    if n_loaded == 0:
+        raise ValueError(
+            f"encoder_init {path!r}: 0 keys matched model.encoder — wrong checkpoint "
+            f"or key namespace (missing={len(result.missing_keys)}, "
+            f"unexpected={len(result.unexpected_keys)})")
+    logger.info("encoder_init %s: loaded %d tensors (missing=%d, unexpected=%d)",
+                path, n_loaded, len(result.missing_keys), len(result.unexpected_keys))
+
+
 def build_model(cfg: dict) -> nn.Module:
     """Construct the segmentation model from a config dict.
 
@@ -303,6 +333,10 @@ def build_model(cfg: dict) -> nn.Module:
         )
 
     _init_output_bias(model, prior)
+
+    encoder_init = cfg["model"].get("encoder_init")
+    if encoder_init:
+        _load_encoder_init(model, encoder_init)
 
     if fusion in ("early", "ensemble"):
         pass  # ensemble: train a normal model; F4 averaging happens at eval time
