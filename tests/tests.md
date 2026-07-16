@@ -584,6 +584,25 @@ csv+parquet attribute table). GPU-free; 3-polygon synthetic GPKG.
 | `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
 | `test_export_products_writes_four_access_forms` | 4 files; high-only filtered; representative points INSIDE a C-shaped polygon (where the raw centroid falls outside); csv/parquet without geometry | real — packaging correctness |
 
+### [test_score_qc_ratings.py](test_score_qc_ratings.py)
+
+`scripts/score_qc_ratings.py` — rated QC verdicts → precision per (tier ×
+size band) with Wilson CIs → the adaptive-MMU acceptance grid. GPU-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_precision_grid_counts_and_wilson` | counts, unsure excluded+reported, Wilson bounds bracket p, accept at floor | real — the calibration math |
+| `test_empty_cells_are_reported_not_dropped` | full tier×band grid; unmeasured cells n=0/NaN and never accepted | real — the no-silent-acceptance guard |
+
+### [test_build_ee_qc_rater.py](test_build_ee_qc_rater.py)
+
+`scripts/build_ee_qc_rater.py` — generates the GEE Code Editor rating app
+with embedded WGS84 outlines + chip COG URIs. GPU-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_rater_embeds_features_and_chip_uris` | FEATURES JSON parses, chip URIs from tile_ids on the usc1 mirror prefix, rings in lon/lat, loadGeoTIFF/Export present | real — generator contract |
+
 ### [test_sample_qc_polygons.py](test_sample_qc_polygons.py)
 
 `scripts/sample_qc_polygons.py` — fixed-seed stratified QC sample (n per
