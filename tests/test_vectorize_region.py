@@ -187,3 +187,78 @@ def test_multi_threshold_area_attributes(tmp_path):
     assert abs(r["area_m2_t45"] - r["area_m2"]) / r["area_m2"] < 0.01       # all >= 0.45
     assert abs(r["area_m2_t65"] - 0.5 * r["area_m2"]) / r["area_m2"] < 0.01  # 0.9 half
     assert abs(r["area_m2_t80"] - 0.5 * r["area_m2"]) / r["area_m2"] < 0.01
+
+
+# --- geodesic MMU (--min-area-m2), parallel _record, arithmetic tile join ---
+
+def _two_lat_shards(d: Path):
+    """Identical 10×10-px (res 10 m) blobs at lat≈0 and ≈60°N: same pixel count,
+    geodesic areas ≈ 10,000 vs ≈ 2,500 m² (cos²60°). A pixel-count filter can
+    never separate them; a geodesic-m² filter must."""
+    y60 = 8399737.89
+    for name, y0 in (("probability_0000_0000.tif", 0.0),
+                     ("probability_0001_0000.tif", y60)):
+        a = np.full((50, 50), -1.0, np.float32)
+        a[20:30, 20:30] = 0.9
+        write_probability_tile(str(d / name), a, (0.0, y0, 500.0, y0 + 500.0),
+                               dtype="scaled_uint8")
+    prob = np.full((50, 50), -1.0, np.float32)  # stats VRT stand-in (unused vals)
+    write_probability_tile(str(d / "prob.tif"), prob,
+                           (0.0, 0.0, 500.0, 8400237.89), dtype="float32")
+    pd.DataFrame([dict(tile_id="t0_0", minx=0, miny=0, maxx=500,
+                       maxy=8400237.89)]).to_csv(d / "t.csv", index=False)
+
+
+def test_min_area_m2_is_latitude_invariant(tmp_path):
+    _two_lat_shards(tmp_path)
+    kw = dict(tile_list=str(tmp_path / "t.csv"), scales=[1.0], min_blob_px=0,
+              workers=2, threshold=0.65)
+    both = vectorize_region(str(tmp_path), str(tmp_path / "prob.tif"),
+                            min_area_m2=1000.0, **kw)
+    assert len(both) == 2  # floor below both geodesic areas
+    one = vectorize_region(str(tmp_path), str(tmp_path / "prob.tif"),
+                           min_area_m2=5000.0, **kw)
+    # 5,000 m² sits between the two geodesic areas: only the low-lat blob stays
+    assert len(one) == 1
+    assert one.iloc[0]["centroid_lat"] < 1.0
+    assert one.iloc[0]["area_m2"] >= 5000.0
+
+
+def test_parallel_record_matches_serial(tmp_path):
+    _write_prob_supertiles(tmp_path)
+    kw = dict(tile_list=str(tmp_path / "t.csv"), scales=[1.0], min_blob_px=300,
+              threshold=0.65, window_px=50)
+    a = vectorize_region(str(tmp_path), str(tmp_path / "prob.tif"), workers=1, **kw)
+    b = vectorize_region(str(tmp_path), str(tmp_path / "prob.tif"), workers=4, **kw)
+    cols = ["area_m2", "mean_prob", "max_prob", "centroid_lat", "centroid_lon",
+            "area_m2_t65", "tile_ids"]
+    a = a.sort_values("centroid_lon").reset_index(drop=True)
+    b = b.sort_values("centroid_lon").reset_index(drop=True)
+    for c in cols:
+        assert list(a[c]) == list(b[c]), c
+
+
+def test_arithmetic_tile_join_matches_scan(tmp_path):
+    """tile_ids from the stride-grid arithmetic must equal the bbox scan of the
+    tile list, on the real t{col}_{row} convention (WORLD_MIN origin)."""
+    from scripts.vectorize_region import tile_codes_from_list, tiles_for_bounds
+    WORLD_MIN = -20037508.34
+    stride_m, tile_m = 344 * 4.777314267158508, 512 * 4.777314267158508
+    rows = []
+    for c in range(12190, 12200):
+        for r in range(7000, 7008):
+            if (c + r) % 3:  # holes: grid is not fully populated
+                minx = WORLD_MIN + c * stride_m
+                miny = WORLD_MIN + r * stride_m
+                rows.append(dict(tile_id=f"t{c}_{r}", minx=minx, miny=miny,
+                                 maxx=minx + tile_m, maxy=miny + tile_m))
+    df = pd.DataFrame(rows)
+    codes = tile_codes_from_list(df["tile_id"])
+    for bounds in [(WORLD_MIN + 12193.2 * stride_m, WORLD_MIN + 7003.1 * stride_m,
+                    WORLD_MIN + 12194.7 * stride_m, WORLD_MIN + 7004.9 * stride_m),
+                   (WORLD_MIN + 12190.5 * stride_m, WORLD_MIN + 7000.5 * stride_m,
+                    WORLD_MIN + 12190.6 * stride_m, WORLD_MIN + 7000.6 * stride_m)]:
+        scan = set(df[(df.minx < bounds[2]) & (df.maxx > bounds[0])
+                      & (df.miny < bounds[3]) & (df.maxy > bounds[1])]["tile_id"])
+        arith = set(tiles_for_bounds(bounds, codes, stride_m, tile_m))
+        assert arith == scan, (bounds, arith ^ scan)

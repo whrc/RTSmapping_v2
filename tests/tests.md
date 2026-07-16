@@ -541,6 +541,9 @@ synthetic adjacent block masks sharing a seam.
 | `test_threshold_mode_scaled_u8_nodata_not_above_threshold` | scaled_uint8 NoData 255 (> any scaled thr) excluded — no polygons over the NoData sea | real — the NoData-vs-threshold trap |
 | `test_threshold_mode_lower_threshold_recovers_lower_prob_blob` | prob-0.5 blob invisible at thr 0.65, present at 0.30 with decoded `max_prob` | real — the permissive-product path |
 | `test_multi_threshold_area_attributes` | `area_m2_t45/t65/t80` = geodesic area × fraction of in-polygon pixels ≥ t (half-0.9/half-0.5 blob) | real — boundary-uncertainty attributes |
+| `test_min_area_m2_is_latitude_invariant` | identical-px blobs at lat 0 vs 60°N: geodesic 5,000 m² MMU keeps only the low-lat one (px filter can't separate); px prefilter didn't pre-drop either | real — the geodesic-MMU contract |
+| `test_parallel_record_matches_serial` | workers=1 ≡ workers=4 on all `_record` attributes | real — parallel-stats regression guard |
+| `test_arithmetic_tile_join_matches_scan` | stride-grid arithmetic `tile_ids` ≡ bbox scan on a holey t{col}_{row} grid, incl. sub-stride bounds | real — replaces the 41.5M-row scan |
 
 ### [test_aggregate_probability.py](test_aggregate_probability.py)
 
