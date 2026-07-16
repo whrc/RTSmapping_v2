@@ -81,6 +81,7 @@ def main() -> int:
     model = MaskedAutoencoderViT(
         backbone=pt["backbone"], pretrained=pt.get("pretrained", True),
         in_channels=4, patch_px=pt.get("patch_px", 16),
+        grad_checkpointing=pt.get("grad_checkpointing", False),
     ).to(device)
     if world > 1:
         model = DistributedDataParallel(model, device_ids=[local])

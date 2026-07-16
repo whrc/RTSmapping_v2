@@ -42,11 +42,17 @@ class MaskedAutoencoderViT(nn.Module):
         pretrained: bool = True,
         in_channels: int = 4,
         patch_px: int = 16,
+        grad_checkpointing: bool = False,
     ) -> None:
         super().__init__()
         self.encoder = timm.create_model(backbone, pretrained=pretrained, num_classes=0)
         if in_channels != 3:
             _inflate_patch_embed(self.encoder, in_channels)
+        if grad_checkpointing:
+            # SimMIM feeds the full 1024-token sequence through ViT-L at 512px — memory
+            # heavy. Checkpointing the transformer blocks trades ~25% compute for a large
+            # activation-memory cut so a usable batch fits on an 80 GB A100.
+            self.encoder.set_grad_checkpointing(True)
         self.in_channels = in_channels
         self.patch_px = patch_px
         self.num_prefix = int(getattr(self.encoder, "num_prefix_tokens", 0))

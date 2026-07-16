@@ -73,8 +73,12 @@ Masked autoencoding of the DINOv3-L ViT, continue-pretrained from the sat493m in
 - Loss: normalized-pixel MSE on masked patches only (per-patch target normalization, MAE-style). NDVI
   channel included (4-ch target); NoData NDVI already neutralized to 0 by `apply_norm`.
 - Training: AdamW, lr 1.5e-4·(global_batch/256), cosine + warmup, bf16 AMP, DDP via
-  `torchrun --nproc_per_node=8` on `a100-8x-train` (single job across all 8 GPUs). Continue-pretrain
-  (fewer epochs than from-scratch since sat493m is a strong init).
+  `torchrun --nproc_per_node=8` on `a100-8x-train` (single job across all 8 GPUs). **SimMIM feeds the
+  full 1024-token sequence through ViT-L@512 → memory-heavy**, so batch is 32/GPU (global 256) with
+  **gradient checkpointing** on the transformer blocks (~25% compute for a large activation-memory cut).
+  Measured throughput ~1 s/step (256 img/s) → ~19 min/epoch; **80 epochs ≈ 25 h** continue-pretrain
+  (sat493m is a strong init; checkpoints every 20 epochs). Run offline with `HF_HOME=/outputs/hf_cache
+  HF_HUB_OFFLINE=1` (sat493m weights cached from family E).
 - Output: encoder-only state_dict checkpoint consumable by `model.encoder_init`.
 
 ## 4. Fine-tune protocol

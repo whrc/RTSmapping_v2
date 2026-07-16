@@ -11,12 +11,13 @@ pretrain:
   mask_ratio: 0.75
   corpus_dir: /outputs/v2.1/PRETRAIN_CORPUS      # full corpus (built by build_pretrain_corpus.py)
   out_dir: /outputs/v2.1/RTS_MODEL_V21/pretrain_dinov3l_arctic
-  batch_size_per_gpu: 64           # global batch 512 = 64 x 8 GPUs
+  batch_size_per_gpu: 32           # global 256 = 32 x 8; SimMIM full-seq ViT-L@512 is memory-heavy
+  grad_checkpointing: true         # trades ~25% compute for activation memory (fits 80GB)
   base_lr_per_256: 1.5e-4          # scaled by global_batch/256 in pretrain.py
   weight_decay: 0.05
   betas: [0.9, 0.95]
   grad_clip: 1.0
-  epochs: 200                      # continue-pretrain; sat493m is a strong init
+  epochs: 80                       # ~25h on 8xA100 (measured ~19min/epoch); continue-pretrain from strong sat493m init
   warmup_epochs: 10
   min_lr: 1.0e-6
   num_workers: 8
