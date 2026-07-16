@@ -28,7 +28,15 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**South pan-Arctic inference + products delivered (2026-07-07 to 2026-07-11, see `docs/archive/` for
+**Disk-cleanup audit on the A100 master (2026-07-16).** Every durable artifact verified on / uploaded to
+GCS (run-mirror parity 123/123 incl. the previously unmirrored scale_ndvi + sat-7B runs; new prefixes
+`RTS_MODEL_V1_1/`, `RTS_MODEL_V2_scale05/eval/`, `RTS_MODEL_V2/inference_inputs/`, `training/v1.1_delta/`;
+full drift-refresh of all existing mirrors), then ~275G of verified GCS copies + regenerables deleted —
+root fs 94% → 37% used, scratch NVMes cleared. Two deliberate non-archives (5× 26G sat-7B dead-arm
+weights; `_archive/v2-alpha`) recorded with rationale in `computing/artifact_inventory.md` (the
+"where is everything" map, re-surveyed and re-dated).
+
+Prior: **South pan-Arctic inference + products delivered (2026-07-07 to 2026-07-11, see `docs/archive/` for
 full detail).** Full South inference run completed (2,079/2,079 shards, 41,567,572 tiles reconciled
 exactly, 3 quad-level coverage gaps ≈0.001%) after three fork/stall/crash-loop fixes shipped; post-
 inference pipeline delivered `south_rts.gpkg` (10,984 polygons / 238.08 km²) + probability/mask VRTs
@@ -85,92 +93,25 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**v2.1 SSL-pretraining program STARTED (branch `v2.1-pretraining`, 2026-07-15).** v2.0 training is
-officially done and frozen; the idle `a100-8x-train` node goes to the MAE program (plan
-`now-all-the-training-agile-puffin.md`). Scope: SSL pretraining only. Isolation: new `pretraining/`
-component (`pretraining/pretraining.md`), own ledger `docs/experiment_ledger_v21.md`, MLflow
-`rts-segmentation-v2.1`, `configs/v21/`, `/mnt/outputs/v2.1/`, `gs://rts-mapping-v2/RTS_MODEL_V21/`.
-**Direction (pivoted mid-session): MAE continue-pretrain DINOv3-Large, NOT a convnet** — the locked
-UNet++ decoder is incompatible with ConvNeXt (stride-4 stem → 0-channel skip stage; ResNet works but
-has no timm MIM weights). DINOv3-L is already integrated (family E, `models/foundation.py`) and already
-baselined (0.9191, ties EffB5); the untested lever is *domain-adapted* ViT weights. Corpus scope:
-**4-ch RGB+NDVI south-only** (NDVI S2 coverage is south-only today). Gate arms: (a) EffB5 0.9218 · (b)
-DINOv3-L sat493m 0.9191 [both existing, no rerun] · (c) DINOv3-L + arctic-MAE, 3 seeds; SSL helped iff
-(c)−(b) ≥ G=0.0112 sign-consistent. **All code done + smoke-verified (7 commits on `v2.1-pretraining`):**
-corpus builder, `_load_encoder_init` hook, ViT-MAE (`pretraining/mim_model.py`, SimMIM via patch_embed
-hook), DDP trainer (`scripts/pretrain.py`), 3 fine-tune arm configs, `sync_experiments.py --ledger`.
-Full pipeline verified at smoke scale: corpus→MAE pretrain→`encoder_final.pt`→loads into fine-tune model
-(318/318 tensors). 16 unit tests green. **Caught + fixed a leakage bug:** exclusion polygons were
-EPSG:3413 (polar stereo) but compared against 3857 tiles → 0 exclusions; now reprojected (eval regions
-verified at 54.7–76.8°N, overlapping S2 footprint). **Build strategy (measured):** 0.649 MB/tile →
-materialize ~300k tiles (~195 GB) to local disk; do NOT stream-from-GCS (multi-epoch would starve the
-A100s re-reading every epoch). Two-step parallel build (plan→N materialize shards→merge; exact stats
-pooling). **Now:** node disk was at 33 GB free (94%) — user freeing to ~255 GB (holds ~350k tiles, ✓);
-the disk-safe `--plan-only` step (→ `sample_manifest.csv`, 300k) is running. **Remaining = compute:**
-materialize shards, 8×A100 `torchrun` pretrain, 3-seed fine-tune gate.
+**v2.1 SSL-pretraining — MAE pretrain RUNNING on 8×A100 (branch `v2.1-pretraining`, 2026-07-16).**
+v2.0 frozen; the idle node runs the DINOv3-L MAE program (plan `now-all-the-training-agile-puffin.md`,
+spec `pretraining/pretraining.md`, ledger `docs/experiment_ledger_v21.md`). Direction: **MAE
+continue-pretrain DINOv3-Large, not a convnet** (locked UNet++ decoder is incompatible with ConvNeXt —
+stride-4 stem → 0-channel skip; DINOv3-L already integrated in family E + baselined 0.9191). Gate arms:
+(a) EffB5 0.9218 · (b) DINOv3-L sat493m 0.9191 [both existing] · (c) DINOv3-L + arctic-MAE, 3 seeds;
+SSL helped iff (c)−(b) ≥ G=0.0112 sign-consistent.
 
-**Still blocked on user: Phase-B QC rating** (see below).
+**Done:** all code (corpus builder, ViT-MAE `pretraining/mim_model.py`, DDP trainer `scripts/pretrain.py`,
+`_load_encoder_init` hook, 3 ft configs, `sync_experiments.py --ledger`); **caught+fixed a leakage bug**
+(exclusion polys were EPSG:3413 vs 3857 tiles → 0 exclusions; now reprojected, 7.4M eval-region tiles
+correctly excluded); **corpus materialized** (295,429 tiles, 4-ch RGB+NDVI south-only, ~188 GB, stats
+RGB[64.8,65.7,46.3]/NDVI 0.453). **Pretrain launched** (container `v21_pretrain`, detached): 80 epochs,
+global batch 256, grad-checkpointing + batch 32/GPU (SimMIM full-seq ViT-L@512 is memory-heavy; OOM'd at
+64), ~1 s/step measured → **ETA ~25 h** (~2026-07-17 07:00 UTC), loss decreasing. 18 unit tests green.
 
-Prior: **Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
-probability canvas is now a three-package product family (catalog SSoT: `post-inference/south_products.md`;
-plan `now-the-final-product-delegated-locket.md`). **D1 tiered inventory:** `south_rts_candidates.gpkg` —
-**25,716 polygons / 639.4 km²** at thr 0.30 (`vectorize_region --threshold`, windowed polygonize of the
-1,633 prob COG shards, no re-assemble), classed by max_prob (**high ≥0.65: 17,239 / 522.3 km²** · medium
-6,765 · low 1,712) + `area_m2_t45/t65/t80` per-object boundary bands; plus high-only / centroids /
-csv+parquet forms. Reconciliation: all 10,984 delivered thr-0.65 polygons intersect a high candidate
-(0 orphans). **D2:** `likelihood_95m.tif` browse surface (exact block-max via new `downsample_max.py` —
-`gdalwarp -r max` bled NoData-edge values 251–254 onto coverage seams, fixed); `density_10km` + `density_0.5deg`
-grids with threshold-free **expected RTS area = 1,037.4 km²** (Σ calibrated P × geodesic px area; both grids
-agree exactly; expectation > 639 km² outlines > 238 km² @0.65 mask — integrates diffuse sub-detection mass).
-**D3:** catalog + `south_rts_summary.{md,html}` factsheet (hotspot map reproduces known RTS geography).
-All uploaded to `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`.
-
-**Blocked on user: Phase-B QC rating** — `qc_sample.gpkg` (180 polygons, 60/band, longitude×area strata)
-+ 542 RGB chips (`qc_chips/`) await rating (`qc_verdict`: rts/false/unsure) in ArcGIS Pro; the resulting
-per-tier precision replaces the val anchors in the catalog. Optional Phase E (static PMTiles threshold-
-explorer viewer) awaits a go. 15+2 new tests across 5 files; suite green.
-
-Prior: **Two manuscript-gap experiments closed out (branch `corrected-scaling-and-7b-tuning`, 2026-07-10 to
-2026-07-14).** Both closed the honest way — either outcome was a valid result; here both **overturned/
-softened** the number they were meant to referee-proof.
-
-**1. Data-scaling curve, corrected split + locked recipe (family B).** The old "plateau" finding
-(leaky split, off-recipe: 25→100% = 0.764→0.792, flat) does **not replicate** on the corrected split with
-the locked RGB+NDVI recipe: **25%→50%→75%→100% = 0.7929 (3-seed, σ=0.040) → 0.8628 → 0.8732 → 0.9218
-(3-seed, σ=0.004)**. End-to-end Δ=**+0.1289 (≈11.5×G)** — a real, seed-noise-swamping rise, steepest
-25→50% and 75→100%, near-flat only in the 50→75% middle. Train/val pixel-IoU gap **shrinks** with more
-data (best-epoch: 0.32→0.23→0.16→0.08) — the opposite of "well-matched." **Verdict: data volume is a
-real lever on the honest split; the "representation-limited, not volume-limited" claim needs softening.**
-Ledger family B (corrected block) + `/mnt/outputs/v1.0/analysis/family_b_corrected_scale_curve.{csv,png}`.
-
-**2. Honestly-tuned sat-DINOv3-7B frozen (family E).** Root-caused the original 0.4747 "diverged" result
-to a real scheduler bug, not a capacity limit: `freeze_backbone_epochs≥max_epochs` (needed to keep a
-6.7B-param encoder permanently frozen) also silenced the decoder's own LR anneal for the *whole* run,
-so it collapsed once the sampling curriculum hardened. Fixed `training/scheduler.py`
-(`decoder_phase2_start_epoch`, fully backward-compatible) — also fixed a second bug in
-`training/checkpoint.py` that re-serialized the frozen 6.7B-param encoder on every resume rotation
-(harmless for small models, ~40 GB/run for this one; this **and a separate pre-existing disk-bloat
-across 8 completed foundation-model runs (~130 GB, already GCS-mirrored)** briefly filled the VM's disk
-to 0 bytes free mid-run — cleaned up, verified byte-identical against `gs://rts-mapping-v2/RTS_MODEL_V2/
-runs/` first). LR range test → clean to ~2e-4, explodes ~4e-4. 3-seed confirm of the winning config
-(`decoder_phase2_start_epoch=20`): **0.7585 / 0.7508 / 0.7588, mean 0.7561** — stable, no collapse, far
-above the old 0.556/0.4747 floor, but **loses decisively to EffB5 on every metric** (PR-AUC −0.166,
-pixel-IoU −0.269, obj-F1 −0.056, sign-consistent across all 3 seeds) at **~3.3× the training wall-clock**.
-**Verdict: capacity-null holds, now on a referee-proof (bug-free, honestly-tuned) basis — DEPLOY EffB5
-stands.** Ledger family E (2026-07-12 block) has the full matched-recipe table.
-
-**Numbers for the manuscript:**
-- §4.1 data-scaling sentence: corrected-split 25→50→75→100% = 0.793→0.863→0.873→0.922 (Δ=+0.129,
-  ≈11.5×G) — rises materially, does not plateau; soften/retract the "not volume-limited" framing.
-- Encoder table (04_results.tex): add a row — sat-DINOv3-7B frozen, honestly tuned: PR-AUC 0.7561,
-  pixel-IoU 0.343, obj-F1 0.382, ≈28.5 GPU-h/seed (vs EffB5 0.9218/0.612/0.438/≈8.65 GPU-h/seed;
-  sat-ViT-L fair-recipe 0.9191/0.612/0.437 tie; SAM2 0.556 non-competitive).
-- fig:capacity: four honest points now — SAM2 0.556, sat-7B-frozen-tuned 0.756, sat-ViT-L 0.919
-  (ties EffB5), EffB5 0.922 — capacity does not help past EffB5-scale, and even a large frozen encoder
-  given a fair, bug-free tuning shot falls well short.
-
-**Housekeeping:** disk healed 470G→~386G used (139 GB reclaimed, all pre-verified against the GCS
-mirror before deletion); `a100-8x-train` free again for whatever's next.
+**Next (auto when pretrain done):** fine-tune the 3 arm-(c) seeds (`configs/v21/ft_dinov3l_arctic_seed*`
+→ `encoder_final.pt`), harvest via `sync_experiments.py --ledger docs/experiment_ledger_v21.md`, verdict
+in the v2.1 ledger. Corpus not yet GCS-mirrored (local-only; rebuildable) — optional durability upload.
 <!-- NOW:END -->
 
 ### Future plans (inference phase — full plan in `.claude/plans/elegant-exploring-lemur.md`)
