@@ -594,6 +594,17 @@ size band) with Wilson CIs → the adaptive-MMU acceptance grid. GPU-free.
 | `test_precision_grid_counts_and_wilson` | counts, unsure excluded+reported, Wilson bounds bracket p, accept at floor | real — the calibration math |
 | `test_empty_cells_are_reported_not_dropped` | full tier×band grid; unmeasured cells n=0/NaN and never accepted | real — the no-silent-acceptance guard |
 
+### [test_build_qc_rating_page.py](test_build_qc_rating_page.py)
+
+`scripts/build_qc_rating_page.py` — offline single-file HTML rater (embedded
+JPEG crops, localStorage autosave, CSV download) replacing the GEE rater whose
+per-polygon tile loads were the rating bottleneck. GPU-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_page_embeds_images_and_rating_machinery` | 2 data-URI crops per polygon; ITEMS JSON; localStorage/keydown/export tokens | real — generator contract |
+| `test_tiny_polygon_gets_minimum_context_window` | tight ≥250 m, wide ≥1.5 km, centred | real — context floors |
+
 ### [test_build_ee_qc_rater.py](test_build_ee_qc_rater.py)
 
 `scripts/build_ee_qc_rater.py` — generates the GEE Code Editor rating app
