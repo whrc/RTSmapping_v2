@@ -8,6 +8,22 @@
 Deliverables from the 2025 Q3 pan-Arctic South inference run (model v2, 3-seed EffB5
 ensemble, threshold 0.65, T 0.512321). All layers are **EPSG:3857 (Web Mercator)**.
 
+## Symbolizing the rasters (which file, which zoom, which stretch)
+
+- **`likelihood_95m.tif`** opens colormapped (embedded white→red table over
+  prob 0–1) and its overviews are true block-max — hotspots stay visible at
+  every zoom. No styling needed. If your GIS ignores embedded colormaps,
+  stretch 0–250 with a white→red ramp.
+- **`density_*_browse.tif`** are the *look-at* versions of the density grids:
+  RGBA color-relief on log-percentile breaks (hotspots opaque, noise floor and
+  gaps transparent). Drop on any basemap, done.
+- **`density_*_expected_m2.tif`** are the *compute-with* versions (float m²
+  spanning ~7 decades). A linear default stretch renders black — symbolize
+  with **classified log breaks** (e.g. 10² / 10³ / 10⁴ / 10⁵ m²) or use the
+  browse tif for display.
+- **Density GPKGs**: graduated colors on `expected_rts_m2`, *geometric
+  interval* or manual log breaks; never equal interval.
+
 **Tiered inventory quick start:** add `south_rts_candidates.gpkg`, then a
 definition query `conf_class = 'high'` gives the zero-decision fact map
 (equivalently, add `south_rts_high.gpkg`); relax to include `'medium'`/`'low'`
