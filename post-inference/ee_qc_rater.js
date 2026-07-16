@@ -37,7 +37,21 @@ function rate(v) {
   show(idx + 1);
 }
 
+function csvText() {
+  var lines = ['rts_id,qc_verdict'];
+  FEATURES.forEach(function (f) {
+    if (verdicts[f.id]) { lines.push(f.id + ',' + verdicts[f.id]); }
+  });
+  return lines.join('\n');
+}
+
 function exportCsv() {
+  // primary: print to console — copy/paste into a .csv, no server involved
+  // (Export.table intermittently 500s on task submission)
+  print('--- copy everything between the markers into qc_ratings.csv ---');
+  print(csvText());
+  print('--- end ---');
+  // secondary: a Drive export task, if the service cooperates
   var feats = FEATURES.filter(function (f) { return verdicts[f.id]; })
       .map(function (f) {
         return ee.Feature(null, {rts_id: f.id, qc_verdict: verdicts[f.id]});
@@ -46,7 +60,8 @@ function exportCsv() {
                         description: 'qc_ratings',
                         fileFormat: 'CSV',
                         selectors: ['rts_id', 'qc_verdict']});
-  print('Export task created (' + feats.length + ' ratings) — run it in Tasks.');
+  print('Also created a Drive export task (' + feats.length +
+        ' ratings) — optional, console CSV above is authoritative.');
 }
 
 var panel = ui.Panel({style: {width: '260px'}});
