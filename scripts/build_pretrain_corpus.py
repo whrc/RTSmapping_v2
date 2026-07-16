@@ -47,7 +47,7 @@ from data.normalization import WelfordStats, save_stats  # noqa: E402
 from data.splits import load_splits_yaml  # noqa: E402
 from inference.quad_index import load_quad_index  # noqa: E402
 from inference.s2_index import load_s2_index  # noqa: E402
-from inference.tiles import _BBoxIndex, read_ndvi_tile, read_tile  # noqa: E402
+from inference.tiles import _BBoxIndex, _spatial_sort, read_ndvi_tile, read_tile  # noqa: E402
 from pretraining import corpus as corpus_mod  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
@@ -97,6 +97,9 @@ def materialize(args, sample: pd.DataFrame) -> int:
     s2_index = load_s2_index(args.s2_index)
     quad_bbox = _BBoxIndex(quad_index)
     s2_bbox = _BBoxIndex(s2_index)
+    # Spatial-sort so adjacent tiles share quads → the per-worker open-handle cache
+    # (inference.tiles §11.3) hits instead of re-opening every quad over /vsigs.
+    sample = _spatial_sort(sample)
 
     rgb_stats = WelfordStats(channel_names=["R", "G", "B"])
     ndvi_stats = WelfordStats(channel_names=["ndvi"])
@@ -204,7 +207,9 @@ def main() -> int:
         return plan(args)
     if args.from_sample:
         sample = pd.read_csv(args.out_dir / "sample_manifest.csv")
-        sample = sample.iloc[args.shard::args.n_shards]
+        # Contiguous block (the manifest is spatially ordered) so each shard is a
+        # local region → quads are shared within the shard, not scattered across all.
+        sample = np.array_split(sample, args.n_shards)[args.shard]
         logger.info("Shard %d/%d → %d tiles", args.shard, args.n_shards, len(sample))
         return materialize(args, sample)
 
