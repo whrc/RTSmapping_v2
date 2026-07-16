@@ -56,7 +56,7 @@ function show(i) {
   idx = Math.max(0, Math.min(i, FEATURES.length - 1));
   var f = FEATURES[idx];
   Map.layers().reset();
-  Map.addLayer(chipImage(f), {min: 0, max: 2000}, 'Planet RGB chips');
+  Map.addLayer(chipImage(f), {min: 0, max: 255}, 'Planet RGB chips');  // chips are uint8 visual RGB
   var ring = ee.Geometry.Polygon([f.ring]);
   Map.addLayer(ee.FeatureCollection([ee.Feature(ring)]).style(
       {color: 'ff0000', fillColor: '00000000', width: 2}), {}, 'candidate');
