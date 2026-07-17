@@ -25,16 +25,18 @@ ensemble, threshold 0.65, T 0.512321). All layers are **EPSG:3857 (Web Mercator)
   interval* or manual log breaks; never equal interval.
 
 **Tiered inventory quick start:** add `south_rts_candidates.gpkg`, then a
-definition query `conf_class = 'high'` gives the zero-decision fact map
-(equivalently, add `south_rts_high.gpkg`); relax to include `'medium'`/`'low'`
-for the likelihood view, or filter continuously with `max_prob >= x`. Symbolize
-Unique Values on `conf_class` (high solid red, medium orange outline, low pale
-dashed) — see the catalog for what each tier means quantitatively.
+definition query `rts_class = 'confirmed'` gives the zero-decision fact map
+(equivalently, add `south_rts_confirmed.gpkg`); relax to `conf_class` tiers or
+filter continuously with `max_prob >= x` and/or `area_m2 >= a` — those two
+columns *are* the user-side MMU dial. Symbolize Unique Values on `rts_class`
+(confirmed solid red, candidate orange outline, marginal pale dashed) — see
+the catalog for the measured precision behind each class.
 
-**Headline:** **10,984 RTS polygons, 238.08 km²** across the pan-Arctic South band
-(≈50–76°N), from 41,567,572 inferred tiles. `mean_prob` 0.66–0.98 (median 0.84);
-slump areas 0.27–72 ha (median ≈1.3 ha). Probability raster: 1,633 super-tile COGs
-(8.4 M × 1.6 M px canvas, sparse).
+**Headline:** **60,167 candidate polygons / 688.2 km²** (MMU≈0, thr 0.30), of
+which **19,068 confirmed / 529.7 km²** (measured precision 0.54–0.90 by size
+band), across the pan-Arctic South band (≈50–76°N), from 41,567,572 inferred
+tiles. Probability raster: 1,633 super-tile COGs (8.4 M × 1.6 M px canvas,
+sparse).
 
 **Two ways to view this in ArcGIS Pro:** the manual steps below (add each layer
 yourself, use a generic Imagery basemap for context), or the automated pair of
@@ -100,9 +102,10 @@ are only needed for the raster.)*
 
 - **Polygons by confidence:** symbolize `south_rts` with graduated colors on
   `mean_prob` (or `max_prob`) to triage strong vs marginal detections.
-- **Size filter / triage:** `area_m2` is the slump area (min ≈ 2000 px × pixel area
-  ≈ 0.2 ha — the deploy `min_blob`). Definition Query on `area_m2` to focus on larger
-  features.
+- **Size filter / triage:** `area_m2` is the geodesic slump area. The tiered
+  inventory has **no minimum mapping unit** (floor ~2 px ≈ 10–45 m²) — use a
+  Definition Query on `area_m2` if you want your own MMU, and `nodata_frac`
+  to soft-screen NoData-context false positives.
 - **Imagery context:** add an *Imagery* basemap, or the 2025 PlanetScope quads, to
   see each polygon over the terrain it was detected on.
 - **Jump to a detection:** `centroid_lat`/`centroid_lon` (WGS84) are handy for

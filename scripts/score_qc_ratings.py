@@ -67,6 +67,21 @@ def precision_grid(df: pd.DataFrame, floor: float = 0.5) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def export_false_polygons(ratings_csv: str, sample_gpkg: str,
+                          out_gpkg: str) -> None:
+    """Export the rated-``false`` polygons with geometry — the v3
+    hard-negative seed set (user-verified false positives)."""
+    import geopandas as gpd
+    ratings = pd.read_csv(ratings_csv)
+    sample = gpd.read_file(sample_gpkg).drop(columns=["qc_verdict"],
+                                             errors="ignore")
+    merged = sample.merge(ratings, on="rts_id", validate="1:1")
+    false = merged[merged["qc_verdict"] == "false"]
+    false.to_file(out_gpkg, driver="GPKG")
+    logger.info("hard-negative seed: %d rated-false polygons → %s",
+                len(false), out_gpkg)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ratings", required=True,
@@ -77,6 +92,9 @@ def main() -> int:
                         "verdict-only CSV")
     p.add_argument("--floor", type=float, default=0.5)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--false-out", default=None,
+                   help="also export rated-false polygons (v3 hard-negative "
+                        "seed GPKG); needs --sample")
     args = p.parse_args()
     setup_logging()
 
@@ -92,6 +110,8 @@ def main() -> int:
     grid = precision_grid(df, args.floor)
     grid.to_csv(args.out, index=False)
     logger.info("precision grid → %s\n%s", args.out, grid.to_string(index=False))
+    if args.false_out:
+        export_false_polygons(str(args.ratings), args.sample, args.false_out)
     return 0
 
 

@@ -576,13 +576,17 @@ likelihood surface (replaces `gdalwarp -r max`, which bled NoData-edge values
 ### [test_export_south_products.py](test_export_south_products.py)
 
 `scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
-the four D1 access forms (flagship tiered GPKG / high-only / centroids /
-csv+parquet attribute table). GPU-free; 3-polygon synthetic GPKG.
+the four D1 access forms (flagship tiered GPKG / confirmed / centroids /
+csv+parquet attribute table) with the QC-calibrated `rts_class` and the
+`nodata_frac` soft-triage attribute. GPU-free; synthetic GPKG + tiny raster.
 
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
-| `test_export_products_writes_four_access_forms` | 4 files; high-only filtered; representative points INSIDE a C-shaped polygon (where the raw centroid falls outside); csv/parquet without geometry | real — packaging correctness |
+| `test_rts_class_qc_calibrated_rule` | confirmed = all high; candidate = medium <500 m² (inclusive/exclusive edge); marginal = rest | real — the locked 2026-07 QC rule |
+| `test_export_products_writes_four_access_forms` | 4 files incl. `south_rts_confirmed.gpkg` (no stale `south_rts_high`); rts_class column; representative points INSIDE a C-shaped polygon; csv/parquet without geometry | real — packaging correctness |
+| `test_nodata_frac_from_probability_raster` | fraction of 255s in the (padded) bbox: clean → 0.0, half-NoData straddle → 0.5 | real — the soft-filter math |
+| `test_export_products_plumbs_nodata_frac` | `prob_raster=` plumbs `nodata_frac` into flagship gpkg + csv | plumbing |
 
 ### [test_score_qc_ratings.py](test_score_qc_ratings.py)
 
@@ -593,6 +597,7 @@ size band) with Wilson CIs → the adaptive-MMU acceptance grid. GPU-free.
 |---|---|---|
 | `test_precision_grid_counts_and_wilson` | counts, unsure excluded+reported, Wilson bounds bracket p, accept at floor | real — the calibration math |
 | `test_empty_cells_are_reported_not_dropped` | full tier×band grid; unmeasured cells n=0/NaN and never accepted | real — the no-silent-acceptance guard |
+| `test_export_false_polygons_hard_negative_seed` | rated-false polygons (only) export with geometry + verdict + tier/size in 3857 — the v3 hard-negative seed | real — join + filter correctness |
 
 ### [test_build_qc_rating_page.py](test_build_qc_rating_page.py)
 

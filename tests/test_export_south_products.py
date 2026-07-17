@@ -11,7 +11,8 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon
 
-from scripts.export_south_products import assign_conf_class, export_products
+from scripts.export_south_products import (assign_conf_class,
+                                           assign_rts_class, export_products)
 
 
 def _cands(path: Path) -> Path:
@@ -37,16 +38,32 @@ def test_conf_class_boundaries_are_inclusive():
                                        "high", "high"]
 
 
+def test_rts_class_qc_calibrated_rule():
+    """2026-07 South QC rule (grid measured on 279 ratings): confirmed = all
+    high tier (incl. <500 m² by monotone tier extension); candidate = medium
+    tier under 500 m² (measured 0.53); marginal = everything else."""
+    gdf = gpd.GeoDataFrame(
+        {"conf_class": ["high", "high", "medium", "medium", "low", "low"],
+         "area_m2": [300.0, 50000.0, 300.0, 500.0, 300.0, 50000.0]},
+        geometry=gpd.points_from_xy([0] * 6, [0] * 6))
+    out = assign_rts_class(gdf)
+    assert list(out["rts_class"]) == ["confirmed", "confirmed", "candidate",
+                                      "marginal", "marginal", "marginal"]
+
+
 def test_export_products_writes_four_access_forms(tmp_path):
     raw = _cands(tmp_path)
     export_products(str(raw), tmp_path)
 
     flag = gpd.read_file(tmp_path / "south_rts_candidates.gpkg")
     assert list(flag["conf_class"]) == ["low", "medium", "high"]
+    # rts_class: rts_id 3 is high→confirmed; 2 is medium at 100 m²→candidate
+    assert list(flag["rts_class"]) == ["marginal", "candidate", "confirmed"]
     assert flag.crs.to_epsg() == 3857
 
-    high = gpd.read_file(tmp_path / "south_rts_high.gpkg")
-    assert len(high) == 1 and high.iloc[0]["rts_id"] == 3
+    conf = gpd.read_file(tmp_path / "south_rts_confirmed.gpkg")
+    assert len(conf) == 1 and conf.iloc[0]["rts_id"] == 3
+    assert not (tmp_path / "south_rts_high.gpkg").exists()
 
     pts = gpd.read_file(tmp_path / "south_rts_centroids.gpkg")
     assert len(pts) == 3 and (pts.geometry.geom_type == "Point").all()
@@ -58,6 +75,55 @@ def test_export_products_writes_four_access_forms(tmp_path):
 
     csv = pd.read_csv(tmp_path / "south_rts_attributes.csv")
     assert len(csv) == 3
-    assert {"rts_id", "conf_class", "max_prob", "area_m2"} <= set(csv.columns)
+    assert {"rts_id", "conf_class", "rts_class", "max_prob",
+            "area_m2"} <= set(csv.columns)
     assert "geometry" not in csv.columns
     assert (tmp_path / "south_rts_attributes.parquet").exists()
+
+
+def test_nodata_frac_from_probability_raster(tmp_path):
+    """nodata_frac = fraction of NoData (255) pixels in the polygon's padded
+    bbox on the probability raster — a soft triage attribute (QC found FPs
+    concentrate on high-NoData context; hard veto forbidden, real RTS can
+    contain NoData)."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    from scripts.export_south_products import add_nodata_frac
+
+    arr = np.zeros((100, 100), np.uint8)
+    arr[:, 50:] = 255                       # right half NoData
+    with rasterio.open(tmp_path / "prob.tif", "w", driver="GTiff", width=100,
+                       height=100, count=1, dtype="uint8", nodata=255,
+                       crs="EPSG:3857",
+                       transform=from_bounds(0, 0, 1000, 1000, 100, 100)) as d:
+        d.write(arr, 1)
+
+    gdf = gpd.GeoDataFrame(
+        {"rts_id": [1, 2]},
+        geometry=[Polygon([(100, 100), (300, 100), (300, 300), (100, 300)]),
+                  Polygon([(400, 400), (600, 400), (600, 600), (400, 600)])],
+        crs="EPSG:3857")
+    out = add_nodata_frac(gdf, str(tmp_path / "prob.tif"), pad_frac=0.0)
+    assert abs(out.loc[0, "nodata_frac"] - 0.0) < 1e-9   # fully clean half
+    assert abs(out.loc[1, "nodata_frac"] - 0.5) < 1e-9   # straddles the edge
+
+
+def test_export_products_plumbs_nodata_frac(tmp_path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    arr = np.zeros((50, 50), np.uint8)
+    with rasterio.open(tmp_path / "prob.tif", "w", driver="GTiff", width=50,
+                       height=50, count=1, dtype="uint8", nodata=255,
+                       crs="EPSG:3857",
+                       transform=from_bounds(0, 0, 500, 500, 50, 50)) as d:
+        d.write(arr, 1)
+    raw = _cands(tmp_path)
+    export_products(str(raw), tmp_path, prob_raster=str(tmp_path / "prob.tif"))
+    flag = gpd.read_file(tmp_path / "south_rts_candidates.gpkg")
+    assert "nodata_frac" in flag.columns
+    csv = pd.read_csv(tmp_path / "south_rts_attributes.csv")
+    assert "nodata_frac" in csv.columns

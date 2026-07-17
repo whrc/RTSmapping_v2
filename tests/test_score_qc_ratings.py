@@ -8,7 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from scripts.score_qc_ratings import SIZE_BANDS, precision_grid
+from scripts.score_qc_ratings import (SIZE_BANDS, export_false_polygons,
+                                      precision_grid)
 
 
 def _ratings() -> pd.DataFrame:
@@ -45,3 +46,28 @@ def test_empty_cells_are_reported_not_dropped():
     assert (empty.n_rated == 0).all()
     assert empty.precision.isna().all()
     assert (~empty.accept.astype(bool)).all()  # never accept unmeasured cells
+
+
+def test_export_false_polygons_hard_negative_seed(tmp_path):
+    """Rated-false polygons export with geometry + verdict + tier/size — the
+    v3 hard-negative seed set."""
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+
+    sample = gpd.GeoDataFrame(
+        {"rts_id": [1, 2, 3], "conf_class": ["high", "low", "low"],
+         "area_m2": [300.0, 400.0, 500.0]},
+        geometry=[Polygon([(i, 0), (i + 1, 0), (i + 1, 1)]) for i in range(3)],
+        crs="EPSG:3857")
+    sample.to_file(tmp_path / "s.gpkg", driver="GPKG")
+    ratings = pd.DataFrame({"rts_id": [1, 2, 3],
+                            "qc_verdict": ["rts", "false", "unsure"]})
+    ratings.to_csv(tmp_path / "r.csv", index=False)
+
+    export_false_polygons(str(tmp_path / "r.csv"), str(tmp_path / "s.gpkg"),
+                          str(tmp_path / "f.gpkg"))
+    out = gpd.read_file(tmp_path / "f.gpkg")
+    assert list(out["rts_id"]) == [2]          # only rated false
+    assert out.iloc[0]["qc_verdict"] == "false"
+    assert {"conf_class", "area_m2"} <= set(out.columns)
+    assert out.crs.to_epsg() == 3857
