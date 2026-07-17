@@ -55,6 +55,14 @@ layer is mosaicked live from its 1,633 source COG shards via `loadGeoTIFF` —
 EE's ingestion pipeline repeatedly failed on that specific layer, see the
 script's header comment for why). No install, no download, opens in a browser.
 
+**No account at all? The public GEE App** (source `post-inference/ee_south_app.js`,
+published at `https://pdg-project-406720.projects.earthengine.app/view/south-rts-map`)
+shows the confirmed inventory + 95 m likelihood surface to anyone with the
+link — no Earth Engine account, no data access needed. Built from small
+ingested assets only (`south_likelihood_95m`, `south_rts_confirmed`,
+`south_rts_centroids`), so it loads fast; full-res probability stays in the
+Code Editor script above.
+
 ## 1. The products (in GCS)
 
 Bucket prefix: `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`

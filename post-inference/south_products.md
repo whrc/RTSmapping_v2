@@ -114,6 +114,7 @@ mass ordering is 238 km² @0.65 mask < 688 km² @0.30 MMU≈0 outlines <
 | `south_products.md` (this file) | catalog SSoT |
 | `arcgis_south_products.md` | how to open everything in ArcGIS Pro (+ GEE viewer) |
 | `south_rts_summary.md` / `.html` | factsheet: totals, size distribution vs ARTS v6, latitude distribution, hotspot figure, measured precision grid |
+| `deliverables/README.md` (repo) / `products/README.md` (GCS) | ADC/PDG handover: minimized submission manifest, WMTS tiling convention, dataset + file-level metadata |
 
 ## Caveats (read before using any product)
 

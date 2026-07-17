@@ -573,6 +573,22 @@ likelihood surface (replaces `gdalwarp -r max`, which bled NoData-edge values
 | `test_block_max_and_nodata_semantics` | per-block max of valid pixels; all-NoData block stays 255; mixed block ignores 255; valid output ≤ 250 | real — the artifact regression |
 | `test_non_divisible_edges_are_padded` | 50×30 @ factor 20 → 3×2; partial blocks don't fabricate values; transform scales by factor | real — edge handling |
 
+### [test_retile_wmts_z10.py](test_retile_wmts_z10.py)
+
+`scripts/retile_wmts_z10.py` — re-cuts the probability canvas into COGs that
+each correspond to precisely one WMTS WebMercatorQuad z10 tile (the ADC
+handover requirement). Grid math only — no rasters, GPU-free. (The raster
+path is verified operationally: sampled output tiles are pixel-compared
+against the source mosaic on every production run.)
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_grid_constants_are_consistent` | tile size = 8192 px × z15 res; 1024 tiles span the world exactly | real — grid arithmetic |
+| `test_corner_tiles_span_the_world` | tiles (0,0) and (1023,1023) hit the matrix corners (z10 is 1024×1024) | real — caught the 2048-row bug |
+| `test_adjacent_tiles_share_edges_exactly` | neighbouring tiles share edge coords bit-exactly (index-based edges) | real — caught float-drift edges |
+| `test_candidate_tiles_cover_a_bbox_and_only_it` | bbox inside one tile → that tile; 2×2 straddle → exactly 4 | real — shard→candidate mapping |
+| `test_candidate_tiles_clamped_to_matrix_extent` | whole-world bbox clamps to 1024×1024 indices | real — bounds guard |
+
 ### [test_export_south_products.py](test_export_south_products.py)
 
 `scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
