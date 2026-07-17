@@ -45,12 +45,63 @@ from shapely.ops import unary_union
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from inference.quad_index import WORLD_MIN  # noqa: E402
 from inference.writer import NODATA_SCALED_U8, SCALE_U8  # noqa: E402
 from scripts.vectorize_predictions import _GEOD, _TO_WGS84  # noqa: E402
 from utils.config import load_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+R_MERC = 6378137.0
+
+# fork-inherited state for the parallel _record pass (COW — set in the parent
+# right before the pool is created; pickling the 41.5M-tile code array per
+# task would dwarf the work itself)
+_REC: dict = {}
+
+
+def tile_codes_from_list(tile_ids: pd.Series) -> np.ndarray:
+    """Sorted int64 codes (col<<32 | row) of the t{col}_{row} tile ids."""
+    cr = tile_ids.str.slice(1).str.split("_", expand=True).astype(np.int64)
+    return np.sort((cr[0].values << 32) | cr[1].values)
+
+
+def _tile_join_state(tiles: pd.DataFrame) -> dict:
+    """Arithmetic-join state from a conforming t{col}_{row} stride-grid list;
+    non-conforming lists (tests, ad-hoc AOIs) fall back to the bbox scan."""
+    ids = tiles["tile_id"].astype(str)
+    conforming = ids.str.match(r"^t\d+_\d+$").all()
+    nz = None
+    if conforming:
+        cols = ids.str.slice(1).str.split("_").str[0].astype(np.int64)
+        nzi = np.nonzero(cols.values)[0]
+        nz = nzi[0] if len(nzi) else None
+    if not conforming or nz is None:
+        return {"tiles_df": tiles}
+    t = tiles.iloc[nz]
+    return {"codes": tile_codes_from_list(ids),
+            "stride_m": (t["minx"] - WORLD_MIN) / int(cols.values[nz]),
+            "tile_m": float(t["maxx"] - t["minx"])}
+
+
+def tiles_for_bounds(bounds: tuple, codes: np.ndarray, stride_m: float,
+                     tile_m: float) -> list[str]:
+    """Tile ids intersecting ``bounds`` — arithmetic on the stride grid
+    (generate_tile_grid convention), then membership against ``codes``.
+    Replaces the per-polygon scan of the 41.5M-row tile list."""
+    bminx, bminy, bmaxx, bmaxy = bounds
+    c0 = floor((bminx - WORLD_MIN - tile_m) / stride_m) + 1
+    c1 = ceil((bmaxx - WORLD_MIN) / stride_m) - 1
+    r0 = floor((bminy - WORLD_MIN - tile_m) / stride_m) + 1
+    r1 = ceil((bmaxy - WORLD_MIN) / stride_m) - 1
+    cc, rr = np.meshgrid(np.arange(c0, c1 + 1, dtype=np.int64),
+                         np.arange(r0, r1 + 1, dtype=np.int64))
+    cand = (cc.ravel() << 32) | rr.ravel()
+    idx = np.searchsorted(codes, cand)
+    idx = np.clip(idx, 0, len(codes) - 1)
+    hit = cand[codes[idx] == cand] if len(codes) else cand[:0]
+    return [f"t{c >> 32}_{c & 0xFFFFFFFF}" for c in hit]
 
 
 def _polygonize_block(spec: dict):
@@ -100,8 +151,11 @@ def _polygonize_block(spec: dict):
     return interior, edge
 
 
-def _record(rts_id: int, geom, prb, tiles: pd.DataFrame, scales: list[float]) -> dict:
-    """Per-polygon §9.3 attributes (mirrors vectorize_predictions.vectorize)."""
+def _record(rts_id: int, geom, prb, scales: list[float]) -> dict:
+    """Per-polygon §9.3 attributes (mirrors vectorize_predictions.vectorize).
+
+    tile_ids come from the arithmetic stride-grid join against the
+    fork-inherited ``_REC`` state (codes/stride_m/tile_m)."""
     transform = prb.transform
     fwin = windows.from_bounds(*geom.bounds, transform=transform)
     c0, r0 = floor(fwin.col_off), floor(fwin.row_off)
@@ -117,9 +171,14 @@ def _record(rts_id: int, geom, prb, tiles: pd.DataFrame, scales: list[float]) ->
     geom_wgs = gpd.GeoSeries([geom], crs="EPSG:3857").to_crs("EPSG:4326").iloc[0]
     area, perim = _GEOD.geometry_area_perimeter(geom_wgs)
     lon, lat = _TO_WGS84.transform(geom.centroid.x, geom.centroid.y)
-    b = geom.bounds
-    hit = tiles[(tiles["minx"] < b[2]) & (tiles["maxx"] > b[0])
-                & (tiles["miny"] < b[3]) & (tiles["maxy"] > b[1])]
+    if "codes" in _REC:
+        tids = tiles_for_bounds(geom.bounds, _REC["codes"], _REC["stride_m"],
+                                _REC["tile_m"])
+    else:  # non-conforming tile list: bbox scan (small lists only)
+        t, b = _REC["tiles_df"], geom.bounds
+        tids = list(t[(t["minx"] < b[2]) & (t["maxx"] > b[0])
+                      & (t["miny"] < b[3]) & (t["maxy"] > b[1])]["tile_id"]
+                    .astype(str))
 
     def _area_frac(t: float) -> float:
         # geodesic area × in-polygon fraction of pixels ≥ t (keeps the multi-
@@ -138,8 +197,16 @@ def _record(rts_id: int, geom, prb, tiles: pd.DataFrame, scales: list[float]) ->
         "area_m2_t65": _area_frac(0.65),
         "area_m2_t80": _area_frac(0.80),
         "detection_scale": ",".join(str(s) for s in scales),
-        "tile_ids": ",".join(hit["tile_id"].astype(str)),
+        "tile_ids": ",".join(tids),
     }
+
+
+def _record_batch(spec: tuple[str, list[float], int, list[bytes]]) -> list[dict]:
+    """Worker: stats for a batch of polygons (opens its own prob handle)."""
+    prob_path, scales, start_id, wkbs = spec
+    with rasterio.open(prob_path) as prb:
+        return [_record(start_id + i, shp_wkb.loads(w), prb, scales)
+                for i, w in enumerate(wkbs)]
 
 
 def dissolve_edges(edge_wkb: list[bytes], min_blob_px: int,
@@ -155,7 +222,8 @@ def dissolve_edges(edge_wkb: list[bytes], min_blob_px: int,
 def vectorize_region(blocks_dir: str, prob_path: str, tile_list: str,
                      scales: list[float], min_blob_px: int,
                      workers: int, threshold: float | None = None,
-                     window_px: int = 8192) -> gpd.GeoDataFrame:
+                     window_px: int = 8192,
+                     min_area_m2: float | None = None) -> gpd.GeoDataFrame:
     """Parallel polygonize of block masks → dissolved, min_blob-filtered polygons.
 
     With ``threshold`` set, polygonizes the probability super-tile COGs
@@ -165,6 +233,24 @@ def vectorize_region(blocks_dir: str, prob_path: str, tile_list: str,
     in RAM; the existing edge-dissolve stitches polygons across window and COG
     seams alike.
     """
+    if min_area_m2 is not None:
+        # geodesic MMU: constant ground-area floor. Cheap pixel prefilter at
+        # the count a min_area_m2 object would have at the canvas's most
+        # equatorward row (3857 px ground area = res²·cos²lat is largest
+        # there, so this never drops anything the exact filter would keep);
+        # exact geodesic filter applied on area_m2 after _record. Technical
+        # floor 2 px kills single-pixel noise even at min_area_m2=0.
+        with rasterio.open(prob_path) as s:
+            b = s.bounds
+            pa3857 = abs(s.res[0] * s.res[1])
+        lat_min = min(abs(np.degrees(np.arctan(np.sinh(b.bottom / R_MERC)))),
+                      abs(np.degrees(np.arctan(np.sinh(b.top / R_MERC)))))
+        max_geo_px = pa3857 * np.cos(np.radians(lat_min)) ** 2
+        min_blob_px = max(2, int(min_area_m2 / max_geo_px))
+        logger.info("geodesic MMU %.0f m² → pixel prefilter %d px "
+                    "(most-equatorward lat %.2f°)", min_area_m2, min_blob_px,
+                    lat_min)
+
     if threshold is None:
         mask_blocks = sorted(glob.glob(f"{blocks_dir.rstrip('/')}/mask_*.tif"))
         if not mask_blocks:
@@ -193,17 +279,35 @@ def vectorize_region(blocks_dir: str, prob_path: str, tile_list: str,
     logger.info("polygonized %d blocks: %d interior + %d edge-touching",
                 len(specs), len(interior_wkb), len(edge_wkb))
 
-    prb = rasterio.open(prob_path)
-    px_area = abs(prb.res[0] * prb.res[1])
+    with rasterio.open(prob_path) as prb:
+        px_area = abs(prb.res[0] * prb.res[1])
     dissolved = dissolve_edges(edge_wkb, min_blob_px, px_area)
     final = [shp_wkb.loads(w) for w in interior_wkb] + dissolved
     logger.info("%d final polygons (%d interior + %d dissolved-edge)",
                 len(final), len(interior_wkb), len(dissolved))
 
-    tiles = pd.read_csv(tile_list)
-    records = [_record(i, g, prb, tiles, scales) for i, g in enumerate(final, 1)]
-    prb.close()
+    # arithmetic tile join state — derived from the tile list itself (SSoT for
+    # what exists), grid geometry from any row's id + bounds; inherited by the
+    # _record workers via fork (never pickled per task)
+    _REC.clear()
+    _REC.update(_tile_join_state(pd.read_csv(tile_list)))
+
+    batches = [(prob_path, scales, i + 1, [g.wkb for g in final[i:i + 200]])
+               for i in range(0, len(final), 200)]
+    if workers > 1 and len(batches) > 1:
+        records: list[dict] = []
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for recs in ex.map(_record_batch, batches):
+                records += recs
+    else:
+        records = [r for b in batches for r in _record_batch(b)]
+
     gdf = gpd.GeoDataFrame(records, geometry=final, crs="EPSG:3857")
+    if min_area_m2 is not None:
+        n0 = len(gdf)
+        gdf = gdf[gdf["area_m2"] >= min_area_m2].reset_index(drop=True)
+        gdf["rts_id"] = range(1, len(gdf) + 1)
+        logger.info("exact geodesic MMU filter: %d → %d polygons", n0, len(gdf))
     logger.info("Vectorized %d polygons, total %.2f km2", len(gdf),
                 gdf["area_m2"].sum() / 1e6 if len(gdf) else 0.0)
     return gdf
@@ -224,6 +328,10 @@ def main() -> int:
                         "instead of the pre-thresholded mask blocks")
     p.add_argument("--window-px", type=int, default=8192,
                    help="processing window size for --threshold mode")
+    p.add_argument("--min-area-m2", type=float, default=None,
+                   help="geodesic MMU in m² (latitude-constant; overrides the "
+                        "package's pixel min_blob; 0 = keep everything above "
+                        "the 2-px technical floor)")
     args = p.parse_args()
     setup_logging()
 
@@ -232,7 +340,8 @@ def main() -> int:
                            scales=dep_cfg.get("scales", [1.0]),
                            min_blob_px=int(dep_cfg.get("min_blob_size_px", 0)),
                            workers=args.workers, threshold=args.threshold,
-                           window_px=args.window_px)
+                           window_px=args.window_px,
+                           min_area_m2=args.min_area_m2)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(args.output, driver="GPKG")
     logger.info("Wrote %s", args.output)

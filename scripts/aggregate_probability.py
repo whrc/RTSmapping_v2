@@ -212,15 +212,38 @@ def write_grids(res: dict, out_dir: str | Path, candidates: str | None = None
             out_dir / f"{tag}.gpkg", driver="GPKG")
 
         arr = np.where(g["valid_m2"] > 0, g["expected_m2"], -1.0).astype("float32")
+        transform = rasterio.transform.from_origin(*origin, step, step)
         with rasterio.open(
                 out_dir / f"{tag}_expected_m2.tif", "w", driver="GTiff",
                 width=g["nx"], height=g["ny"], count=1, dtype="float32",
-                crs=crs, nodata=-1.0,
-                transform=rasterio.transform.from_origin(*origin, step, step),
+                crs=crs, nodata=-1.0, transform=transform,
                 compress="deflate") as dst:
             dst.write(arr, 1)
-        logger.info("wrote %s (+.tif): %d cells, Σ expected %.2f km²",
-                    out_dir / f"{tag}.gpkg", len(rows),
+            dst.update_tags(1, STATISTICS_MINIMUM="0",
+                            STATISTICS_MAXIMUM=str(float(arr.max())))
+
+        # browse companion: RGBA color-relief on log-percentile breaks — the
+        # float tif spans ~7 decades and default-stretches to black; this one
+        # is informative with zero styling (hotspots colored, voids transparent)
+        pos = g["expected_m2"][g["expected_m2"] > 0]
+        rgba = np.zeros((4, g["ny"], g["nx"]), dtype=np.uint8)
+        if pos.size:
+            breaks = np.percentile(pos, [50, 75, 90, 97, 99.5])
+            #            ≥p50      ≥p75      ≥p90      ≥p97     ≥p99.5
+            ramp = [(254, 232, 200), (253, 187, 132), (252, 141, 89),
+                    (227, 74, 51), (127, 0, 0)]
+            lvl = np.digitize(g["expected_m2"], breaks)  # 0..5
+            show = (g["valid_m2"] > 0) & (lvl > 0)
+            for i, (r, gg, bb) in enumerate(ramp, start=1):
+                m = show & (lvl == i)
+                rgba[0][m], rgba[1][m], rgba[2][m], rgba[3][m] = r, gg, bb, 255
+        with rasterio.open(
+                out_dir / f"{tag}_browse.tif", "w", driver="GTiff",
+                width=g["nx"], height=g["ny"], count=4, dtype="uint8",
+                crs=crs, transform=transform, compress="deflate") as dst:
+            dst.write(rgba)
+        logger.info("wrote %s (+_expected_m2.tif, +_browse.tif): %d cells, "
+                    "Σ expected %.2f km²", out_dir / f"{tag}.gpkg", len(rows),
                     g["expected_m2"].sum() / 1e6)
 
 

@@ -505,6 +505,9 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 | Pseudo-labeling / self-training | K | backup only (confirmation-bias risk) |
 | Soft-label boundary handling | C | deferred (ignore covers annotation noise for v2) |
 
-**Deferred to v3 (K):** v1.0 re-stage (+28 pos / −49 black) · hard-negative mining (post first
-inference) · MAE SSL pretraining (user-go, end-stage). **Conditional:** scale-TTA · ensemble (decided
+**Deferred to v3 (K):** v1.0 re-stage (+28 pos / −49 black) · hard-negative mining — **seed set
+ready**: `qc_false_hard_negatives.gpkg` (152 user-verified FPs from the 2026-07 South QC, at
+`gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`; FP modes: NoData context, water
+bodies, snow, mining/infrastructure look-alikes — mine more along those strata) · MAE SSL
+pretraining (user-go, end-stage). **Conditional:** scale-TTA · ensemble (decided
 at final lock) · context-expansion multi-scale (post-inference map review).

@@ -85,7 +85,22 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
+**South products v2 — QC-calibrated adaptive MMU (branch `south-products-v2-adaptive-mmu`, 2026-07-17).**
+User rated the 280-polygon tier×size QC sample via the new offline HTML rater
+(`scripts/build_qc_rating_page.py`; the GEE rater lost a full round to session-auth 500s): 65 rts /
+152 false / 63 unsure (unsure excluded). Scored grid (`scripts/score_qc_ratings.py`, Wilson CIs):
+precision is monotone in tier (high 0.54–0.90, medium 0.11–0.53, low 0.00–0.31) and **not** in size —
+the smallest measured high band (500–2k m²) is the most precise cell (0.90), vindicating MMU≈0.
+**`rts_class` rule locked with user** (option 1, tier+extension): confirmed = all high (19,068 / 529.7 km²) ·
+candidate = medium <500 m² (25) · marginal = rest (41,074). SSoT
+`scripts/export_south_products.py:assign_rts_class`. New: `south_rts_confirmed.gpkg` (replaces
+`south_rts_high.gpkg`), `nodata_frac` soft-triage attribute (FPs concentrate on NoData/water/snow/mining
+context — soft only, real RTS contain NoData), `qc_false_hard_negatives.gpkg` (152 verified FPs = v3
+hard-negative seed, noted in ledger K-family backlog). Factsheet + catalog rewritten around the measured
+grid; MMU≈0 inventory (60,167 / 688.2 km², thr 0.30) is the flagship. Shipping: re-export → density
+re-join → factsheet → GCS upload + stale cleanup → PR.
+
+Prior: **Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
 probability canvas is now a three-package product family (catalog SSoT: `post-inference/south_products.md`;
 plan `now-the-final-product-delegated-locket.md`). **D1 tiered inventory:** `south_rts_candidates.gpkg` —
 **25,716 polygons / 639.4 km²** at thr 0.30 (`vectorize_region --threshold`, windowed polygonize of the

@@ -541,6 +541,9 @@ synthetic adjacent block masks sharing a seam.
 | `test_threshold_mode_scaled_u8_nodata_not_above_threshold` | scaled_uint8 NoData 255 (> any scaled thr) excluded — no polygons over the NoData sea | real — the NoData-vs-threshold trap |
 | `test_threshold_mode_lower_threshold_recovers_lower_prob_blob` | prob-0.5 blob invisible at thr 0.65, present at 0.30 with decoded `max_prob` | real — the permissive-product path |
 | `test_multi_threshold_area_attributes` | `area_m2_t45/t65/t80` = geodesic area × fraction of in-polygon pixels ≥ t (half-0.9/half-0.5 blob) | real — boundary-uncertainty attributes |
+| `test_min_area_m2_is_latitude_invariant` | identical-px blobs at lat 0 vs 60°N: geodesic 5,000 m² MMU keeps only the low-lat one (px filter can't separate); px prefilter didn't pre-drop either | real — the geodesic-MMU contract |
+| `test_parallel_record_matches_serial` | workers=1 ≡ workers=4 on all `_record` attributes | real — parallel-stats regression guard |
+| `test_arithmetic_tile_join_matches_scan` | stride-grid arithmetic `tile_ids` ≡ bbox scan on a holey t{col}_{row} grid, incl. sub-stride bounds | real — replaces the 41.5M-row scan |
 
 ### [test_aggregate_probability.py](test_aggregate_probability.py)
 
@@ -573,13 +576,48 @@ likelihood surface (replaces `gdalwarp -r max`, which bled NoData-edge values
 ### [test_export_south_products.py](test_export_south_products.py)
 
 `scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
-the four D1 access forms (flagship tiered GPKG / high-only / centroids /
-csv+parquet attribute table). GPU-free; 3-polygon synthetic GPKG.
+the four D1 access forms (flagship tiered GPKG / confirmed / centroids /
+csv+parquet attribute table) with the QC-calibrated `rts_class` and the
+`nodata_frac` soft-triage attribute. GPU-free; synthetic GPKG + tiny raster.
 
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
-| `test_export_products_writes_four_access_forms` | 4 files; high-only filtered; representative points INSIDE a C-shaped polygon (where the raw centroid falls outside); csv/parquet without geometry | real — packaging correctness |
+| `test_rts_class_qc_calibrated_rule` | confirmed = all high; candidate = medium <500 m² (inclusive/exclusive edge); marginal = rest | real — the locked 2026-07 QC rule |
+| `test_export_products_writes_four_access_forms` | 4 files incl. `south_rts_confirmed.gpkg` (no stale `south_rts_high`); rts_class column; representative points INSIDE a C-shaped polygon; csv/parquet without geometry | real — packaging correctness |
+| `test_nodata_frac_from_probability_raster` | fraction of 255s in the (padded) bbox: clean → 0.0, half-NoData straddle → 0.5 | real — the soft-filter math |
+| `test_export_products_plumbs_nodata_frac` | `prob_raster=` plumbs `nodata_frac` into flagship gpkg + csv | plumbing |
+
+### [test_score_qc_ratings.py](test_score_qc_ratings.py)
+
+`scripts/score_qc_ratings.py` — rated QC verdicts → precision per (tier ×
+size band) with Wilson CIs → the adaptive-MMU acceptance grid. GPU-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_precision_grid_counts_and_wilson` | counts, unsure excluded+reported, Wilson bounds bracket p, accept at floor | real — the calibration math |
+| `test_empty_cells_are_reported_not_dropped` | full tier×band grid; unmeasured cells n=0/NaN and never accepted | real — the no-silent-acceptance guard |
+| `test_export_false_polygons_hard_negative_seed` | rated-false polygons (only) export with geometry + verdict + tier/size in 3857 — the v3 hard-negative seed | real — join + filter correctness |
+
+### [test_build_qc_rating_page.py](test_build_qc_rating_page.py)
+
+`scripts/build_qc_rating_page.py` — offline single-file HTML rater (embedded
+JPEG crops, localStorage autosave, CSV download) replacing the GEE rater whose
+per-polygon tile loads were the rating bottleneck. GPU-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_page_embeds_images_and_rating_machinery` | 2 data-URI crops per polygon; ITEMS JSON; localStorage/keydown/export tokens | real — generator contract |
+| `test_tiny_polygon_gets_minimum_context_window` | tight ≥250 m, wide ≥1.5 km, centred | real — context floors |
+
+### [test_build_ee_qc_rater.py](test_build_ee_qc_rater.py)
+
+`scripts/build_ee_qc_rater.py` — generates the GEE Code Editor rating app
+with embedded WGS84 outlines + chip COG URIs. GPU-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_rater_embeds_features_and_chip_uris` | FEATURES JSON parses, chip URIs from tile_ids on the usc1 mirror prefix, rings in lon/lat, loadGeoTIFF/Export present | real — generator contract |
 
 ### [test_sample_qc_polygons.py](test_sample_qc_polygons.py)
 
