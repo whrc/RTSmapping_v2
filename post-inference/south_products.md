@@ -140,8 +140,15 @@ mass ordering is 238 km² @0.65 mask < 688 km² @0.30 MMU≈0 outlines <
    quantify how the object shrinks at stricter cuts.
 6. **Known false-positive modes** (from the QC): NoData speckle, small water
    bodies, snowy scenes, high-NoData tiles, and mining/infrastructure
-   look-alikes. `nodata_frac` helps triage the first mode — as a soft filter
-   only.
+   look-alikes. `nodata_frac` helps triage the first mode as a **soft
+   attribute — not applied as a filter anywhere in this pipeline**; no
+   `rts_class` is auto-downgraded by it, by design (real RTS can contain
+   NoData, and there is no QC evidence for where a safe cutoff would sit).
+   **No water-body attribute exists.** A static water layer (JRC Global
+   Surface Water, OSM) was considered and rejected — most of the FP water
+   bodies observed in QC are small and likely ephemeral (meltwater,
+   thermokarst ponds), which a static mask would miss or mis-tag; a real fix
+   needs a same-epoch water mask, deferred to v3.
 7. **No ground truth on 2025 imagery.** Precision is sampled (2026-07 QC);
    recall on 2025 imagery is unmeasurable.
 8. **Coverage gaps.** 3 of 309,101 Planet quads absent (NoData), plus imagery
