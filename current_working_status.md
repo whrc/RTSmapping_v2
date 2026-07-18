@@ -28,7 +28,35 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**South pan-Arctic inference + products delivered (2026-07-07 to 2026-07-11, see `docs/archive/` for
+**v2.1 SSL-pretraining program CLOSED in the negative (branch `v2.1-pretraining`, 2026-07-18).** The full
+MAE program ran end to end: corpus (295,429 tiles, 4-ch RGB+NDVI south-only, ~188 GB), 80-epoch DINOv3-L
+MAE continue-pretrain on 8×A100 (92,320 steps, recon loss 1.016 → 0.0763), then the 3-seed arm-(c) gate.
+**Result: arctic MAE actively harms the encoder** — 0.8173/0.8155/0.8090, mean **0.8139** vs the arm-(b)
+sat493m baseline 0.9191 → **Δ −0.105, 0/3 seeds positive**, ≈9× G in the *negative* direction. Not a null,
+a regression. Comparison verified fair (flattened locked recipe field-by-field; `encoder_init` loaded
+318/318 tensors). Leading hypothesis: catastrophic forgetting — MAE pixel-reconstruction overwrites
+sat493m's discriminative features with reconstruction-oriented ones (arm-c peaks came *later*, ep45–50 vs
+ep35–40). **EffB5 remains the deployed encoder**; family-E encoder null now extended to domain-adapted ViT
+weights and closed. Epoch-20/40/60 MAE checkpoints kept on GCS if the length-ablation is ever revisited.
+Details: `docs/experiment_ledger_v21.md` (Finding A).
+
+Two engineering fixes landed alongside: (1) **early-stop floor lowered** `start_epoch` 101→65 in
+`configs/baseline.yaml` + the v2.1 base — locked-recipe peaks land ep35–50, so the 101 floor only burned
+compute (`max_epochs` deliberately left at 300: it sets the cosine LR horizon, so changing it would change
+the recipe); (2) **resume no longer overrides config** — `EarlyStopping.load_state_dict` was restoring
+`patience`/`min_delta`/`start_epoch` from the checkpoint, silently voiding the 101→65 change on the gate
+resume (all 3 seeds ran to ep105, not the expected ~ep90). It now restores observation state only and logs
+any config/checkpoint divergence; 3 regression tests added.
+
+Prior: **Disk-cleanup audit on the A100 master (2026-07-16).** Every durable artifact verified on / uploaded to
+GCS (run-mirror parity 123/123 incl. the previously unmirrored scale_ndvi + sat-7B runs; new prefixes
+`RTS_MODEL_V1_1/`, `RTS_MODEL_V2_scale05/eval/`, `RTS_MODEL_V2/inference_inputs/`, `training/v1.1_delta/`;
+full drift-refresh of all existing mirrors), then ~275G of verified GCS copies + regenerables deleted —
+root fs 94% → 37% used, scratch NVMes cleared. Two deliberate non-archives (5× 26G sat-7B dead-arm
+weights; `_archive/v2-alpha`) recorded with rationale in `computing/artifact_inventory.md` (the
+"where is everything" map, re-surveyed and re-dated).
+
+Prior: **South pan-Arctic inference + products delivered (2026-07-07 to 2026-07-11, see `docs/archive/` for
 full detail).** Full South inference run completed (2,079/2,079 shards, 41,567,572 tiles reconciled
 exactly, 3 quad-level coverage gaps ≈0.001%) after three fork/stall/crash-loop fixes shipped; post-
 inference pipeline delivered `south_rts.gpkg` (10,984 polygons / 238.08 km²) + probability/mask VRTs
@@ -85,7 +113,12 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**ADC/PDG handover + public GEE app (branch `deliverables-handover`, PR #52, 2026-07-17/18).**
+**v2.1 closed; branch `v2.1-pretraining` up for PR (2026-07-18).** The SSL program reached a decisive
+verdict (see *Just completed*) and needs no further compute — all 8 A100s are idle again. The branch
+carries the full `pretraining/` component, the v2.1 ledger + report, the two early-stop fixes, and 21
+green unit tests; nothing in it changes the deployed v2.0 path (EffB5 stays the encoder).
+
+Prior: **ADC/PDG handover + public GEE app (branch `deliverables-handover`, PR #52, 2026-07-17/18).**
 Three deliverables shipped for the South product handover: **(A) WMTS-conformant probability
 tiles** — the 1,633 canvas-anchored shards were already exactly WebMercatorQuad z15-resolution /
 z7-footprint but row-offset ~77.7 km from the global grid, so `scripts/retile_wmts_z10.py` re-cut
@@ -134,52 +167,11 @@ agree exactly; expectation > 639 km² outlines > 238 km² @0.65 mask — integra
 **D3:** catalog + `south_rts_summary.{md,html}` factsheet (hotspot map reproduces known RTS geography).
 All uploaded to `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`.
 
-**Blocked on user: Phase-B QC rating** — `qc_sample.gpkg` (180 polygons, 60/band, longitude×area strata)
-+ 542 RGB chips (`qc_chips/`) await rating (`qc_verdict`: rts/false/unsure) in ArcGIS Pro; the resulting
-per-tier precision replaces the val anchors in the catalog. Optional Phase E (static PMTiles threshold-
-explorer viewer) awaits a go. 15+2 new tests across 5 files; suite green.
-
-Prior: **Two manuscript-gap experiments closed out (branch `corrected-scaling-and-7b-tuning`, 2026-07-10 to
-2026-07-14).** Both closed the honest way — either outcome was a valid result; here both **overturned/
-softened** the number they were meant to referee-proof.
-
-**1. Data-scaling curve, corrected split + locked recipe (family B).** The old "plateau" finding
-(leaky split, off-recipe: 25→100% = 0.764→0.792, flat) does **not replicate** on the corrected split with
-the locked RGB+NDVI recipe: **25%→50%→75%→100% = 0.7929 (3-seed, σ=0.040) → 0.8628 → 0.8732 → 0.9218
-(3-seed, σ=0.004)**. End-to-end Δ=**+0.1289 (≈11.5×G)** — a real, seed-noise-swamping rise, steepest
-25→50% and 75→100%, near-flat only in the 50→75% middle. Train/val pixel-IoU gap **shrinks** with more
-data (best-epoch: 0.32→0.23→0.16→0.08) — the opposite of "well-matched." **Verdict: data volume is a
-real lever on the honest split; the "representation-limited, not volume-limited" claim needs softening.**
-Ledger family B (corrected block) + `/mnt/outputs/v1.0/analysis/family_b_corrected_scale_curve.{csv,png}`.
-
-**2. Honestly-tuned sat-DINOv3-7B frozen (family E).** Root-caused the original 0.4747 "diverged" result
-to a real scheduler bug, not a capacity limit: `freeze_backbone_epochs≥max_epochs` (needed to keep a
-6.7B-param encoder permanently frozen) also silenced the decoder's own LR anneal for the *whole* run,
-so it collapsed once the sampling curriculum hardened. Fixed `training/scheduler.py`
-(`decoder_phase2_start_epoch`, fully backward-compatible) — also fixed a second bug in
-`training/checkpoint.py` that re-serialized the frozen 6.7B-param encoder on every resume rotation
-(harmless for small models, ~40 GB/run for this one; this **and a separate pre-existing disk-bloat
-across 8 completed foundation-model runs (~130 GB, already GCS-mirrored)** briefly filled the VM's disk
-to 0 bytes free mid-run — cleaned up, verified byte-identical against `gs://rts-mapping-v2/RTS_MODEL_V2/
-runs/` first). LR range test → clean to ~2e-4, explodes ~4e-4. 3-seed confirm of the winning config
-(`decoder_phase2_start_epoch=20`): **0.7585 / 0.7508 / 0.7588, mean 0.7561** — stable, no collapse, far
-above the old 0.556/0.4747 floor, but **loses decisively to EffB5 on every metric** (PR-AUC −0.166,
-pixel-IoU −0.269, obj-F1 −0.056, sign-consistent across all 3 seeds) at **~3.3× the training wall-clock**.
-**Verdict: capacity-null holds, now on a referee-proof (bug-free, honestly-tuned) basis — DEPLOY EffB5
-stands.** Ledger family E (2026-07-12 block) has the full matched-recipe table.
-
-**Numbers for the manuscript:**
-- §4.1 data-scaling sentence: corrected-split 25→50→75→100% = 0.793→0.863→0.873→0.922 (Δ=+0.129,
-  ≈11.5×G) — rises materially, does not plateau; soften/retract the "not volume-limited" framing.
-- Encoder table (04_results.tex): add a row — sat-DINOv3-7B frozen, honestly tuned: PR-AUC 0.7561,
-  pixel-IoU 0.343, obj-F1 0.382, ≈28.5 GPU-h/seed (vs EffB5 0.9218/0.612/0.438/≈8.65 GPU-h/seed;
-  sat-ViT-L fair-recipe 0.9191/0.612/0.437 tie; SAM2 0.556 non-competitive).
-- fig:capacity: four honest points now — SAM2 0.556, sat-7B-frozen-tuned 0.756, sat-ViT-L 0.919
-  (ties EffB5), EffB5 0.922 — capacity does not help past EffB5-scale, and even a large frozen encoder
-  given a fair, bug-free tuning shot falls well short.
-
-**Housekeeping:** disk healed 470G→~386G used (139 GB reclaimed, all pre-verified against the GCS
-mirror before deletion); `a100-8x-train` free again for whatever's next.
+**Open question — what the freed 8×A100 node does next.** The v2.1 result closes the "better encoder via
+SSL" avenue, so the remaining high-leverage levers are the ones the v2.0 ledger still defers: **hard-negative
+mining** (K, gated on first-inference outputs — now available from the South run, and the South QC pass
+already rated a pool of false positives that would seed it) and the **conditional** scale-TTA / ensemble
+decisions. No work started on either; needs a decision before compute is committed.
 <!-- NOW:END -->
 
 ### Future plans (inference phase — full plan in `.claude/plans/elegant-exploring-lemur.md`)

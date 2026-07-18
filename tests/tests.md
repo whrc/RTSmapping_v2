@@ -306,7 +306,9 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_start_epoch_gates_stopping_but_not_best_tracking` | Stop suppressed pre-start_epoch; best still tracked | real — plan risk #5 |
 | `test_min_delta_ignores_noise` | Gains below min_delta don't reset counter | real |
 | `test_missing_metric_key_raises` | Metric name absent from dict → `KeyError` | real |
-| `test_state_dict_roundtrip` | save/load reproduces history + counters | real |
+| `test_state_dict_restores_observation_state` | save/load reproduces history + best + counters | real |
+| `test_load_state_dict_keeps_config_hyperparameters` | Resume takes patience/min_delta/start_epoch from **config**, not the checkpoint | real — regression, v2.1 gate resume silently kept a stale start_epoch=101 |
+| `test_lowered_start_epoch_takes_effect_after_resume` | End-to-end: a resumed run stops on the new, lower start_epoch | real — regression |
 
 ### [test_checkpoint.py](test_checkpoint.py)
 
@@ -766,6 +768,34 @@ Tier-1 object operating-point tuner (`scripts/tune_object_operating_point.py`, r
 | `test_morph_closing_merges_fragments` | morph-close radius bridges a 1-px gap → fragment FP removed (1 TP, 0 FP/FN) | real — morphology lever |
 | `test_decompose_categories` | object-error decomposition routes a no-overlap FP → `fp_no_overlap`, an unpredicted GT → `fn_missed` | real |
 | `test_evaluate_grid_shape_and_threshold_monotonicity` | grid yields one row per cell; raising threshold past the prob drops obj_tp to 0 | real |
+
+### [test_pretrain_corpus.py](test_pretrain_corpus.py)
+
+v2.1 SSL corpus sampling/exclusion/quality logic (`pretraining/corpus.py`), CPU-only, no GCS.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_filter_to_s2_footprint_keeps_only_intersecting` | Envelope pre-filter + STRtree exact-intersect keeps only tiles over an S2 cell | real — defines the south-covered corpus domain |
+| `test_drop_excluded_removes_tiles_over_polygons` | Tiles intersecting a val/test polygon are dropped | real — leakage hygiene |
+| `test_drop_excluded_empty_tree_is_noop` | No exclusion polygons → all tiles kept | shallow |
+| `test_load_exclusion_polygons_reprojects_from_3413` | Subregions GeoJSON is EPSG:3413 (polar stereo); polygons reprojected to 3857 before the tree, else intersections silently miss → eval-region leakage | real — leakage-hygiene regression (caught pre-build 2026-07-15) |
+| `test_load_exclusion_polygons_no_reproject_when_already_3857` | CRS already 3857 → geometry unchanged | shallow |
+| `test_stratified_sample_balances_across_strata` | Two far-apart clusters → roughly even draw per stratum | real |
+| `test_stratified_sample_returns_all_when_target_exceeds_pool` | `n_target ≥ pool` → returns everything | shallow |
+| `test_stratified_sample_oversamples_marked_tiles` | `oversample_mask` tiles drawn first within a stratum | real — near-label oversampling |
+| `test_quality_ok_rejects_high_nodata_and_empty_ndvi` | >50% NoData or all-NaN NDVI → rejected | real — corpus quality filter |
+
+### [test_pretrain_mim.py](test_pretrain_mim.py)
+
+v2.1 MAE masking + item loading (`pretraining/mim_dataset.py`), CPU-only.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_random_patch_mask_ratio_and_shape` | Exactly `round(ratio·N)` patches masked, right shape/dtype | real |
+| `test_random_patch_mask_varies_with_generator` | Different RNG → different mask | shallow |
+| `test_expand_mask_upsamples_to_pixels` | Patch mask → pixel mask block-upsampled correctly | real |
+| `test_mae_patchify_shape_and_layout` | `MaskedAutoencoderViT.patchify` shape + per-patch pixel layout (top-left patch → row 0) | real — target-construction correctness (full ViT forward/backward is GPU-smoke-covered, not in the CPU suite) |
+| `test_dataset_item_shapes_and_nan_neutralization` | 4-ch image + patch mask shapes; NaN NDVI neutralized to 0 by `apply_norm` | real — training/inference norm parity |
 
 ### [test_train_smoke.py](test_train_smoke.py)
 

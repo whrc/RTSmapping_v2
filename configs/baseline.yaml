@@ -176,10 +176,11 @@ training:
     # 8 validation events ≈ 40 epochs at val_frequency=5 (training.md §9.1).
     patience: 8
     min_delta: 0.005
-    # Gated to epoch 101 — curriculum reaches 1:20 at 101, matching val prevalence.
-    # Before 101, val-realistic is evaluated on a harder distribution than the model
-    # is currently trained on, risking false early-stop.
-    start_epoch: 101
+    # Empirical override (audit 2026-07): every locked-recipe run peaked at ep35-40 and
+    # never improved through the 1:20 curriculum tail (101-300), so gating to 101 only
+    # floored wasted compute. 65 keeps a safe buffer past the peak (patience 8 = 40 epochs
+    # from the last best → stops ~ep80) without changing the LR schedule (max_epochs stays).
+    start_epoch: 65
     # Geometric mean of PR-AUC at 1:200/500/1000; 3-validation moving average.
     # Single ratio (e.g. 1:200) would bias model selection toward recall-happy models.
     metric: "val_realistic_pr_auc_geomean"

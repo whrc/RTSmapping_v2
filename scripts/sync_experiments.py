@@ -126,18 +126,19 @@ def _fmt(score: float | None) -> str:
     return f"{score:.4f}" if score is not None else "—"
 
 
-def update_ledger(scores: dict[str, float | None]) -> None:
+def update_ledger(scores: dict[str, float | None], ledger: Path = LEDGER) -> None:
     """Rewrite the score cell of each row in the ledger's RUN-TABLE block.
 
     Reports drift (ledger != json), ledger rows with no run dir, and run dirs
-    with no ledger row.
+    with no ledger row. ``ledger`` defaults to the v2.0 SSoT; pass the v2.1 ledger
+    (`docs/experiment_ledger_v21.md`) to harvest that program's runs instead.
     """
-    text = LEDGER.read_text()
+    text = ledger.read_text()
     try:
         block = text.split(TABLE_BEGIN, 1)[1].split(TABLE_END, 1)[0]
     except IndexError:
         raise SystemExit(
-            f"Could not find the {TABLE_BEGIN} ... {TABLE_END} block in {LEDGER}.\n"
+            f"Could not find the {TABLE_BEGIN} ... {TABLE_END} block in {ledger}.\n"
             "The run table must be wrapped in those markers for sync to target it."
         )
 
@@ -170,7 +171,7 @@ def update_ledger(scores: dict[str, float | None]) -> None:
         inner[score_i] = new
         new_lines[i] = "| " + " | ".join(inner) + " |"
 
-    LEDGER.write_text(text.replace(block, "\n".join(new_lines)))
+    ledger.write_text(text.replace(block, "\n".join(new_lines)))
 
     extra_dirs = sorted(set(scores) - seen)
     logger.info("\n--- sync report ---")
@@ -197,6 +198,9 @@ def main() -> None:
                     help="canonical run dirs (default: %(default)s)")
     ap.add_argument("--backfill", action="store_true",
                     help="first convert legacy run_summary.md -> run_summary.json")
+    ap.add_argument("--ledger", type=Path, default=LEDGER,
+                    help="ledger .md to harvest into (default: the v2.0 SSoT; pass "
+                         "docs/experiment_ledger_v21.md for the v2.1 program)")
     args = ap.parse_args()
 
     if not args.runs_dir.exists():
@@ -205,7 +209,7 @@ def main() -> None:
         backfill_json(args.runs_dir)
     scores = harvest_scores(args.runs_dir)
     logger.info("harvested %d run scores from %s", len(scores), args.runs_dir)
-    update_ledger(scores)
+    update_ledger(scores, ledger=args.ledger)
 
 
 if __name__ == "__main__":

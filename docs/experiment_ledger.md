@@ -3,6 +3,7 @@
 **This file is the experiments SSoT.** Every training run, the locked recipe, the findings, and the
 dropped ideas live here and nowhere else. `docs/report.html` is the generated analytical/visual view of
 this file; `current_working_status.md` is the project diary. To update, follow the ritual in `CLAUDE.md`.
+**v2.0 is locked/frozen.** The v2.1 SSL-pretraining program has its own ledger: `docs/experiment_ledger_v21.md`.
 
 **Metric:** `val_realistic_pr_auc_geomean` = `best_smoothed` (higher is better). The **`score` column of
 the run table is machine-harvested** from each run's `run_summary.json` by `scripts/sync_experiments.py`
@@ -505,9 +506,14 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 | Pseudo-labeling / self-training | K | backup only (confirmation-bias risk) |
 | Soft-label boundary handling | C | deferred (ignore covers annotation noise for v2) |
 
-**Deferred to v3 (K):** v1.0 re-stage (+28 pos / −49 black) · hard-negative mining — **seed set
-ready**: `qc_false_hard_negatives.gpkg` (152 user-verified FPs from the 2026-07 South QC, at
+**Deferred to v3 (K):** hard-negative mining — **seed set ready**:
+`qc_false_hard_negatives.gpkg` (152 user-verified FPs from the 2026-07 South QC, at
 `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`; FP modes: NoData context, water
-bodies, snow, mining/infrastructure look-alikes — mine more along those strata) · MAE SSL
-pretraining (user-go, end-stage). **Conditional:** scale-TTA · ensemble (decided
-at final lock) · context-expansion multi-scale (post-inference map review).
+bodies, snow, mining/infrastructure look-alikes — mine more along those strata).
+**Conditional:** scale-TTA · ensemble (decided at final lock). **Done since this list was
+written:** v1.0 re-stage → executed as data-v1.1 (family N, ability wash — see N-retrain
+finding) · context-expansion multi-scale → executed as the 0.5x POC (family M). **MAE SSL
+pretraining → ran as the v2.1 program and CLOSED 2026-07-18 in the negative** (arctic MAE
+continue-pretrain on sat493m scored 0.8139 vs 0.9191 baseline, Δ −0.105, 0/3 seeds — a
+regression, not a null). EffB5 remains the deployed encoder; details in
+`docs/experiment_ledger_v21.md`.

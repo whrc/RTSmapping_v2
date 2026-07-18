@@ -1,0 +1,12 @@
+# v2.1 arm (c) — DINOv3-L fine-tune with ARCTIC-MAE-pretrained encoder init, seed 44.
+# Inherits the flattened family-E FAIR recipe (_ft_dinov3l_base.yaml = the config that made 0.9191 with
+# the off-the-shelf sat493m init) and changes ONE thing: model.encoder_init points at the arctic-MAE
+# continue-pretrained encoder state_dict. Isolates the domain-adaptation effect (arm c − arm b = 0.9191).
+# Gate: SSL helped iff (c) − 0.9191 >= G(0.0112) 3/3 sign-consistent; deployable iff (c) > 0.9218 + G.
+base: _ft_dinov3l_base.yaml
+seed: 44
+model:
+  # Produced by scripts/pretrain.py (the 8xA100 MAE run); encoder-only state_dict.
+  encoder_init: /outputs/v2.1/RTS_MODEL_V21/pretrain_dinov3l_arctic/encoder_final.pt
+mlflow:
+  run_name: ft_dinov3l_arctic_seed44
