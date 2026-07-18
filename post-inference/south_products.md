@@ -77,11 +77,21 @@ the briefly-shipped `south_rts_confirmed.gpkg` (both deleted; 'confirmed' was
 renamed 2026-07-17 — it wrongly implied human verification).
 
 **QC artifacts** (kept for reproducibility and v3): `qc_sample.gpkg` (280
-stratified polygons, rated), `qc_ratings.csv` (the verdicts, in-repo at
-`post-inference/qc_ratings.csv`), `qc_precision_grid.csv` (scored grid),
-`qc_false_hard_negatives.gpkg` (**152 user-verified false positives — the v3
-hard-negative seed set**; FP modes: NoData context, water bodies, snow,
-mining/infrastructure look-alikes).
+stratified polygons, rated), `qc_ratings.csv` (the verdicts, also uploaded to
+GCS 2026-07-18 — was previously repo-only, a doc/bucket mismatch fixed in the
+audit below), `qc_precision_grid.csv` (scored grid), `qc_false_hard_negatives.gpkg`
+(**152 user-verified false positives — the v3 hard-negative seed set**; FP
+modes: NoData context, water bodies, snow, mining/infrastructure look-alikes).
+
+**2026-07-18 bucket audit.** Three items removed from `products/` as
+unused/redundant: `mask.vrt` + `mask_cog_shards/` (binary thr-0.65 mask, fully
+derivable from `probability_wmts_z10` or `south_rts.gpkg`, unused since the
+tiered inventory existed); `qc_chips/` (raw chip mosaic, superseded once
+`qc_rater.html` started embedding its own crops as base64 JPEGs — nothing
+referenced it). `rgb_chips.vrt` + `rgb_chips/` (license-restricted PlanetScope
+derivative, "not for redistribution") was **moved out of `products/`** to
+`gs://rts-mapping-v2-usw1/inference/2025q3_south/internal/` — it must never
+sit inside the folder `deliverables/README.md` hands to ADC/PDG.
 
 ### D2 — Probability rasters & spatial summaries
 
@@ -89,11 +99,11 @@ The probability map at three scales:
 
 | File | What | For |
 |---|---|---|
-| `probability.vrt` + `probability_cog_shards/*.tif` (1,633) | **full-res canvas** (raw output) | re-thresholding, sensor fusion, benchmarking |
+| `probability.vrt` + `probability_cog_shards/*.tif` (1,633) | **full-res canvas**, canvas-anchored shards (raw output / provenance master) | re-thresholding, sensor fusion, benchmarking |
+| `probability_wmts_z10.vrt` + `probability_wmts_z10/*.tif` (80,159) | same probability, re-cut onto the global WebMercatorQuad z10 grid (exact pass-through, pixel-identical — see `deliverables/README.md` §2) | ADC/PDG handover; anyone who needs one-file-per-standard-tile access |
 | `likelihood_95m.tif` | max-prob at ~95 m (20× decimation), embedded colormap + true block-max overviews | "where should I look" reconnaissance |
 | `density_10km.gpkg` + `density_10km_expected_m2.tif` + `density_10km_browse.tif` | 10-km cells: threshold-free **expected RTS area** + per-tier counts/areas | regional planning, field-campaign targeting |
 | `density_0.5deg.gpkg` + `density_0.5deg_expected_m2.tif` + `density_0.5deg_browse.tif` | same on a 0.5° WGS84 grid | climate / permafrost-carbon modelling |
-| `mask.vrt` + `mask_cog_shards/` | binary mask at thr 0.65 | legacy/simple raster consumers |
 
 `*_browse.tif` are RGBA color-relief renders (log-percentile breaks) that are
 informative with zero styling; `*_expected_m2.tif` are the compute-with floats.

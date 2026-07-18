@@ -149,13 +149,19 @@ Everything else under
 | File | Size | One-liner |
 |---|---|---|
 | `probability.vrt` + `probability_cog_shards/` | 13.6 GB | original canvas-anchored probability shards (provenance master for `probability_wmts_z10/`) |
-| `mask.vrt` + `mask_cog_shards/` | 9.5 GB | binary RTS mask at threshold 0.65 |
 | `south_rts.gpkg` | 62 MB | original thr-0.65 / min-blob-2000 inventory (10,984 polygons; superseded, kept for provenance) |
 | `south_rts_high_confidence.gpkg` | 117 MB | convenience extract: `rts_class = 'high_confidence'` only |
 | `south_rts_centroids.gpkg` | 13 MB | representative point per candidate polygon |
 | `south_rts_attributes.csv` / `.parquet` | 12 / 5 MB | attribute table without geometry |
 | `likelihood_95m.tif` | 259 MB | max-probability overview at ~95 m, embedded colormap |
 | `density_10km.*`, `density_0.5deg.*` | ~296 MB | gridded expected RTS area (threshold-free abundance) + browse renders |
-| `qc_sample.gpkg`, `qc_ratings.csv`, `qc_precision_grid.csv`, `qc_false_hard_negatives.gpkg`, `qc_rater.html` | ~20 MB | the 2026-07 QC campaign: rated sample, verdicts, scored precision grid, verified false positives, offline rating tool |
+| `qc_sample.gpkg`, `qc_ratings.csv`, `qc_precision_grid.csv`, `qc_false_hard_negatives.gpkg`, `qc_rater.html` | ~20 MB | the 2026-07 QC campaign: rated sample, verdicts, scored precision grid, verified false positives, offline rating tool (chip crops are embedded in the rater HTML, no separate chip mosaic kept) |
 | `south_rts_summary.md` / `.html` | <1 MB | factsheet (totals, size/latitude distributions, precision table) |
-| `rgb_chips.vrt` + `rgb_chips/` | 16.8 GB | RGB context chips of detection tiles (derived PlanetScope imagery — license-restricted, not for redistribution) |
+
+**Not in this bucket path (2026-07-18 audit).** `mask.vrt` + `mask_cog_shards/` (binary
+thr-0.65 mask, fully derivable from `probability_wmts_z10` or `south_rts.gpkg`) and
+`qc_chips/` (raw QC chip mosaic, superseded once `qc_rater.html` embedded its own crops)
+were deleted as unused/redundant. `rgb_chips.vrt` + `rgb_chips/` (RGB context chips,
+license-restricted PlanetScope derivative — **not for redistribution**) was moved to
+`gs://rts-mapping-v2-usw1/inference/2025q3_south/internal/` — it must never live inside
+`products/`, the folder this document hands to external archives.

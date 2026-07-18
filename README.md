@@ -32,7 +32,7 @@ The 2025 Q3 pan-Arctic South run produced a tiered product family in
   `rts_class` from a measured precision grid (279 human ratings).
 - **Full candidate inventory** (MMU≈0): 60,167 polygons / 688.2 km² across confidence tiers;
   original delivered `south_rts.gpkg` (10,984 / 238.1 km² at thr 0.65) kept for provenance.
-- **Rasters**: probability + mask mosaics (1,633 COG shards), 95 m browse likelihood surface,
+- **Rasters**: probability mosaic (1,633 COG shards + WMTS z10 re-tile), 95 m browse likelihood surface,
   10 km / 0.5° hotspot density grids (threshold-free expected RTS area 1,037.4 km²).
 - **Open in ArcGIS Pro**: [post-inference/arcgis_south_products.md](post-inference/arcgis_south_products.md).
 
