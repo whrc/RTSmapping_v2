@@ -28,7 +28,7 @@ The 2025 Q3 pan-Arctic South run produced a tiered product family in
 `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/` — catalog SSoT:
 [post-inference/south_products.md](post-inference/south_products.md).
 
-- **Fact map**: `south_rts_confirmed.gpkg` — 19,068 polygons / 529.7 km², QC-calibrated
+- **High-confidence map**: `south_rts_high_confidence.gpkg` — 19,068 polygons / 529.7 km², QC-calibrated
   `rts_class` from a measured precision grid (279 human ratings).
 - **Full candidate inventory** (MMU≈0): 60,167 polygons / 688.2 km² across confidence tiers;
   original delivered `south_rts.gpkg` (10,984 / 238.1 km² at thr 0.65) kept for provenance.
@@ -68,6 +68,7 @@ The 2025 Q3 pan-Arctic South run produced a tiered product family in
 | [post-inference/post-inference.md](post-inference/post-inference.md) | Post-processing, QC, evaluation, threshold tuning *(spec complete; multi-scale fusion deferred)* |
 | [post-inference/south_products.md](post-inference/south_products.md) | **Product-catalog SSoT** — every shipped South product: provenance, decode, tier table, caveats |
 | [post-inference/arcgis_south_products.md](post-inference/arcgis_south_products.md) | How to download and open the South products in ArcGIS Pro |
+| [deliverables/README.md](deliverables/README.md) | ADC/PDG handover doc — submission manifest, WMTS tiling convention, methods, attribute dictionary |
 
 ### Computing
 | Document | Purpose |
