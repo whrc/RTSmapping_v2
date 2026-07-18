@@ -592,15 +592,15 @@ against the source mosaic on every production run.)
 ### [test_export_south_products.py](test_export_south_products.py)
 
 `scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
-the four D1 access forms (flagship tiered GPKG / confirmed / centroids /
+the four D1 access forms (flagship tiered GPKG / high_confidence / centroids /
 csv+parquet attribute table) with the QC-calibrated `rts_class` and the
 `nodata_frac` soft-triage attribute. GPU-free; synthetic GPKG + tiny raster.
 
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
-| `test_rts_class_qc_calibrated_rule` | confirmed = all high; candidate = medium <500 m² (inclusive/exclusive edge); marginal = rest | real — the locked 2026-07 QC rule |
-| `test_export_products_writes_four_access_forms` | 4 files incl. `south_rts_confirmed.gpkg` (no stale `south_rts_high`); rts_class column; representative points INSIDE a C-shaped polygon; csv/parquet without geometry | real — packaging correctness |
+| `test_rts_class_qc_calibrated_rule` | high_confidence = all high; candidate = medium <500 m² (inclusive/exclusive edge); marginal = rest | real — the locked 2026-07 QC rule |
+| `test_export_products_writes_four_access_forms` | 4 files incl. `south_rts_high_confidence.gpkg` (no stale `south_rts_high`); rts_class column; representative points INSIDE a C-shaped polygon; csv/parquet without geometry | real — packaging correctness |
 | `test_nodata_frac_from_probability_raster` | fraction of 255s in the (padded) bbox: clean → 0.0, half-NoData straddle → 0.5 | real — the soft-filter math |
 | `test_export_products_plumbs_nodata_frac` | `prob_raster=` plumbs `nodata_frac` into flagship gpkg + csv | plumbing |
 

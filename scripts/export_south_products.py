@@ -6,7 +6,7 @@ From the raw thr-0.30 candidates GPKG (scripts/vectorize_region.py
   south_rts_candidates.gpkg  — flagship: + conf_class (high ≥0.65 /
                                medium ≥0.45 / low ≥0.30 by max_prob) and
                                rts_class (QC-calibrated adaptive-MMU rule)
-  south_rts_confirmed.gpkg   — rts_class == confirmed (the "fact map")
+  south_rts_high_confidence.gpkg   — rts_class == high_confidence (the "fact map")
   south_rts_centroids.gpkg   — representative_point() per polygon (guaranteed
                                inside), same attributes; pan-Arctic-zoom layer
   south_rts_attributes.csv/.parquet — attribute table, no GIS needed
@@ -41,15 +41,15 @@ CANDIDATE_MAX_AREA_M2 = 500.0
 
 
 def assign_rts_class(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Add ``rts_class`` (confirmed/candidate/marginal) from the QC-calibrated
-    adaptive-MMU rule: conf_class high → confirmed; medium under
+    """Add ``rts_class`` (high_confidence/candidate/marginal) from the QC-calibrated
+    adaptive-MMU rule: conf_class high → high_confidence; medium under
     ``CANDIDATE_MAX_AREA_M2`` → candidate; everything else → marginal."""
     out = gdf.copy()
     out["rts_class"] = "marginal"
     out.loc[(gdf["conf_class"] == "medium")
             & (gdf["area_m2"] < CANDIDATE_MAX_AREA_M2),
             "rts_class"] = "candidate"
-    out.loc[gdf["conf_class"] == "high", "rts_class"] = "confirmed"
+    out.loc[gdf["conf_class"] == "high", "rts_class"] = "high_confidence"
     return out
 
 
@@ -102,8 +102,8 @@ def export_products(candidates_gpkg: str, out_dir: str | Path,
         gdf = add_nodata_frac(gdf, prob_raster)
 
     gdf.to_file(out_dir / "south_rts_candidates.gpkg", driver="GPKG")
-    gdf[gdf["rts_class"] == "confirmed"].to_file(
-        out_dir / "south_rts_confirmed.gpkg", driver="GPKG")
+    gdf[gdf["rts_class"] == "high_confidence"].to_file(
+        out_dir / "south_rts_high_confidence.gpkg", driver="GPKG")
     pts = gdf.copy()
     pts["geometry"] = gdf.geometry.representative_point()
     pts.to_file(out_dir / "south_rts_centroids.gpkg", driver="GPKG")

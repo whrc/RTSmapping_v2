@@ -11,14 +11,14 @@
 // ingested public EE assets - no bucket reads, no auth dependency, fast
 // first paint for anonymous viewers:
 //   south_likelihood_95m   max-probability overview raster (~95 m)
-//   south_rts_confirmed    19,068 confirmed RTS polygons (529.7 km2)
+//   south_rts_high_confidence  19,068 high-confidence RTS polygons (529.7 km2)
 //   south_rts_centroids    60,167 candidate-inventory points
 // Full-res probability stays out by design (EE ingestion repeatedly failed
 // on it; power users -> ee_south_viewer.js or the GCS products archive).
 // ============================================================
 
 var likelihood = ee.Image('projects/pdg-project-406720/assets/south_likelihood_95m');
-var confirmed = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts_confirmed');
+var highConf = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts_high_confidence');
 var centroids = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts_centroids');
 
 // scaled_uint8 decode (value/250 = probability, 255 = NoData is masked on ingest)
@@ -41,9 +41,9 @@ Map.addLayer(
 );
 
 Map.addLayer(
-  confirmed.style({color: 'ff0000', fillColor: '00000000', width: 1.5}),
+  highConf.style({color: 'ff0000', fillColor: '00000000', width: 1.5}),
   {},
-  'Confirmed RTS (19,068 polygons)'
+  'High-confidence RTS (19,068 polygons)'
 );
 
 // --- Minimal legend / about panel (print() is invisible in Apps) ---
@@ -51,12 +51,12 @@ var panel = ui.Panel({style: {width: '260px', padding: '8px'}});
 panel.add(ui.Label('Pan-Arctic South RTS map', {fontWeight: 'bold', fontSize: '16px'}));
 panel.add(ui.Label(
   'Retrogressive thaw slumps mapped from 2025 Q3 PlanetScope imagery ' +
-  '(~50-76N). Red outlines: 19,068 confirmed RTS (529.7 km2). Orange ' +
+  '(~50-76N). Red outlines: 19,068 high-confidence RTS (529.7 km2). Orange ' +
   'surface: max detection probability aggregated to 95 m. Blue points ' +
   '(off by default): the full 60,167-polygon candidate inventory.'));
 panel.add(ui.Label(
-  'Confirmed = QC-calibrated class with measured precision 0.54-0.90 by ' +
-  'size band - not 100%. Zoom in and compare against the satellite basemap.'));
+  'High-confidence = model probability tier with QC-measured precision ' +
+  '0.54-0.90 by size band - model-derived, not individually human-verified. Zoom in and compare against the satellite basemap.'));
 panel.add(ui.Label('Model v2 (3-seed EffB5 ensemble, calibrated). Woodwell Climate.',
                    {fontSize: '11px', color: 'gray'}));
 ui.root.add(panel);

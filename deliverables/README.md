@@ -18,7 +18,7 @@ and is published verbatim at
 | File | Size | What it is |
 |---|---|---|
 | `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/probability_wmts_z10/` (+ `probability_wmts_z10.vrt`) | 12 GB, 80,159 COGs (one per tile) | **RTS probability, full resolution.** Calibrated model scores over the whole domain, re-tiled so each file is exactly one WMTS WebMercatorQuad zoom-10 tile (§2). uint8; **pixel value = probability × 250; 255 = NoData** (`prob = pixel / 250.0`). EPSG:3857 @ 4.777 m/px. |
-| `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/south_rts_candidates.gpkg` | 206 MB | **RTS polygon inventory.** 60,167 polygons vectorized at threshold 0.30 with no minimum mapping unit; every polygon classified by the QC-calibrated `rts_class` (§4). This is the *only* vector file: `rts_class = 'confirmed'` (19,068 polygons / 529.7 km²) is the conservative "fact map"; the rest are candidate/marginal pools for recall-sensitive uses. |
+| `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/south_rts_candidates.gpkg` | 206 MB | **RTS polygon inventory.** 60,167 polygons vectorized at threshold 0.30 with no minimum mapping unit; every polygon classified by the QC-calibrated `rts_class` (§4). This is the *only* vector file: `rts_class = 'high_confidence'` (19,068 polygons / 529.7 km²) is the conservative "fact map" (a model-probability tier with QC-measured precision — not human-verified); the rest are candidate/marginal pools for recall-sensitive uses. |
 | `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/region_log.json` | <1 KB | Machine-readable run provenance (canvas geometry, resolution, thresholds, tile counts). |
 
 ## 2. Raster tiling — answers to your questions
@@ -77,7 +77,7 @@ models, seeds 42/43/44, predictions averaged) was applied to 41,567,572
 512-px tiles; per-pixel probabilities are temperature-calibrated
 (T = 0.512321) so scores are directly interpretable. The polygon inventory
 contains 60,167 candidate outlines (688.2 km²) vectorized at probability 0.30
-with no minimum mapping unit, each classified `confirmed` / `candidate` /
+with no minimum mapping unit, each classified `high_confidence` / `candidate` /
 `marginal` by a QC-calibrated rule measured on 279 expert ratings.
 
 **Methods (condensed).**
@@ -92,7 +92,7 @@ with no minimum mapping unit, each classified `confirmed` / `candidate` /
 - *QC calibration:* 280-polygon stratified sample (confidence tier × size
   band) expert-rated in 2026-07; 279 verdicts scored into a precision grid
   (Wilson CIs); grid cells clearing 0.5 precision define `rts_class`
-  acceptance. Measured precision of `confirmed`: 0.54–0.90 by size band.
+  acceptance. Measured precision of `high_confidence`: 0.54–0.90 by size band.
 
 **Coverage.** Spatial: ≈50–76°N, all longitudes (EPSG:3857 canvas y
 5,711,221.9 – 13,385,040.9 m); land with 2025 Q3 PlanetScope coverage; 3 of
@@ -102,8 +102,9 @@ with no minimum mapping unit, each classified `confirmed` / `candidate` /
 **Usage caveats (important).**
 1. Precision is **not monotonic in threshold** — it peaks near 0.65;
    filtering to `max_prob ≥ 0.9` yields a *worse* fact map than
-   `rts_class = 'confirmed'`.
-2. `confirmed` is ~54–90% precise (measured), not 100%; `medium`/`low`
+   `rts_class = 'high_confidence'`.
+2. `high_confidence` is ~54–90% precise (measured), not 100% — the class is
+   a calibrated model tier, not individual human verification; `medium`/`low`
    tiers are triage pools for recall-sensitive work.
 3. Recall on 2025 imagery is unmeasured (no 2025 ground truth exists);
    precision comes from the 2026-07 QC sample.
@@ -131,7 +132,7 @@ polygon geometry, EPSG:3857).**
 | `mean_prob` / `max_prob` | float | mean / max calibrated probability inside the polygon (0–1) |
 | `area_m2_t45` / `_t65` / `_t80` | float | polygon area re-cut at thresholds 0.45 / 0.65 / 0.80 — per-object boundary-uncertainty band, m² |
 | `conf_class` | text | confidence tier by `max_prob`: `high` ≥0.65 · `medium` 0.45–0.65 · `low` 0.30–0.45 |
-| `rts_class` | text | QC-calibrated class: `confirmed` (19,068) · `candidate` (25) · `marginal` (41,074) — see §3 Methods |
+| `rts_class` | text | QC-calibrated class: `high_confidence` (19,068) · `candidate` (25) · `marginal` (41,074) — model-derived tiers, see §3 Methods |
 | `nodata_frac` | float | fraction of NoData pixels in the polygon's padded bbox — soft triage hint only (real RTS can contain NoData); never used as a filter |
 | `detection_scale` | text | internal detection-scale tag |
 | `tile_ids` | text | comma-separated source-tile ids (provenance) |
@@ -150,7 +151,7 @@ Everything else under
 | `probability.vrt` + `probability_cog_shards/` | 13.6 GB | original canvas-anchored probability shards (provenance master for `probability_wmts_z10/`) |
 | `mask.vrt` + `mask_cog_shards/` | 9.5 GB | binary RTS mask at threshold 0.65 |
 | `south_rts.gpkg` | 62 MB | original thr-0.65 / min-blob-2000 inventory (10,984 polygons; superseded, kept for provenance) |
-| `south_rts_confirmed.gpkg` | 117 MB | convenience extract: `rts_class = 'confirmed'` only |
+| `south_rts_high_confidence.gpkg` | 117 MB | convenience extract: `rts_class = 'high_confidence'` only |
 | `south_rts_centroids.gpkg` | 13 MB | representative point per candidate polygon |
 | `south_rts_attributes.csv` / `.parquet` | 12 / 5 MB | attribute table without geometry |
 | `likelihood_95m.tif` | 259 MB | max-probability overview at ~95 m, embedded colormap |

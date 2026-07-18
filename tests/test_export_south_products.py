@@ -39,7 +39,7 @@ def test_conf_class_boundaries_are_inclusive():
 
 
 def test_rts_class_qc_calibrated_rule():
-    """2026-07 South QC rule (grid measured on 279 ratings): confirmed = all
+    """2026-07 South QC rule (grid measured on 279 ratings): high_confidence = all
     high tier (incl. <500 m² by monotone tier extension); candidate = medium
     tier under 500 m² (measured 0.53); marginal = everything else."""
     gdf = gpd.GeoDataFrame(
@@ -47,7 +47,7 @@ def test_rts_class_qc_calibrated_rule():
          "area_m2": [300.0, 50000.0, 300.0, 500.0, 300.0, 50000.0]},
         geometry=gpd.points_from_xy([0] * 6, [0] * 6))
     out = assign_rts_class(gdf)
-    assert list(out["rts_class"]) == ["confirmed", "confirmed", "candidate",
+    assert list(out["rts_class"]) == ["high_confidence", "high_confidence", "candidate",
                                       "marginal", "marginal", "marginal"]
 
 
@@ -57,11 +57,11 @@ def test_export_products_writes_four_access_forms(tmp_path):
 
     flag = gpd.read_file(tmp_path / "south_rts_candidates.gpkg")
     assert list(flag["conf_class"]) == ["low", "medium", "high"]
-    # rts_class: rts_id 3 is high→confirmed; 2 is medium at 100 m²→candidate
-    assert list(flag["rts_class"]) == ["marginal", "candidate", "confirmed"]
+    # rts_class: rts_id 3 is high→high_confidence; 2 is medium at 100 m²→candidate
+    assert list(flag["rts_class"]) == ["marginal", "candidate", "high_confidence"]
     assert flag.crs.to_epsg() == 3857
 
-    conf = gpd.read_file(tmp_path / "south_rts_confirmed.gpkg")
+    conf = gpd.read_file(tmp_path / "south_rts_high_confidence.gpkg")
     assert len(conf) == 1 and conf.iloc[0]["rts_id"] == 3
     assert not (tmp_path / "south_rts_high.gpkg").exists()
 
