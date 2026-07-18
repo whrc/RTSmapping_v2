@@ -71,7 +71,7 @@ Bucket prefix: `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`
 |---|---|
 | `south_rts.gpkg` | **The RTS polygon inventory** — one polygon per detected slump (the primary product). |
 | `probability.vrt` + `probability_cog_shards/*.tif` | Probability mosaic. Pixel value = **prob × 250** (`scaled_uint8`); **255 = NoData**. The `.vrt` ties the super-tile COGs together — keep it next to its `probability_cog_shards/` folder. |
-| `mask.vrt` + `mask_cog_shards/*.tif` | Binary RTS mask at thr 0.65 (1 = RTS, 0 = background, 255 = NoData). Optional. |
+| `probability_wmts_z10.vrt` + `probability_wmts_z10/*.tif` | Same probability, re-cut onto the global WebMercatorQuad z10 grid (one file per standard tile) — see `deliverables/README.md` §2 if you need standard-tile access. |
 | `region_log.json` | Assembly metadata (canvas, threshold, σ, block/cog sizes, tile counts). |
 
 `south_rts.gpkg` attributes: `rts_id`, `area_m2`, `perimeter_m`, `centroid_lat`,
@@ -87,8 +87,7 @@ gcloud storage cp -r gs://rts-mapping-v2-usw1/inference/2025q3_south/products C:
 ```
 
 You should end up with `C:\rts\south_products\` containing `south_rts.gpkg`,
-`probability.vrt`, `probability_cog_shards\`, `mask.vrt`, `mask_cog_shards\`,
-`region_log.json`.
+`probability.vrt`, `probability_cog_shards\`, `region_log.json`.
 
 *(If you only want the polygons, `south_rts.gpkg` alone is self-contained — the VRTs
 are only needed for the raster.)*
@@ -104,7 +103,6 @@ are only needed for the raster.)*
      (so 163 ≈ p 0.65, the detection threshold), NoData 255.
    - To view as true probability 0–1, apply a **Raster Function → Arithmetic**
      (Divide by 250), or just read the stretch knowing value/250 = prob.
-4. **Mask (optional):** *Add Data* → `mask.vrt` — a 1/0 RTS footprint.
 
 ## 4. Suggested symbology & context
 
