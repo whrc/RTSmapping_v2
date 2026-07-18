@@ -50,13 +50,50 @@ Inherited from v2.0: **G = 0.0112**, single-seed screen; lock/verdict needs 3-se
 
 | name | arm | split | score | status | note |
 |------|:---:|:-----:|------:|:------:|------|
-<!-- RUN-TABLE:END -->
+| pretrain_dinov3l_arctic | — | — | — | done | MAE continue-pretrain, 8×A100, 80 ep / 92,320 steps, recon loss 1.016 → **0.0763**; encoder_final.pt (1.2 GB) |
+| ft_dinov3l_arctic_seed42 | c | corrected | 0.8173 | done | peak ep50 |
+| ft_dinov3l_arctic_seed43 | c | corrected | 0.8155 | done | peak ep45 |
+| ft_dinov3l_arctic_seed44 | c | corrected | 0.8090 | done | peak ep50 (**mean 0.8139 vs arm-b 0.9191 → Δ −0.1052, 0/3 signs → FAILS gate**) |<!-- RUN-TABLE:END -->
 
 ---
 
 ## Findings
 
-*(none yet)*
+**A — Arctic MAE continue-pretraining actively HARMS the sat493m encoder. Program closed 2026-07-18.**
+
+| arm | encoder init | best_smoothed |
+|---|---|---|
+| (a) | EffB5 locked baseline | 0.9218 |
+| (b) | DINOv3-L sat493m, fair recipe | 0.9191 |
+| (c) | DINOv3-L + arctic MAE (80 ep) | **0.8139** (0.8173 / 0.8155 / 0.8090) |
+
+Δ(c−b) = **−0.1052**, **0/3** seeds positive — not a null but a large, sign-consistent *regression*,
+≈9× G in the negative direction. Δ(c−a) = −0.1079. Gate fails on both rules; nothing is deployable.
+
+*The comparison is fair.* `configs/v21/_ft_dinov3l_base.yaml` is a flattened copy of the arm-(b) locked
+recipe, verified field-by-field: same `data_root` (`/outputs/v1.0/data_local`), same DINOv3 norm stats,
+`multi_scale p=0.0`, `auto_policy trivialaugment`, `boundary_handling: ignore` w2, batch 16, identical
+LR/LLRD/freeze schedule, same corrected-split val labels. `encoder_init` loaded **318/318 tensors**
+(missing=0, unexpected=0). Only the encoder init differs.
+
+*Mechanism (hypothesis, not tested):* catastrophic forgetting. 80 epochs of MAE pixel-reconstruction at
+lr 1.5e-4 over 295k tiles appears to overwrite sat493m's discriminative semantic features with
+reconstruction-oriented ones. MAE's objective is known to yield weaker dense-transfer features than the
+DINO-style pretraining sat493m already carries, so continue-pretraining a strong discriminative
+checkpoint with MAE trades away exactly what made it useful. Consistent with the arm-(c) peaks arriving
+*later* (ep45–50 vs the baseline's ep35–40): a weaker init needing more adaptation.
+
+*Not diagnosed further.* Epoch-20/40/60 MAE checkpoints are preserved on GCS
+(`gs://rts-mapping-v2/RTS_MODEL_V21/pretrain_dinov3l_arctic/`), so a future "does damage scale with
+pretraining length?" ablation is cheap to run if the question is ever revisited. Decision 2026-07-18:
+**close the MAE program** rather than spend more compute chasing a −0.105 starting point.
+
+*Scope caveat:* the corpus is south-only 4-ch (see limitation above), so this result speaks to
+MAE-on-sat493m for this corpus and schedule — not to SSL in general.
+
+**Consequence for v2.0/v3:** the family-E encoder verdict is unchanged — **EffB5 stays the deployed
+encoder**. This extends the family-E encoder null to the one lever it never tested (domain-adapted ViT
+weights), and closes it in the negative.
 
 ## Dropped & discussed-but-didn't-land
 

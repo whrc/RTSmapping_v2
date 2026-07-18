@@ -1,5 +1,11 @@
 # Pretraining — v2.1 SSL program spec
 
+> **STATUS: CLOSED 2026-07-18 — negative result.** The program ran end to end; arctic MAE
+> continue-pretraining **harmed** the encoder (arm-c 0.8139 vs arm-b 0.9191, Δ −0.105, 0/3 seeds).
+> EffB5 remains deployed. Verdict + evidence: `docs/experiment_ledger_v21.md` (Finding A). This spec is
+> retained as the record of what was built and run — the code is functional, not deprecated, and the
+> epoch-20/40/60 MAE checkpoints on GCS make a pretraining-length ablation cheap if ever revisited.
+
 Self-supervised masked-image-modeling (MAE) continue-pretraining of the **DINOv3-Large ViT** encoder on
 the unlabeled arctic corpus. Goal: test whether *domain-adapted* pretraining beats the off-the-shelf
 sat493m init under the locked v2 recipe. Experiments SSoT: `docs/experiment_ledger_v21.md` (gate, arms,

@@ -28,7 +28,27 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**Disk-cleanup audit on the A100 master (2026-07-16).** Every durable artifact verified on / uploaded to
+**v2.1 SSL-pretraining program CLOSED in the negative (branch `v2.1-pretraining`, 2026-07-18).** The full
+MAE program ran end to end: corpus (295,429 tiles, 4-ch RGB+NDVI south-only, ~188 GB), 80-epoch DINOv3-L
+MAE continue-pretrain on 8×A100 (92,320 steps, recon loss 1.016 → 0.0763), then the 3-seed arm-(c) gate.
+**Result: arctic MAE actively harms the encoder** — 0.8173/0.8155/0.8090, mean **0.8139** vs the arm-(b)
+sat493m baseline 0.9191 → **Δ −0.105, 0/3 seeds positive**, ≈9× G in the *negative* direction. Not a null,
+a regression. Comparison verified fair (flattened locked recipe field-by-field; `encoder_init` loaded
+318/318 tensors). Leading hypothesis: catastrophic forgetting — MAE pixel-reconstruction overwrites
+sat493m's discriminative features with reconstruction-oriented ones (arm-c peaks came *later*, ep45–50 vs
+ep35–40). **EffB5 remains the deployed encoder**; family-E encoder null now extended to domain-adapted ViT
+weights and closed. Epoch-20/40/60 MAE checkpoints kept on GCS if the length-ablation is ever revisited.
+Details: `docs/experiment_ledger_v21.md` (Finding A).
+
+Two engineering fixes landed alongside: (1) **early-stop floor lowered** `start_epoch` 101→65 in
+`configs/baseline.yaml` + the v2.1 base — locked-recipe peaks land ep35–50, so the 101 floor only burned
+compute (`max_epochs` deliberately left at 300: it sets the cosine LR horizon, so changing it would change
+the recipe); (2) **resume no longer overrides config** — `EarlyStopping.load_state_dict` was restoring
+`patience`/`min_delta`/`start_epoch` from the checkpoint, silently voiding the 101→65 change on the gate
+resume (all 3 seeds ran to ep105, not the expected ~ep90). It now restores observation state only and logs
+any config/checkpoint divergence; 3 regression tests added.
+
+Prior: **Disk-cleanup audit on the A100 master (2026-07-16).** Every durable artifact verified on / uploaded to
 GCS (run-mirror parity 123/123 incl. the previously unmirrored scale_ndvi + sat-7B runs; new prefixes
 `RTS_MODEL_V1_1/`, `RTS_MODEL_V2_scale05/eval/`, `RTS_MODEL_V2/inference_inputs/`, `training/v1.1_delta/`;
 full drift-refresh of all existing mirrors), then ~275G of verified GCS copies + regenerables deleted —
@@ -93,25 +113,16 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**v2.1 SSL-pretraining — MAE pretrain RUNNING on 8×A100 (branch `v2.1-pretraining`, 2026-07-16).**
-v2.0 frozen; the idle node runs the DINOv3-L MAE program (plan `now-all-the-training-agile-puffin.md`,
-spec `pretraining/pretraining.md`, ledger `docs/experiment_ledger_v21.md`). Direction: **MAE
-continue-pretrain DINOv3-Large, not a convnet** (locked UNet++ decoder is incompatible with ConvNeXt —
-stride-4 stem → 0-channel skip; DINOv3-L already integrated in family E + baselined 0.9191). Gate arms:
-(a) EffB5 0.9218 · (b) DINOv3-L sat493m 0.9191 [both existing] · (c) DINOv3-L + arctic-MAE, 3 seeds;
-SSL helped iff (c)−(b) ≥ G=0.0112 sign-consistent.
+**v2.1 closed; branch `v2.1-pretraining` up for PR (2026-07-18).** The SSL program reached a decisive
+verdict (see *Just completed*) and needs no further compute — all 8 A100s are idle again. The branch
+carries the full `pretraining/` component, the v2.1 ledger + report, the two early-stop fixes, and 21
+green unit tests; nothing in it changes the deployed v2.0 path (EffB5 stays the encoder).
 
-**Done:** all code (corpus builder, ViT-MAE `pretraining/mim_model.py`, DDP trainer `scripts/pretrain.py`,
-`_load_encoder_init` hook, 3 ft configs, `sync_experiments.py --ledger`); **caught+fixed a leakage bug**
-(exclusion polys were EPSG:3413 vs 3857 tiles → 0 exclusions; now reprojected, 7.4M eval-region tiles
-correctly excluded); **corpus materialized** (295,429 tiles, 4-ch RGB+NDVI south-only, ~188 GB, stats
-RGB[64.8,65.7,46.3]/NDVI 0.453). **Pretrain launched** (container `v21_pretrain`, detached): 80 epochs,
-global batch 256, grad-checkpointing + batch 32/GPU (SimMIM full-seq ViT-L@512 is memory-heavy; OOM'd at
-64), ~1 s/step measured → **ETA ~25 h** (~2026-07-17 07:00 UTC), loss decreasing. 18 unit tests green.
-
-**Next (auto when pretrain done):** fine-tune the 3 arm-(c) seeds (`configs/v21/ft_dinov3l_arctic_seed*`
-→ `encoder_final.pt`), harvest via `sync_experiments.py --ledger docs/experiment_ledger_v21.md`, verdict
-in the v2.1 ledger. Corpus not yet GCS-mirrored (local-only; rebuildable) — optional durability upload.
+**Open question — what the freed 8×A100 node does next.** The v2.1 result closes the "better encoder via
+SSL" avenue, so the remaining high-leverage levers are the ones the v2.0 ledger still defers: **hard-negative
+mining** (K, gated on first-inference outputs — now available from the South run, and the South QC pass
+already rated a pool of false positives that would seed it) and the **conditional** scale-TTA / ensemble
+decisions. No work started on either; needs a decision before compute is committed.
 <!-- NOW:END -->
 
 ### Future plans (inference phase — full plan in `.claude/plans/elegant-exploring-lemur.md`)

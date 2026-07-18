@@ -509,5 +509,7 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 **Deferred to v3 (K):** hard-negative mining (post first inference). **Conditional:** scale-TTA ·
 ensemble (decided at final lock). **Done since this list was written:** v1.0 re-stage → executed as
 data-v1.1 (family N, ability wash — see N-retrain finding) · context-expansion multi-scale → executed
-as the 0.5x POC (family M). **MAE SSL pretraining → active as the v2.1 program:**
+as the 0.5x POC (family M). **MAE SSL pretraining → ran as the v2.1 program and CLOSED 2026-07-18 in
+the negative** (arctic MAE continue-pretrain on sat493m scored 0.8139 vs 0.9191 baseline, Δ −0.105,
+0/3 seeds — a regression, not a null). EffB5 remains the deployed encoder; details in
 `docs/experiment_ledger_v21.md`.
