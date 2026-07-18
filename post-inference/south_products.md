@@ -29,7 +29,7 @@ four access forms:
 | File | Form | For |
 |---|---|---|
 | `south_rts_candidates.gpkg` | flagship polygons + all attributes | GIS researchers; filter by `rts_class`, `conf_class`, `max_prob`, `area_m2` |
-| `south_rts_confirmed.gpkg` | `rts_class = 'confirmed'` only | "just show me the slumps" — zero-decision fact map |
+| `south_rts_high_confidence.gpkg` | `rts_class = 'high_confidence'` only | "just show me the slumps" — zero-decision fact map (model-derived tier, not human-verified) |
 | `south_rts_centroids.gpkg` | representative point per polygon | pan-Arctic-zoom browsing; web maps |
 | `south_rts_attributes.csv` / `.parquet` | attribute table, no geometry | pandas/R/Excel statistics, no GIS |
 
@@ -61,18 +61,20 @@ precision grid clearing a 0.5 precision floor are accepted. Measured result:
 
 | rts_class | Rule | Count | Area |
 |---|---|---|---|
-| `confirmed` | `conf_class = high` (any size) | 19,068 | 529.7 km² |
+| `high_confidence` | `conf_class = high` (any size) | 19,068 | 529.7 km² |
 | `candidate` | `conf_class = medium` and `area_m2 < 500` | 25 | ~0.01 km² |
 | `marginal` | everything else | 41,074 | 158.5 km² |
 
-There is no size cut inside `confirmed` because size did not predict falseness
+There is no size cut inside `high_confidence` because size did not predict falseness
 — the *smallest* measured high-tier band was the most precise (0.90). (The
 high <500 m² cell is unmeasured but also empty: the inventory contains zero
 such polygons.)
 
 The original `south_rts.gpkg` (thr 0.65, min_blob 2000 px, 10,984 polygons /
 238.08 km², delivered 2026-07-11) **remains untouched** for provenance;
-`south_rts_confirmed` supersedes the interim `south_rts_high.gpkg` (deleted).
+`south_rts_high_confidence` supersedes the interim `south_rts_high.gpkg` and
+the briefly-shipped `south_rts_confirmed.gpkg` (both deleted; 'confirmed' was
+renamed 2026-07-17 — it wrongly implied human verification).
 
 **QC artifacts** (kept for reproducibility and v3): `qc_sample.gpkg` (280
 stratified polygons, rated), `qc_ratings.csv` (the verdicts, in-repo at
@@ -114,14 +116,15 @@ mass ordering is 238 km² @0.65 mask < 688 km² @0.30 MMU≈0 outlines <
 | `south_products.md` (this file) | catalog SSoT |
 | `arcgis_south_products.md` | how to open everything in ArcGIS Pro (+ GEE viewer) |
 | `south_rts_summary.md` / `.html` | factsheet: totals, size distribution vs ARTS v6, latitude distribution, hotspot figure, measured precision grid |
+| `deliverables/README.md` (repo) / `products/README.md` (GCS) | ADC/PDG handover: minimized submission manifest, WMTS tiling convention, dataset + file-level metadata |
 
 ## Caveats (read before using any product)
 
 1. **Precision is NOT monotonic in threshold.** Object precision *peaks* at
    0.65 and falls above it (confident look-alike false positives survive any
    cut while true detections fragment). Filtering `max_prob ≥ 0.9` gives a
-   *worse* fact map than `rts_class = 'confirmed'`.
-2. **Even `confirmed` is ~55–90% precise, not 100%.** The measured high-tier
+   *worse* fact map than `rts_class = 'high_confidence'`.
+2. **Even `high_confidence` is ~55–90% precise, not 100%.** The measured high-tier
    precision is 0.54–0.90 depending on size band. `medium`/`low` are triage
    pools: at best every second, at worst almost no polygon is real. Use them
    for prospecting and recall-sensitive analyses only.

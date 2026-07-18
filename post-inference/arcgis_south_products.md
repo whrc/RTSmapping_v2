@@ -25,15 +25,15 @@ ensemble, threshold 0.65, T 0.512321). All layers are **EPSG:3857 (Web Mercator)
   interval* or manual log breaks; never equal interval.
 
 **Tiered inventory quick start:** add `south_rts_candidates.gpkg`, then a
-definition query `rts_class = 'confirmed'` gives the zero-decision fact map
-(equivalently, add `south_rts_confirmed.gpkg`); relax to `conf_class` tiers or
+definition query `rts_class = 'high_confidence'` gives the zero-decision fact map
+(equivalently, add `south_rts_high_confidence.gpkg`); relax to `conf_class` tiers or
 filter continuously with `max_prob >= x` and/or `area_m2 >= a` — those two
 columns *are* the user-side MMU dial. Symbolize Unique Values on `rts_class`
-(confirmed solid red, candidate orange outline, marginal pale dashed) — see
+(high_confidence solid red, candidate orange outline, marginal pale dashed) — see
 the catalog for the measured precision behind each class.
 
 **Headline:** **60,167 candidate polygons / 688.2 km²** (MMU≈0, thr 0.30), of
-which **19,068 confirmed / 529.7 km²** (measured precision 0.54–0.90 by size
+which **19,068 high_confidence / 529.7 km²** (measured precision 0.54–0.90 by size
 band), across the pan-Arctic South band (≈50–76°N), from 41,567,572 inferred
 tiles. Probability raster: 1,633 super-tile COGs (8.4 M × 1.6 M px canvas,
 sparse).
@@ -54,6 +54,14 @@ as real EE assets under `projects/pdg-project-406720/assets/`; the probability
 layer is mosaicked live from its 1,633 source COG shards via `loadGeoTIFF` —
 EE's ingestion pipeline repeatedly failed on that specific layer, see the
 script's header comment for why). No install, no download, opens in a browser.
+
+**No account at all? The public GEE App** (source `post-inference/ee_south_app.js`,
+published at `https://abruptthawmapping.projects.earthengine.app/view/south-rts-map`)
+shows the high-confidence inventory + 95 m likelihood surface to anyone with the
+link — no Earth Engine account, no data access needed. Built from small
+ingested assets only (`south_likelihood_95m`, `south_rts_high_confidence`,
+`south_rts_centroids`), so it loads fast; full-res probability stays in the
+Code Editor script above.
 
 ## 1. The products (in GCS)
 

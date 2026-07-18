@@ -85,7 +85,27 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**South products v2 — QC-calibrated adaptive MMU (branch `south-products-v2-adaptive-mmu`, 2026-07-17).**
+**ADC/PDG handover + public GEE app (branch `deliverables-handover`, PR #52, 2026-07-17/18).**
+Three deliverables shipped for the South product handover: **(A) WMTS-conformant probability
+tiles** — the 1,633 canvas-anchored shards were already exactly WebMercatorQuad z15-resolution /
+z7-footprint but row-offset ~77.7 km from the global grid, so `scripts/retile_wmts_z10.py` re-cut
+the canvas into **80,159 COGs (12 GB), each precisely one global z10 tile** (alignment <0.001 px ⇒
+exact pass-through; 12 sampled tiles pixel-identical to source; 5 grid-math tests). **(B) Handover
+README** (`deliverables/README.md` = repo SSoT, published byte-identical at `products/README.md`):
+minimized 3-item submission (z10 tiles + `south_rts_candidates.gpkg` + `region_log.json`), the
+tiling-convention answers for ADC (incl. gdal pyramid recipe), Abstract/Methods/Coverage, live-schema
+attribute dictionary, full-family appendix. **(C) Public GEE app** (`post-inference/ee_south_app.js`):
+assets-only (no live mosaic) — `south_likelihood_95m` + `south_rts_high_confidence` (19,068) +
+`south_rts_centroids` (60,167), all ingested + public. **Rename landed everywhere** (user call:
+'confirmed' wrongly implied human verification): `rts_class` 'confirmed' → **'high_confidence'** in
+code SSoT, GCS data rewritten in place (old gpkg deleted, factsheet regenerated), EE assets
+re-ingested, docs. Suite 409 green. **Blocked on an Owner grant**: app publishing needs
+`roles/earthengine.appsPublisher` on `abruptthawmapping` (yyang has `earthengine.admin`, which
+covers assets but not apps; Editor isn't enough either — both denied empirically). One-line grant
+by gfiske/hrodenhizer/spotter, then user publishes → URL
+`https://abruptthawmapping.projects.earthengine.app/view/south-rts-map`.
+
+Prior: **South products v2 — QC-calibrated adaptive MMU (branch `south-products-v2-adaptive-mmu`, 2026-07-17).**
 User rated the 280-polygon tier×size QC sample via the new offline HTML rater
 (`scripts/build_qc_rating_page.py`; the GEE rater lost a full round to session-auth 500s): 65 rts /
 152 false / 63 unsure (unsure excluded). Scored grid (`scripts/score_qc_ratings.py`, Wilson CIs):

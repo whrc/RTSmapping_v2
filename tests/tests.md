@@ -573,18 +573,34 @@ likelihood surface (replaces `gdalwarp -r max`, which bled NoData-edge values
 | `test_block_max_and_nodata_semantics` | per-block max of valid pixels; all-NoData block stays 255; mixed block ignores 255; valid output ≤ 250 | real — the artifact regression |
 | `test_non_divisible_edges_are_padded` | 50×30 @ factor 20 → 3×2; partial blocks don't fabricate values; transform scales by factor | real — edge handling |
 
+### [test_retile_wmts_z10.py](test_retile_wmts_z10.py)
+
+`scripts/retile_wmts_z10.py` — re-cuts the probability canvas into COGs that
+each correspond to precisely one WMTS WebMercatorQuad z10 tile (the ADC
+handover requirement). Grid math only — no rasters, GPU-free. (The raster
+path is verified operationally: sampled output tiles are pixel-compared
+against the source mosaic on every production run.)
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_grid_constants_are_consistent` | tile size = 8192 px × z15 res; 1024 tiles span the world exactly | real — grid arithmetic |
+| `test_corner_tiles_span_the_world` | tiles (0,0) and (1023,1023) hit the matrix corners (z10 is 1024×1024) | real — caught the 2048-row bug |
+| `test_adjacent_tiles_share_edges_exactly` | neighbouring tiles share edge coords bit-exactly (index-based edges) | real — caught float-drift edges |
+| `test_candidate_tiles_cover_a_bbox_and_only_it` | bbox inside one tile → that tile; 2×2 straddle → exactly 4 | real — shard→candidate mapping |
+| `test_candidate_tiles_clamped_to_matrix_extent` | whole-world bbox clamps to 1024×1024 indices | real — bounds guard |
+
 ### [test_export_south_products.py](test_export_south_products.py)
 
 `scripts/export_south_products.py` — packages the raw thr-0.30 candidates into
-the four D1 access forms (flagship tiered GPKG / confirmed / centroids /
+the four D1 access forms (flagship tiered GPKG / high_confidence / centroids /
 csv+parquet attribute table) with the QC-calibrated `rts_class` and the
 `nodata_frac` soft-triage attribute. GPU-free; synthetic GPKG + tiny raster.
 
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_conf_class_boundaries_are_inclusive` | max_prob 0.45→medium, 0.65→high (inclusive bounds), below→low | real — tier SSoT |
-| `test_rts_class_qc_calibrated_rule` | confirmed = all high; candidate = medium <500 m² (inclusive/exclusive edge); marginal = rest | real — the locked 2026-07 QC rule |
-| `test_export_products_writes_four_access_forms` | 4 files incl. `south_rts_confirmed.gpkg` (no stale `south_rts_high`); rts_class column; representative points INSIDE a C-shaped polygon; csv/parquet without geometry | real — packaging correctness |
+| `test_rts_class_qc_calibrated_rule` | high_confidence = all high; candidate = medium <500 m² (inclusive/exclusive edge); marginal = rest | real — the locked 2026-07 QC rule |
+| `test_export_products_writes_four_access_forms` | 4 files incl. `south_rts_high_confidence.gpkg` (no stale `south_rts_high`); rts_class column; representative points INSIDE a C-shaped polygon; csv/parquet without geometry | real — packaging correctness |
 | `test_nodata_frac_from_probability_raster` | fraction of 255s in the (padded) bbox: clean → 0.0, half-NoData straddle → 0.5 | real — the soft-filter math |
 | `test_export_products_plumbs_nodata_frac` | `prob_raster=` plumbs `nodata_frac` into flagship gpkg + csv | plumbing |
 

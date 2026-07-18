@@ -134,7 +134,7 @@ def build(products_dir: Path, out_dir: Path,
            for t in TIERS}
     a65 = gdf["area_m2_t65"].sum() / 1e6
     ncls = ({c: int((gdf["rts_class"] == c).sum())
-             for c in ("confirmed", "candidate", "marginal")}
+             for c in ("high_confidence", "candidate", "marginal")}
             if "rts_class" in gdf.columns else None)
     qc_path = products_dir / "qc_precision_grid.csv"
     qc = pd.read_csv(qc_path) if qc_path.exists() else None
@@ -180,8 +180,8 @@ Per-tier area (0.30 outlines): high {s['area30']['high']:.1f} /
 medium {s['area30']['medium']:.1f} / low {s['area30']['low']:.1f} km².
 """
     if s["ncls"]:
-        md += (f"\nrts_class (QC-calibrated rule): confirmed "
-               f"{s['ncls']['confirmed']:,} / candidate "
+        md += (f"\nrts_class (QC-calibrated rule): high_confidence "
+               f"{s['ncls']['high_confidence']:,} / candidate "
                f"{s['ncls']['candidate']:,} / marginal "
                f"{s['ncls']['marginal']:,}.\n")
     if s["qc"] is not None:
@@ -223,8 +223,8 @@ def _write_html(s: dict, imgs: dict, path: Path) -> None:
         tile.format("expected (threshold-free)", f"{s['expected_km2']:.0f} km²"),
     ])
     if s["ncls"]:
-        tiles += tile.format("confirmed (rts_class)",
-                             f"{s['ncls']['confirmed']:,}")
+        tiles += tile.format("high_confidence (rts_class)",
+                             f"{s['ncls']['high_confidence']:,}")
     qc_html = ""
     if s["qc"] is not None:
         rows = "".join(
@@ -242,7 +242,7 @@ def _write_html(s: dict, imgs: dict, path: Path) -> None:
             "<th>95% CI</th><th>unsure</th></tr>" + rows + "</table>"
             "<p style='color:#52514e;font-size:12px'>unsure excluded from "
             "precision; stratified sample — pooled rates ≠ map-level "
-            "precision. rts_class rule: confirmed = high tier; candidate = "
+            "precision. rts_class rule: high_confidence = high tier; candidate = "
             "medium &lt;500 m²; marginal = rest.</p>")
     img = ("<figure style='margin:24px 0'><img style='max-width:100%' "
            "src='data:image/png;base64,{}'><figcaption style='color:#52514e;"
