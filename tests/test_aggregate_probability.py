@@ -137,3 +137,27 @@ def test_write_grids_products_and_per_class_join(tmp_path):
     assert (tmp_path / "density_1km_expected_m2.tif").exists()
     assert (tmp_path / "density_0.5deg.gpkg").exists()
     assert (tmp_path / "density_0.5deg_expected_m2.tif").exists()
+
+
+def test_write_grids_emits_informative_browse_tifs(tmp_path):
+    """Each grid also gets a *_browse.tif: RGBA color-relief on log breaks —
+    hotspot cells opaque and colored, zero/no-coverage cells fully
+    transparent — so the file is informative with zero user styling (the
+    7-decade float tifs default-stretch to black)."""
+    a = np.full((100, 300), -1.0)
+    a[:, 0:100] = 0.9      # hot third
+    a[:, 100:200] = 0.001  # near-noise third
+    p = _shard(tmp_path, "probability_0000_0000.tif", a, (0.0, 0.0, 3000.0, 1000.0))
+    res = aggregate_shards([p], cell_m=1000.0, deg=0.5, window_px=64, workers=2)
+    write_grids(res, tmp_path)
+    import rasterio
+    with rasterio.open(tmp_path / "density_1km_browse.tif") as b:
+        assert b.count == 4 and b.dtypes[0] == "uint8"
+        r, g, bl, alp = b.read()
+    hot = alp[:, 0]        # col 0 = hot cells
+    void = alp[:, 2]       # col 2 = never-covered cells
+    assert (hot == 255).all()
+    assert (void == 0).all()
+    # hot cells must be visibly colored (not near-white, not black)
+    assert r[:, 0].max() > 100
+    assert (tmp_path / "density_0.5deg_browse.tif").exists()

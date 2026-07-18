@@ -118,6 +118,55 @@ verdict (see *Just completed*) and needs no further compute — all 8 A100s are 
 carries the full `pretraining/` component, the v2.1 ledger + report, the two early-stop fixes, and 21
 green unit tests; nothing in it changes the deployed v2.0 path (EffB5 stays the encoder).
 
+Prior: **ADC/PDG handover + public GEE app (branch `deliverables-handover`, PR #52, 2026-07-17/18).**
+Three deliverables shipped for the South product handover: **(A) WMTS-conformant probability
+tiles** — the 1,633 canvas-anchored shards were already exactly WebMercatorQuad z15-resolution /
+z7-footprint but row-offset ~77.7 km from the global grid, so `scripts/retile_wmts_z10.py` re-cut
+the canvas into **80,159 COGs (12 GB), each precisely one global z10 tile** (alignment <0.001 px ⇒
+exact pass-through; 12 sampled tiles pixel-identical to source; 5 grid-math tests). **(B) Handover
+README** (`deliverables/README.md` = repo SSoT, published byte-identical at `products/README.md`):
+minimized 3-item submission (z10 tiles + `south_rts_candidates.gpkg` + `region_log.json`), the
+tiling-convention answers for ADC (incl. gdal pyramid recipe), Abstract/Methods/Coverage, live-schema
+attribute dictionary, full-family appendix. **(C) Public GEE app** (`post-inference/ee_south_app.js`):
+assets-only (no live mosaic) — `south_likelihood_95m` + `south_rts_high_confidence` (19,068) +
+`south_rts_centroids` (60,167), all ingested + public. **Rename landed everywhere** (user call:
+'confirmed' wrongly implied human verification): `rts_class` 'confirmed' → **'high_confidence'** in
+code SSoT, GCS data rewritten in place (old gpkg deleted, factsheet regenerated), EE assets
+re-ingested, docs. Suite 409 green. **Blocked on an Owner grant**: app publishing needs
+`roles/earthengine.appsPublisher` on `abruptthawmapping` (yyang has `earthengine.admin`, which
+covers assets but not apps; Editor isn't enough either — both denied empirically). One-line grant
+by gfiske/hrodenhizer/spotter, then user publishes → URL
+`https://abruptthawmapping.projects.earthengine.app/view/south-rts-map`.
+
+Prior: **South products v2 — QC-calibrated adaptive MMU (branch `south-products-v2-adaptive-mmu`, 2026-07-17).**
+User rated the 280-polygon tier×size QC sample via the new offline HTML rater
+(`scripts/build_qc_rating_page.py`; the GEE rater lost a full round to session-auth 500s): 65 rts /
+152 false / 63 unsure (unsure excluded). Scored grid (`scripts/score_qc_ratings.py`, Wilson CIs):
+precision is monotone in tier (high 0.54–0.90, medium 0.11–0.53, low 0.00–0.31) and **not** in size —
+the smallest measured high band (500–2k m²) is the most precise cell (0.90), vindicating MMU≈0.
+**`rts_class` rule locked with user** (option 1, tier+extension): confirmed = all high (19,068 / 529.7 km²) ·
+candidate = medium <500 m² (25) · marginal = rest (41,074). SSoT
+`scripts/export_south_products.py:assign_rts_class`. New: `south_rts_confirmed.gpkg` (replaces
+`south_rts_high.gpkg`), `nodata_frac` soft-triage attribute (FPs concentrate on NoData/water/snow/mining
+context — soft only, real RTS contain NoData), `qc_false_hard_negatives.gpkg` (152 verified FPs = v3
+hard-negative seed, noted in ledger K-family backlog). Factsheet + catalog rewritten around the measured
+grid; MMU≈0 inventory (60,167 / 688.2 km², thr 0.30) is the flagship. Shipping: re-export → density
+re-join → factsheet → GCS upload + stale cleanup → PR.
+
+Prior: **Tiered South probability products SHIPPED (branch `south-probability-products`, 2026-07-14).** The
+probability canvas is now a three-package product family (catalog SSoT: `post-inference/south_products.md`;
+plan `now-the-final-product-delegated-locket.md`). **D1 tiered inventory:** `south_rts_candidates.gpkg` —
+**25,716 polygons / 639.4 km²** at thr 0.30 (`vectorize_region --threshold`, windowed polygonize of the
+1,633 prob COG shards, no re-assemble), classed by max_prob (**high ≥0.65: 17,239 / 522.3 km²** · medium
+6,765 · low 1,712) + `area_m2_t45/t65/t80` per-object boundary bands; plus high-only / centroids /
+csv+parquet forms. Reconciliation: all 10,984 delivered thr-0.65 polygons intersect a high candidate
+(0 orphans). **D2:** `likelihood_95m.tif` browse surface (exact block-max via new `downsample_max.py` —
+`gdalwarp -r max` bled NoData-edge values 251–254 onto coverage seams, fixed); `density_10km` + `density_0.5deg`
+grids with threshold-free **expected RTS area = 1,037.4 km²** (Σ calibrated P × geodesic px area; both grids
+agree exactly; expectation > 639 km² outlines > 238 km² @0.65 mask — integrates diffuse sub-detection mass).
+**D3:** catalog + `south_rts_summary.{md,html}` factsheet (hotspot map reproduces known RTS geography).
+All uploaded to `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`.
+
 **Open question — what the freed 8×A100 node does next.** The v2.1 result closes the "better encoder via
 SSL" avenue, so the remaining high-leverage levers are the ones the v2.0 ledger still defers: **hard-negative
 mining** (K, gated on first-inference outputs — now available from the South run, and the South QC pass

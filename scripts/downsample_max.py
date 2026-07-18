@@ -60,6 +60,44 @@ def _block_max(spec: dict):
     return spec["window"][1] // f, spec["window"][0] // f, m.astype("uint8")
 
 
+def _max_reduce2(a: np.ndarray) -> np.ndarray:
+    """2× block-max with NoData semantics (255 never wins; all-NoData stays)."""
+    h, w = a.shape
+    ph, pw = ceil(h / 2) * 2, ceil(w / 2) * 2
+    if (ph, pw) != (h, w):
+        p = np.full((ph, pw), NODATA_SCALED_U8, dtype=a.dtype)
+        p[:h, :w] = a
+        a = p
+    valid = a != NODATA_SCALED_U8
+    bv = valid.reshape(ph // 2, 2, pw // 2, 2).any(axis=(1, 3))
+    m = np.where(valid, a, 0).reshape(ph // 2, 2, pw // 2, 2).max(axis=(1, 3))
+    m[~bv] = NODATA_SCALED_U8
+    return m.astype("uint8")
+
+
+def _write_max_overviews(out_path: str, base: np.ndarray,
+                         levels: tuple = (2, 4, 8, 16, 32, 64)) -> None:
+    """Exact block-max overview pyramid.
+
+    GDAL 3.4 cannot build MAX overviews (nearest/average/… only), and nearest
+    drops the sparse peaks — the original 'blank when zoomed out' defect. So:
+    create the overview structure with NEAREST, then overwrite every overview
+    band with successive exact 2× max-reductions of the base array.
+    """
+    from osgeo import gdal
+    ds = gdal.Open(out_path, gdal.GA_Update)
+    ds.BuildOverviews("NEAREST", list(levels))
+    band = ds.GetRasterBand(1)
+    a = base
+    for i in range(band.GetOverviewCount()):
+        a = _max_reduce2(a)
+        ov = band.GetOverview(i)
+        assert (ov.YSize, ov.XSize) == a.shape, (i, ov.YSize, ov.XSize, a.shape)
+        ov.WriteArray(a)
+    ds.FlushCache()
+    ds = None
+
+
 def downsample_max(src_path: str, out_path: str, factor: int = 20,
                    workers: int = 16) -> None:
     """Write the factor× block-max of ``src_path`` (scaled_uint8) to a COG-style
@@ -84,6 +122,14 @@ def downsample_max(src_path: str, out_path: str, factor: int = 20,
                        nodata=float(NODATA_SCALED_U8), tiled=True,
                        compress="deflate", bigtiff="yes") as dst:
         dst.write(out, 1)
+    with rasterio.open(out_path, "r+") as dst:
+        # embedded color table: file opens colormapped (near-white → deep red
+        # over 0..250), instead of a gray stretch that renders blank
+        cmap = {v: (250 - int(70 * v / 250), 250 - int(230 * v / 250),
+                    250 - int(230 * v / 250), 255) for v in range(251)}
+        cmap[NODATA_SCALED_U8] = (0, 0, 0, 0)
+        dst.write_colormap(1, cmap)
+    _write_max_overviews(out_path, out)
     valid = out != NODATA_SCALED_U8
     logger.info("wrote %s (%dx%d, %.2f%% valid, max %d)", out_path, ow, oh,
                 100 * valid.mean(), out[valid].max() if valid.any() else -1)

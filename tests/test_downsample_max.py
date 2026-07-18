@@ -44,6 +44,27 @@ def test_block_max_and_nodata_semantics(tmp_path):
     assert m[m != 255].max() <= 250
 
 
+def test_overviews_preserve_peaks_and_colormap_embedded(tmp_path):
+    """Overview levels must be built with MAX resampling — a single sparse
+    peak must survive to the coarsest level (the nearest-resampling defect
+    that made likelihood_95m display blank when zoomed out) — and a color
+    table must be embedded so the file opens colormapped."""
+    a = np.full((400, 400), -1.0)
+    a[3, 3] = 0.02                # near-zero background blob
+    a[200, 200] = 1.0             # one sparse peak
+    src = _write(tmp_path, a)
+    out = str(tmp_path / "max2.tif")
+    downsample_max(src, out, factor=2, workers=2)
+    with rasterio.open(out) as d:
+        assert d.overviews(1), "no overviews built"
+        coarsest = d.overviews(1)[-1]
+        ov = d.read(1, out_shape=(d.height // coarsest, d.width // coarsest))
+        assert ov[ov != 255].max() == 250, "peak lost in overviews"
+        cmap = d.colormap(1)
+        assert cmap[250][0] > 150 and cmap[250][1] < 90   # deep red at 1.0
+        assert min(cmap[0][:3]) > 230                     # near-white at 0
+
+
 def test_non_divisible_edges_are_padded(tmp_path):
     """A 50×30 raster at factor 20 → 3×2 output; edge blocks use the partial
     window (padding must not fabricate values)."""
