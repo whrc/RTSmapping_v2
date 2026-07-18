@@ -2,9 +2,11 @@
 // Pan-Arctic South RTS map - public Earth Engine App source
 //
 // Publish (Code Editor UI, one-time): paste this script -> Apps button ->
-// NEW APP -> name "south-rts-map", Cloud project pdg-project-406720,
-// tick "Anyone can access" -> Publish. URL:
-//   https://pdg-project-406720.projects.earthengine.app/view/south-rts-map
+// NEW APP -> name "south-rts-map", Cloud project abruptthawmapping (the
+// assets live in pdg-project-406720 but are public, so any project can
+// host the app; publishing under pdg would need the Apps Publisher role
+// there), tick "Anyone can access" -> Publish. URL:
+//   https://abruptthawmapping.projects.earthengine.app/view/south-rts-map
 //
 // Unlike ee_south_viewer.js (the Code Editor power-user script, which
 // mosaics the 1,633 full-res probability shards live), this app uses ONLY
