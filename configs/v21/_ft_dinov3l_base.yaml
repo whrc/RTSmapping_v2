@@ -108,7 +108,7 @@ training:
   early_stopping:
     patience: 8
     min_delta: 0.005
-    start_epoch: 101
+    start_epoch: 65                  # was 101 — locked-recipe peaks land ep35-40 (max 40); 65 = safe margin, no LR-schedule change (max_epochs stays 300)
     metric: val_realistic_pr_auc_geomean
     smoothing_window: 3
   precision: bf16
@@ -160,5 +160,3 @@ mlflow:
   tracking_uri: file:///outputs/mlflow
   experiment_name: rts-segmentation-v2.1
   run_name: fm_dinov3sat_l_ndvi_locked
-early_stopping:
-  start_epoch: 70

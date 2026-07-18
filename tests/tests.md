@@ -306,7 +306,9 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_start_epoch_gates_stopping_but_not_best_tracking` | Stop suppressed pre-start_epoch; best still tracked | real — plan risk #5 |
 | `test_min_delta_ignores_noise` | Gains below min_delta don't reset counter | real |
 | `test_missing_metric_key_raises` | Metric name absent from dict → `KeyError` | real |
-| `test_state_dict_roundtrip` | save/load reproduces history + counters | real |
+| `test_state_dict_restores_observation_state` | save/load reproduces history + best + counters | real |
+| `test_load_state_dict_keeps_config_hyperparameters` | Resume takes patience/min_delta/start_epoch from **config**, not the checkpoint | real — regression, v2.1 gate resume silently kept a stale start_epoch=101 |
+| `test_lowered_start_epoch_takes_effect_after_resume` | End-to-end: a resumed run stops on the new, lower start_epoch | real — regression |
 
 ### [test_checkpoint.py](test_checkpoint.py)
 

@@ -114,11 +114,27 @@ class EarlyStopping:
         }
 
     def load_state_dict(self, sd: dict) -> None:
-        self.metric_name = sd["metric_name"]
-        self.patience = sd["patience"]
-        self.min_delta = sd["min_delta"]
-        self.start_epoch = sd["start_epoch"]
-        self.smoothing_window = sd["smoothing_window"]
+        """Restore observation *state* only — hyperparameters come from the config.
+
+        Deliberately does NOT restore metric_name/patience/min_delta/start_epoch/
+        smoothing_window: those are config, and a resumed run must honour the current
+        config rather than the values frozen into the checkpoint. (Restoring them
+        silently voided a start_epoch 101→65 change on the v2.1 gate resume — the runs
+        kept the checkpoint's 101 and burned ~15 extra epochs per seed.) Divergences
+        are logged so the change is visible in the run log.
+        """
+        for key, current in (
+            ("metric_name", self.metric_name),
+            ("patience", self.patience),
+            ("min_delta", self.min_delta),
+            ("start_epoch", self.start_epoch),
+            ("smoothing_window", self.smoothing_window),
+        ):
+            if key in sd and sd[key] != current:
+                logger.warning(
+                    "EarlyStopping.%s: checkpoint has %r, config has %r — using config.",
+                    key, sd[key], current,
+                )
         self._history = deque(sd["history"], maxlen=self.smoothing_window)
         self.best_smoothed = sd["best_smoothed"]
         self.best_epoch = sd["best_epoch"]

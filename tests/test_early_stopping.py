@@ -87,16 +87,48 @@ def test_missing_metric_key_raises():
         s.update(1, {"something_else": 0.5})
 
 
-def test_state_dict_roundtrip():
+def test_state_dict_restores_observation_state():
+    """Resume carries observation state across — history, best, counters."""
     s1 = _stopper(patience=4, min_delta=0.001, start_epoch=7)
     _feed(s1, [(1, 0.1), (2, 0.2), (3, 0.15)])
     sd = s1.state_dict()
 
-    s2 = _stopper()  # different initial params
+    s2 = _stopper(patience=4, min_delta=0.001, start_epoch=7)
     s2.load_state_dict(sd)
-    assert s2.metric_name == "m"
-    assert s2.patience == 4
-    assert s2.min_delta == 0.001
-    assert s2.start_epoch == 7
     assert s2.best_smoothed == s1.best_smoothed
+    assert s2.best_epoch == s1.best_epoch
+    assert s2.no_improve_count == s1.no_improve_count
+    assert s2.stopped == s1.stopped
     assert list(s2._history) == list(s1._history)
+
+
+def test_load_state_dict_keeps_config_hyperparameters():
+    """Hyperparameters come from config on resume, never from the checkpoint.
+
+    Regression: the v2.1 gate resume silently kept the checkpoint's start_epoch=101
+    after the config was lowered to 65, burning ~15 extra epochs per seed.
+    """
+    s1 = _stopper(patience=8, min_delta=0.005, start_epoch=101)
+    _feed(s1, [(1, 0.1), (2, 0.2), (3, 0.15)])
+    sd = s1.state_dict()
+    assert sd["start_epoch"] == 101  # checkpoint carries the stale value
+
+    s2 = _stopper(patience=5, min_delta=0.001, start_epoch=65)  # new config
+    s2.load_state_dict(sd)
+    assert s2.start_epoch == 65
+    assert s2.patience == 5
+    assert s2.min_delta == 0.001
+    # ...while observation state still came across
+    assert s2.best_smoothed == s1.best_smoothed
+
+
+def test_lowered_start_epoch_takes_effect_after_resume():
+    """End-to-end: a resumed run stops on the new, lower start_epoch."""
+    s1 = _stopper(patience=2, min_delta=0.0, start_epoch=100)
+    _feed(s1, [(10, 0.9), (20, 0.5), (30, 0.5)])  # peak at 10, then flat
+    assert not s1.stopped  # floored off by start_epoch=100
+
+    s2 = _stopper(patience=2, min_delta=0.0, start_epoch=40)
+    s2.load_state_dict(s1.state_dict())
+    s2.update(40, {"m": 0.5})
+    assert s2.should_stop(40)  # patience already exhausted, now past start_epoch
