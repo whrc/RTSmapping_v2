@@ -66,7 +66,7 @@ from training import (  # noqa: E402
     scheduler as scheduler_mod,
     visualizations as viz,
 )
-from utils.config import load_config, resolve_path  # noqa: E402
+from utils.config import load_config, resolve_path, validate_training_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 from utils.seed import seed_everything  # noqa: E402
 
@@ -708,6 +708,7 @@ def main() -> int:
     cfg = load_config(args.config)
     _apply_overrides(cfg, args.override)
     cfg["_config_path"] = str(args.config)
+    validate_training_config(cfg, args.config)  # fail loud on mis-nested top-level keys
 
     # Output directory.
     run_name = cfg["mlflow"].get("run_name", "run")

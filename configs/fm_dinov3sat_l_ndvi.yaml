@@ -17,6 +17,8 @@ model:
   backbone: vit_large_patch16_dinov3.sat493m
   pretrained: true
 training:
+  early_stopping:
+      start_epoch: 70
   batch_size: 16
 optimizer:
   weight_decay: 5.0e-2
@@ -30,7 +32,5 @@ lr_schedule:
   warmup_start_lr: 1.0e-6
   min_lr: 1.0e-6
   backbone_warmup_epochs: 5
-early_stopping:
-  start_epoch: 70
 mlflow:
   run_name: fm_dinov3sat_l_ndvi

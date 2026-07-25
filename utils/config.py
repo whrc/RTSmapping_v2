@@ -50,6 +50,59 @@ def load_config(path: str | Path) -> dict[str, Any]:
     return cfg
 
 
+# Keys allowed at the top level of a TRAINING config (the schema scripts/train.py reads).
+# Anything else is almost always a mis-nested override that train.py silently ignores —
+# the classic being `early_stopping:` at the top level instead of under `training:`
+# (train.py reads cfg["training"]["early_stopping"]). Derived from base_v2_fast/phase0c.
+# NOTE: inference/deploy/preview/pretrain configs have their own schemas and must NOT be
+# passed through validate_training_config — only scripts/train.py calls it.
+TRAINING_TOP_LEVEL_KEYS = frozenset({
+    "seed", "deterministic", "data", "channels", "splits", "normalization",
+    "sampling", "augmentation", "loss", "training", "optimizer", "lr_schedule",
+    "ema", "model", "metrics", "mlflow", "base", "_config_path",
+})
+
+# Known mis-nestings: top-level key -> where it actually belongs (for a targeted hint).
+_MISPLACED_TRAINING_KEYS = {
+    "early_stopping": "training.early_stopping",
+    "max_epochs": "training.max_epochs",
+    "batch_size": "training.batch_size",
+    "val_frequency": "training.val_frequency",
+    "num_workers": "training.num_workers",
+    "precision": "training.precision",
+}
+
+
+def validate_training_config(cfg: dict[str, Any], path: str | Path | None = None) -> None:
+    """Reject a training config carrying unknown / mis-nested top-level keys.
+
+    scripts/train.py reads a fixed schema (see ``TRAINING_TOP_LEVEL_KEYS``); any other
+    top-level key is silently dropped at train time. The recurring offender is
+    ``early_stopping:`` placed at the top level instead of under ``training:`` — the
+    override is ignored, the run inherits the base schedule, and it quietly burns
+    GPU-hours in the overfit tail. Fail loudly at load time instead of at ep300.
+
+    Args:
+        cfg: The merged training config (post ``load_config`` + CLI overrides).
+        path: Optional source path, for a clearer error message.
+
+    Raises:
+        ValueError: Listing every offending top-level key, with a fix hint where known.
+    """
+    stray = [k for k in cfg if k not in TRAINING_TOP_LEVEL_KEYS]
+    if not stray:
+        return
+    where = f" in {path}" if path else ""
+    lines = [f"Unknown top-level key(s){where}: {sorted(stray)}",
+             "scripts/train.py silently ignores top-level keys outside its schema, so this "
+             "override would be a no-op. Fix the nesting:"]
+    for k in sorted(stray):
+        dest = _MISPLACED_TRAINING_KEYS.get(k)
+        lines.append(f"  - '{k}' -> move under '{dest}'" if dest
+                     else f"  - '{k}' is not a recognized training-config key")
+    raise ValueError("\n".join(lines))
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge `override` onto `base` (override wins; lists replace)."""
     merged = dict(base)
