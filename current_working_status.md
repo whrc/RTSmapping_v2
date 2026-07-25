@@ -28,7 +28,23 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**v2.1 SSL-pretraining program CLOSED in the negative (branch `v2.1-pretraining`, 2026-07-18).** The full
+**C1–C4 hypothesis-test battery COMPLETE — 23 runs, manuscript CSV shipped (2026-07-25).** The
+capacity-vs-representation-vs-labels battery (design: `docs/future_work/experiments_hypothesis_test.md`)
+ran back-to-back on 8×A100 (~40 h, **all 23 `status=completed`, 0 crashes**) on the hardened configs.
+Deliverable **`outputs/metric_robustness.csv`** (`scripts/export_metric_robustness.py`): 45 per-seed rows +
+30 mean/std aggregates over 15 conditions, secondary metrics (IoU/F1/obj-P/R/F1) read from the MLflow store
+at each run's pr-auc `best_epoch`. Ledger: **23 rows added** (fam B/D/E), `sync_experiments.py` zero-drift.
+Computed 3-seed means (pr-AUC geomean, gate G=0.0112): **C1** ViT-L-RGB locked 0.9177 ≈ EffB5+NDVI 0.9218
+(Δ within σ); NDVI-effect +0.044 for EffB5 but +0.0014 for ViT-L. **C2** capacity B0 0.860 → B3 0.906 →
+B5 0.912 → B7 0.903 (rise then flat/down). **C3** data budget — ViT-L+NDVI 25/50/100% = 0.865/0.870/0.919;
+EffB5+NDVI 25/50/75/100% = 0.793/0.855/0.884/0.912. The A/B/C outcome-classification (design §1) is left
+for the manuscript — the ledger/CSV state facts only. Engineering landed alongside: **permanent config
+validator** (loud-fails on unknown `early_stopping`/section keys; the silent-typo class that had voided
+`start_epoch` overrides) + 18 configs corrected + 4 tests; ViT-L `start_epoch=45` overfit-tail trim; boot
+disk resized **500 G→1 TB online** (no VM stop, A100 capacity preserved); all 8 local SSDs → **RAID0 2.9 TB
+`/mnt/nvme_scratch`** (provisioned, not yet wired into the pool — see *Now*).
+
+Prior: **v2.1 SSL-pretraining program CLOSED in the negative (branch `v2.1-pretraining`, 2026-07-18).** The full
 MAE program ran end to end: corpus (295,429 tiles, 4-ch RGB+NDVI south-only, ~188 GB), 80-epoch DINOv3-L
 MAE continue-pretrain on 8×A100 (92,320 steps, recon loss 1.016 → 0.0763), then the 3-seed arm-(c) gate.
 **Result: arctic MAE actively harms the encoder** — 0.8173/0.8155/0.8090, mean **0.8139** vs the arm-(b)
@@ -113,7 +129,17 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**v2.1 closed; branch `v2.1-pretraining` up for PR (2026-07-18).** The SSL program reached a decisive
+**C1–C4 battery done; deliverables written; 8×A100 idle again (2026-07-25).** `outputs/metric_robustness.csv`
+(the manuscript-consumed stats) + the 23 ledger rows + regenerated `docs/report.html` are all in place;
+scores are zero-drift against `run_summary.json`. **Two items parked on a user call, not started:** (1) the
+**NVMe pool integration** — `/mnt/nvme_scratch` (RAID0, 2.9 TB) is provisioned but `run_gpu_pool.sh` still
+writes run/MLflow output to the boot disk; wiring it (NVME_OUT mode + rsync keepers back to durable
+`/mnt/outputs`, move HF cache) needs a pool restart to take effect and a smoke-test, so it waits until the
+next training wave. (2) Whether `build_report.py` should gain **C1–C4 charts** — the report renders the
+curated v2 build-up/findings view and does not enumerate the battery, so surfacing it visually is a
+report-feature change, not bookkeeping. The manuscript itself consumes the CSV directly.
+
+Prior: **v2.1 closed; branch `v2.1-pretraining` up for PR (2026-07-18).** The SSL program reached a decisive
 verdict (see *Just completed*) and needs no further compute — all 8 A100s are idle again. The branch
 carries the full `pretraining/` component, the v2.1 ledger + report, the two early-stop fixes, and 21
 green unit tests; nothing in it changes the deployed v2.0 path (EffB5 stays the encoder).

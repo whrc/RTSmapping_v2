@@ -166,7 +166,31 @@ sign-flipped → rejected).
 | multiscale_poc_seed44 | M | corrected | 0.9282 | done | multiscale POC seed-confirm |
 | v1_1_seed42 | N | corrected | 0.9029 | done | v1.1 correctness retrain — ability WASH (val set −29 black neg; own-thr 0.45) |
 | v1_1_seed43 | N | corrected | 0.9086 | done | v1.1 correctness retrain seed-confirm |
-| v1_1_seed44 | N | corrected | 0.8906 | done | v1.1 correctness retrain seed-confirm (mean 0.9007; keep v1.0 deployed) |<!-- RUN-TABLE:END -->
+| v1_1_seed44 | N | corrected | 0.8906 | done | v1.1 correctness retrain seed-confirm (mean 0.9007; keep v1.0 deployed) |
+<!-- C1–C4 hypothesis-test battery (2026-07-25); design: docs/future_work/experiments_hypothesis_test.md; stats: outputs/metric_robustness.csv -->
+| c2_effb0_ndvi_seed42 | E | corrected | 0.8854 | done | C2 capacity sweep — EffB0+NDVI (deploy recipe) |
+| c2_effb0_ndvi_seed43 | E | corrected | 0.8522 | done | seed-confirm |
+| c2_effb0_ndvi_seed44 | E | corrected | 0.8431 | done | seed-confirm (3-seed mean 0.8603, σ=0.0223) |
+| c2_effb7_ndvi_seed42 | E | corrected | 0.8994 | done | C2 capacity sweep — EffB7+NDVI (deploy recipe) |
+| c2_effb7_ndvi_seed43 | E | corrected | 0.9110 | done | seed-confirm |
+| c2_effb7_ndvi_seed44 | E | corrected | 0.8981 | done | seed-confirm (3-seed mean 0.9028, σ=0.0071) |
+| effb3_deploy_seed43 | E | corrected | 0.9112 | done | C2 seed-confirm of effb3_deploy (B3 point) |
+| effb3_deploy_seed44 | E | corrected | 0.9028 | done | seed-confirm (3-seed mean 0.9063, σ=0.0043) |
+| fm_dinov3sat_l_rgb_locked_seed42 | E | corrected | 0.9277 | done | C1 ViT-L-RGB clean locked re-run (de-confounds §5) |
+| fm_dinov3sat_l_rgb_locked_seed43 | E | corrected | 0.9174 | done | seed-confirm |
+| fm_dinov3sat_l_rgb_locked_seed44 | E | corrected | 0.9080 | done | seed-confirm (3-seed mean 0.9177, σ=0.0098) |
+| phase4_extra_rgb_baseline_seed43 | D | corrected | 0.8598 | done | C1 EffB5-RGB seed-complete |
+| phase4_extra_rgb_baseline_seed44 | D | corrected | 0.8752 | done | seed-confirm (3-seed mean 0.8549, σ=0.0232) |
+| c3_vitl_ndvi_scale25_seed42 | E | corrected | 0.8817 | done | C3 ViT-L+NDVI 25% data budget |
+| c3_vitl_ndvi_scale25_seed43 | E | corrected | 0.8652 | done | seed-confirm |
+| c3_vitl_ndvi_scale25_seed44 | E | corrected | 0.8468 | done | seed-confirm (3-seed mean 0.8646, σ=0.0174) |
+| c3_vitl_ndvi_scale50_seed42 | E | corrected | 0.8700 | done | C3 ViT-L+NDVI 50% data budget |
+| c3_vitl_ndvi_scale50_seed43 | E | corrected | 0.8699 | done | seed-confirm |
+| c3_vitl_ndvi_scale50_seed44 | E | corrected | 0.8694 | done | seed-confirm (3-seed mean 0.8698, σ=0.0003) |
+| scale_ndvi_50_seed43 | B | corrected | 0.8333 | done | C4 seed-complete of scale_ndvi_50 |
+| scale_ndvi_50_seed44 | B | corrected | 0.8677 | done | seed-confirm (3-seed mean 0.8546, σ=0.0186) |
+| scale_ndvi_75_seed43 | B | corrected | 0.8931 | done | C4 seed-complete of scale_ndvi_75 |
+| scale_ndvi_75_seed44 | B | corrected | 0.8844 | done | seed-confirm (3-seed mean 0.8836, σ=0.0099) |<!-- RUN-TABLE:END -->
 
 ---
 

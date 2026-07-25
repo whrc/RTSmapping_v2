@@ -1,0 +1,12 @@
+# C1 EffB5-RGB seed-completion of phase4_extra_rgb_baseline (seed 44).
+# Clean +NDVI comparator = phase4_extra_ndvi* (same phase0c recipe; differs ONLY in channels).
+base: phase0c_seed42.yaml
+seed: 44
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats.json
+channels:
+  rgb: true
+  extra: []
+mlflow:
+  run_name: phase4_extra_rgb_baseline_seed44

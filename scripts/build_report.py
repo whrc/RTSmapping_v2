@@ -203,6 +203,90 @@ def family_curves(root: Path, runs: list[dict], fam: str, picks: list[str]) -> s
     return _b64(fig)
 
 
+def battery_charts(run_rows: list[dict]) -> str:
+    """Three panels for the C1–C4 hypothesis battery, 3-seed means from the ledger `score` column.
+
+    Groupings mirror the CSV scope in scripts/export_metric_robustness.py; the report states no fact the
+    ledger doesn't. A condition whose runs are absent renders blank rather than erroring.
+    """
+    smap: dict[str, float] = {}
+    for r in run_rows:
+        if re.match(r"[\d.]+$", r.get("score", "")):
+            smap[r["name"]] = float(r["score"])
+
+    def agg(names: list[str]) -> tuple[float | None, float]:
+        vals = [smap[n] for n in names if n in smap]
+        if not vals:
+            return None, 0.0
+        m = sum(vals) / len(vals)
+        sd = (sum((x - m) ** 2 for x in vals) / (len(vals) - 1)) ** 0.5 if len(vals) > 1 else 0.0
+        return m, sd
+
+    BLUE, RED, GREY = "#2563EB", "#DC2626", "#94A3B8"
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.2))
+
+    # (a) C2 — same-family capacity sweep (RGB+NDVI, deploy recipe)
+    cap = [("B0", ["c2_effb0_ndvi_seed42", "c2_effb0_ndvi_seed43", "c2_effb0_ndvi_seed44"]),
+           ("B3", ["effb3_deploy", "effb3_deploy_seed43", "effb3_deploy_seed44"]),
+           ("B5", ["deploy_v1_ndvi_seed42", "deploy_v1_ndvi_seed43", "deploy_v1_ndvi_seed44"]),
+           ("B7", ["c2_effb7_ndvi_seed42", "c2_effb7_ndvi_seed43", "c2_effb7_ndvi_seed44"])]
+    aggs = [agg(n) for _, n in cap]
+    ax = axes[0]
+    ax.bar(range(4), [(m if m is not None else float("nan")) for m, _ in aggs],
+           yerr=[s for _, s in aggs], color=BLUE, capsize=4)
+    ax.set_xticks(range(4)); ax.set_xticklabels([c[0] for c in cap])
+    ax.set_ylim(0.80, 0.94); ax.set_ylabel("PR-AUC (best_smoothed, 3-seed)")
+    ax.set_title("C2 — EfficientNet capacity\n(RGB+NDVI, deploy recipe)", fontsize=10, fontweight="bold")
+    for i, (m, s) in enumerate(aggs):
+        if m is not None:
+            ax.text(i, m + s + 0.003, f"{m:.3f}", ha="center", fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+
+    # (b) C3 — data-budget scaling curves (small CNN vs large ViT-L)
+    eff = [(25, ["scale_ndvi_25", "scale_ndvi_25_seed43", "scale_ndvi_25_seed44"]),
+           (50, ["scale_ndvi_50", "scale_ndvi_50_seed43", "scale_ndvi_50_seed44"]),
+           (75, ["scale_ndvi_75", "scale_ndvi_75_seed43", "scale_ndvi_75_seed44"]),
+           (100, ["aug_trivialaugment_deploy", "aug_trivialaugment_deploy_seed43",
+                  "aug_trivialaugment_deploy_seed44"])]
+    vit = [(25, ["c3_vitl_ndvi_scale25_seed42", "c3_vitl_ndvi_scale25_seed43", "c3_vitl_ndvi_scale25_seed44"]),
+           (50, ["c3_vitl_ndvi_scale50_seed42", "c3_vitl_ndvi_scale50_seed43", "c3_vitl_ndvi_scale50_seed44"]),
+           (100, ["fm_dinov3sat_l_ndvi_locked", "fm_dinov3sat_l_ndvi_locked_seed43",
+                  "fm_dinov3sat_l_ndvi_locked_seed44"])]
+    ax = axes[1]
+    for series, color, lab in [(eff, BLUE, "EffB5+NDVI"), (vit, RED, "ViT-L+NDVI")]:
+        pts = [(x, agg(n)[0]) for x, n in series]
+        pts = [(x, y) for x, y in pts if y is not None]
+        if pts:
+            xs, ys = zip(*pts)
+            ax.plot(xs, ys, "-o", color=color, label=lab, linewidth=1.8)
+    ax.set_xlabel("train positive budget (%)"); ax.set_ylabel("PR-AUC (3-seed)")
+    ax.set_title("C3 — data-budget scaling", fontsize=10, fontweight="bold")
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+    # (c) C1 — representation × capacity (2×2)
+    ax = axes[2]
+    rgb = [agg(["phase4_extra_rgb_baseline", "phase4_extra_rgb_baseline_seed43",
+                "phase4_extra_rgb_baseline_seed44"])[0],
+           agg(["fm_dinov3sat_l_rgb_locked_seed42", "fm_dinov3sat_l_rgb_locked_seed43",
+                "fm_dinov3sat_l_rgb_locked_seed44"])[0]]
+    ndvi = [agg(["aug_trivialaugment_deploy", "aug_trivialaugment_deploy_seed43",
+                 "aug_trivialaugment_deploy_seed44"])[0],
+            agg(["fm_dinov3sat_l_ndvi_locked", "fm_dinov3sat_l_ndvi_locked_seed43",
+                 "fm_dinov3sat_l_ndvi_locked_seed44"])[0]]
+    nan = float("nan"); w = 0.35
+    ax.bar([i - w / 2 for i in range(2)], [(v if v is not None else nan) for v in rgb], w,
+           label="RGB", color=GREY)
+    ax.bar([i + w / 2 for i in range(2)], [(v if v is not None else nan) for v in ndvi], w,
+           label="RGB+NDVI", color=BLUE)
+    ax.set_xticks(range(2)); ax.set_xticklabels(["EffB5", "ViT-L"])
+    ax.set_ylim(0.80, 0.94); ax.set_ylabel("PR-AUC (3-seed)")
+    ax.set_title("C1 — representation × capacity", fontsize=10, fontweight="bold")
+    ax.legend(fontsize=8); ax.grid(True, axis="y", alpha=0.3)
+
+    fig.tight_layout()
+    return _b64(fig)
+
+
 # ---------------------------------------------------------------------------
 # Curated figure picks (which runs to plot per family — by run-dir name).
 # Agent-edited; every name must exist in the ledger run table.
@@ -299,6 +383,16 @@ def build(ledger: Path, diary: Path, mlflow_root: Path | None, output: Path) -> 
         parts.append("<h2>Recipe build-up</h2>")
         parts.append(f"<img src='data:image/png;base64,{chart}' alt='recipe build-up'>")
     parts.append(md_to_html(read_block(text, "RECIPE-TABLE")))
+
+    # Hypothesis-test battery (C1–C4): capacity vs representation vs data budget
+    battery = battery_charts(run_rows)
+    if battery:
+        parts.append("<h2>Hypothesis-test battery (C1–C4)</h2>")
+        parts.append("<p class='note'>3-seed means from the ledger <code>score</code> column. "
+                     "Full per-(run,seed) stats + secondary metrics: "
+                     "<code>outputs/metric_robustness.csv</code>; design: "
+                     "<code>docs/future_work/experiments_hypothesis_test.md</code>.</p>")
+        parts.append(f"<img src='data:image/png;base64,{battery}' alt='C1-C4 hypothesis battery'>")
 
     # Findings (rendered from the ledger prose)
     parts.append(md_to_html(read_block(text, "FINDINGS")))
