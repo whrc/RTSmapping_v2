@@ -7,17 +7,19 @@
 # safe to run against live jobs. Supersedes the GPU-only gpu_runs.sh.
 #
 # Usage:
-#   bash scripts/monitor_jobs.sh [NAME_FILTER]      # default filter: rts
+#   bash scripts/monitor_jobs.sh [NAME_FILTER]      # default: all containers
 #   watch -n 15 'bash scripts/monitor_jobs.sh'
 set -u
-FILTER="${1:-rts}"
+FILTER="${1:-}"
 
-# name<TAB>status for every matching running container (one docker call)
-mapfile -t ROWS < <(sudo docker ps --filter "name=${FILTER}" \
+# name<TAB>status for every running container (one docker call); optional name filter
+FILTER_ARGS=()
+[ -n "$FILTER" ] && FILTER_ARGS=(--filter "name=${FILTER}")
+mapfile -t ROWS < <(sudo docker ps "${FILTER_ARGS[@]}" \
   --format '{{.Names}}'$'\t''{{.Status}}' 2>/dev/null | sort)
 
 if [ "${#ROWS[@]}" -eq 0 ]; then
-  echo "no running containers matching name~${FILTER}"
+  echo "no running containers${FILTER:+ matching name~${FILTER}}"
 else
   names=$(printf '%s\n' "${ROWS[@]}" | cut -f1)
   # one docker stats call for CPU%/MEM of all matching containers

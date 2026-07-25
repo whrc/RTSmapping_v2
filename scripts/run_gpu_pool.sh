@@ -20,6 +20,10 @@
 # Resumable: skips any config whose run dir already has a non-crash run_summary.md
 # (a summary with `best_epoch | -1` is a crash artifact → rerun).
 # Env: VERSION (default v1.0), NGPU (default 8), ADC_PATH, GCP_PROJECT.
+#      NVME_OUT (optional, e.g. /mnt/nvme_scratch) — write run/mlflow/logs to local NVMe during
+#      training, then rsync keeper artifacts back to the durable /outputs/<VERSION> on each run's
+#      completion (local SSD is ephemeral — lost on VM stop — so keepers must land on the boot disk;
+#      that boot-disk copy is what sync_experiments.py harvests). Unset = write to /outputs directly.
 # Requires bash >= 4.3 (wait -n).
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,23 +40,48 @@ mkdir -p "${HF_CACHE}" 2>/dev/null || sudo mkdir -p "${HF_CACHE}"
 OUTROOT="/mnt/outputs/${VERSION}"
 mkdir -p "${OUTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${OUTROOT}"/{runs,mlflow,logs}
 
+# Optional local-NVMe scratch for the hot run output (see Env note above). HOTROOT is where the
+# container writes during training; on the boot disk it IS OUTROOT (so run_one's sync-back no-ops).
+NVME_OUT="${NVME_OUT:-}"
+if [ -n "${NVME_OUT}" ]; then
+  HOTROOT="${NVME_OUT}/${VERSION}"
+  mkdir -p "${HOTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${HOTROOT}"/{runs,mlflow,logs}
+else
+  HOTROOT="${OUTROOT}"
+fi
+
 run_one() {  # $1=name  $2=gpu  — one container to completion (blocking; called in background)
   local name="$1" gpu="$2"
   sudo docker rm "${name}" >/dev/null 2>&1 || true
+  # In NVMe mode, expose the scratch tree at the same path in-container so --out-dir resolves.
+  local nvme_mount=()
+  [ -n "${NVME_OUT}" ] && nvme_mount=(-v "${NVME_OUT}:${NVME_OUT}")
   # --privileged exposes ALL GPUs regardless of `--gpus device=N`, so pin via
   # CUDA_VISIBLE_DEVICES (see run_ablation_queue.sh note, fixed 2026-06-13).
   sudo docker run --rm --gpus all -e CUDA_VISIBLE_DEVICES="${gpu}" --privileged --shm-size=16g \
       --name "${name}" \
-      -v "${REPO}:/app" -v /mnt/outputs:/outputs \
+      -v "${REPO}:/app" -v /mnt/outputs:/outputs "${nvme_mount[@]}" \
       -v "${HF_CACHE}:/root/.cache/huggingface" -e HF_HOME=/root/.cache/huggingface \
       -v "${ADC}:/gcp_adc.json:ro" \
       -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
       -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
-      -e MLFLOW_TRACKING_URI="file:///outputs/${VERSION}/mlflow/${name}" \
+      -e MLFLOW_TRACKING_URI="file://${HOTROOT}/mlflow/${name}" \
       -e GDAL_HTTP_MAX_RETRY=3 -e GDAL_HTTP_RETRY_DELAY=1 \
       --entrypoint bash "$IMAGE" \
       -c "set -o pipefail; ${PATCH} && python scripts/train.py --config configs/${name}.yaml \
-            --out-dir /outputs/${VERSION}/runs/${name} 2>&1 | tee /outputs/${VERSION}/logs/${name}.log"
+            --out-dir ${HOTROOT}/runs/${name} 2>&1 | tee ${HOTROOT}/logs/${name}.log"
+  # NVMe mode: persist keepers to the durable boot-disk OUTROOT (harvest reads there), then free the
+  # NVMe copy. HOTROOT==OUTROOT on the boot disk → the paths match and this whole block is skipped.
+  if [ -n "${NVME_OUT}" ]; then
+    sudo mkdir -p "${OUTROOT}"/{runs,mlflow,logs}
+    if sudo rsync -a "${HOTROOT}/runs/${name}/" "${OUTROOT}/runs/${name}/" \
+       && sudo rsync -a "${HOTROOT}/mlflow/${name}/" "${OUTROOT}/mlflow/${name}/"; then
+      sudo cp -f "${HOTROOT}/logs/${name}.log" "${OUTROOT}/logs/${name}.log" 2>/dev/null || true
+      sudo rm -rf "${HOTROOT}/runs/${name}" "${HOTROOT}/mlflow/${name}"
+    else
+      echo "[pool] $(date) WARN sync-back FAILED for ${name} — kept on NVMe at ${HOTROOT}/runs/${name}"
+    fi
+  fi
 }
 
 queue=("$@")
