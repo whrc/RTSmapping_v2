@@ -94,7 +94,8 @@ def build_llrd_param_groups(
     All groups start at `lr`; the scheduler overrides per epoch.
 
     Args:
-        model: must expose `.encoder` with a `.blocks` ModuleList (ViT/Eva).
+        model: must expose `.encoder` with a `.blocks` ModuleList, either directly (ViT/Eva)
+            or one level down under timm's `features_only` wrapper (SAM2/Hiera).
         lr: initial LR for every group (overwritten by the scheduler).
         weight_decay: applied to all groups.
         llrd_decay: per-layer decay factor in (0, 1] (e.g. 0.7).
@@ -102,7 +103,21 @@ def build_llrd_param_groups(
     if not (0.0 < llrd_decay <= 1.0):
         raise ValueError(f"llrd_decay must be in (0, 1], got {llrd_decay}")
     enc = model.encoder
-    n_blocks = len(enc.blocks)
+    from models.foundation import inner_encoder  # local: keeps timm off freeze.py's import path
+
+    # Hierarchical encoders (SAM2/Hiera) sit under timm's features_only wrapper, which holds
+    # the real module at `.model` — so `.blocks` is one level down. fm_sam2_rgb disabled LLRD
+    # believing Hiera had no `.blocks` at all; it has 16. Param NAMES still contain ".blocks."
+    # either way, so _vit_layer_index is unchanged.
+    blocks = getattr(enc, "blocks", None)
+    if blocks is None:
+        blocks = getattr(inner_encoder(enc), "blocks", None)
+    if blocks is None:
+        raise ValueError(
+            f"encoder {type(enc).__name__} exposes no `.blocks` ModuleList (directly or via "
+            "the features_only wrapper) — LLRD cannot map layers; set llrd_decay: null"
+        )
+    n_blocks = len(blocks)
     top = n_blocks + 1
     enc_ids = {id(p) for p in enc.parameters()}
 

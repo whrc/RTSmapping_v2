@@ -116,3 +116,27 @@ def test_build_llrd_rejects_bad_decay():
     m = _vit()
     with pytest.raises(ValueError, match="llrd_decay"):
         build_llrd_param_groups(m, lr=1e-4, weight_decay=0.0, llrd_decay=1.5)
+
+
+def test_build_llrd_param_groups_works_for_hierarchical_sam2():
+    """LLRD must map Hiera layers too — `.blocks` lives under the features_only wrapper.
+
+    fm_sam2_rgb set `llrd_decay: null` believing Hiera had no `.blocks`, so its 34M-param
+    encoder fine-tuned at a flat LR while every DINOv3 arm got a 0.75 taper. It has 16
+    blocks; this pins the reach-through (2026-07-28).
+    """
+    m = FoundationSegmenter("sam2_hiera_tiny", pretrained=False)
+    groups = build_llrd_param_groups(m, lr=1e-4, weight_decay=0.05, llrd_decay=0.75)
+    bb = [g for g in groups if g["name"] == "backbone"]
+    assert len(bb) > 1, "no per-layer encoder groups → LLRD silently degenerate"
+    scales = [g["lr_scale"] for g in bb]
+    assert scales == sorted(scales) and scales[-1] == pytest.approx(1.0)
+    grouped = [p for g in groups for p in g["params"]]
+    assert {id(p) for p in grouped} == {id(p) for p in m.parameters()}
+
+
+def test_build_llrd_raises_when_no_blocks_anywhere():
+    """An encoder with no `.blocks` at either level must fail loudly, not silently flatten."""
+    m = _FakeModel()
+    with pytest.raises(ValueError, match="blocks"):
+        build_llrd_param_groups(m, lr=1e-4, weight_decay=0.0, llrd_decay=0.75)

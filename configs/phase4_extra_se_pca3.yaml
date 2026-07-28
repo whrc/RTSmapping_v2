@@ -1,0 +1,17 @@
+# Phase 4 EXTRA channel ablation — SE_PCA **band 4 only** (se_pca_3).
+# Attribution control for the PC2-alone arm (see phase4_extra_se_pca1.yaml). PC3 is the most
+# independent band in the whole 8-band stack (dendrogram joins at 0.88; r vs NDVI = +0.04),
+# so it is also the a-priori best *complement* candidate — see phase4_extra_ndvi_sepca3.yaml.
+#
+# Identical to phase4_extra_se_pca.yaml except channels.extra + the stats file (sliced from
+# the canonical 8-band normalization_stats.json → constants bit-identical to the pack arm).
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_se_pca3.json
+channels:
+  rgb: true
+  extra:
+    - {name: se_pca_3, band: 4}
+mlflow:
+  run_name: phase4_extra_se_pca3
