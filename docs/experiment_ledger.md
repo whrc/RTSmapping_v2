@@ -120,6 +120,12 @@ sign-flipped → rejected).
 | fm_dinov3_rgb_imagenet | E | corrected | 0.8923 | done | web-DINOv3 RGB + ImageNet norm (de-confound) |
 | phase4_fm_dinov3_ndvi | E | corrected | 0.9121 | done | web-DINOv3+NDVI **ties EffB5** → generic FM not the lever |
 | fm_sam2_rgb | E | corrected | 0.5558 | done | SAM2/Hiera — **pre-lock recipe; NOT comparable to 0.9218** (see §E-SAM2 below); same-path anchors RGB 0.8549 / DINOv3-B 0.8734 |
+<!-- SAM2 honest re-run battery (2026-07-29), locked recipe; see Finding §E-SAM2 -->
+| fm_sam2_rgb_fixed_multlow | E | corrected | 0.9023 | done | **SAM2 locked recipe, gentle uniform 0.1× encoder LR — 3-seed mean 0.8975, σ=0.0035** |
+| fm_sam2_rgb_fixed_multlow_seed43 | E | corrected | 0.8950 | done | seed-confirm (peak ep45) |
+| fm_sam2_rgb_fixed_multlow_seed44 | E | corrected | 0.8952 | done | seed-confirm (peak ep45) |
+| fm_sam2_rgb_fixed_zscore | E | corrected | 0.8065 | done | normalization control — per-dataset z-score, LLRD (vs ImageNet arm: **−0.034**) |
+| fm_sam2_rgb_fixed_lp40 | E | corrected | 0.7931 | done | LLRD + 40-epoch linear probe — longer freeze does not help |
 | fm_dinov3sat_7b_frozen | E | corrected | 0.4747 | killed | sat-7B frozen — diverged, non-competitive |
 | fm_dinov3sat_7b_lrtest | E | corrected | — | lr-test | decoder LR range test — clean up to ~2e-4, explodes ~4e-4 |
 | fm_dinov3sat_7b_tuned_a | E | corrected | 0.7435 | done | honest re-tune, decoder_phase2_start_epoch=10 (scheduler fix) |

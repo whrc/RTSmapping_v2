@@ -1,0 +1,75 @@
+# Family E: SAM2/Hiera on the LOCKED v2 recipe — the honest re-run of fm_sam2_rgb.
+#
+# The original (0.5558) is not a like-for-like number and had three setup defects, all now
+# fixed here. See docs/experiment_ledger.md §E-SAM2 for the full audit.
+#
+#  1. RECIPE / VAL LABELS. It ran boundary_handling=none with RandomScale on and the
+#     phase0c 300-epoch schedule, so it was scored on *different val labels* than the 0.9218
+#     it was compared against. This config takes base_v2_fast + ignore_w2 + no RandomScale +
+#     TrivialAugment — i.e. the same recipe as aug_trivialaugment_deploy, so the number is
+#     directly comparable.
+#  2. NORMALIZATION. It used the per-dataset z-score while SAM2's weights expect ImageNet
+#     stats. The same de-confound was worth +0.019 on web-DINOv3 (fm_dinov3_rgb_imagenet
+#     0.8923 vs phase4_fm_dinov3_rgb 0.8734), and the audit shows z-score pushes SAM2's
+#     inputs to +8.05 σ vs ImageNet's +2.64 — far outside its pretraining range.
+#  3. FINE-TUNE. It was the *most aggressive* arm in the campaign: llrd_decay null +
+#     backbone_lr_multiplier 1.0 + wd 5e-2, i.e. all 34M encoder params at the full decoder
+#     LR with no taper, where every DINOv3 arm used llrd_decay 0.75. It collapsed to
+#     pixel_iou=0.0 twice (ep15, ep35) at the curriculum-hardening boundaries. LLRD was
+#     disabled because Hiera "has no .blocks" — false: it has 16, one level down under
+#     timm's features_only wrapper (training/freeze.py now reaches through).
+#
+# SEED-CONFIRM 44. Launched while seed 42 was still running (ep40, 0.8941 and climbing —
+# already ahead of multlow-RGB's ~0.8892 at the same epoch), because 4 GPUs were idle and
+# the RGB arm's 3-seed spread was tiny (sigma 0.0035), so the confirm was going to be needed.
+#
+# BEST-OF-BOTH cell: NDVI (B4) x the multlow fine-tune treatment. The battery pairs NDVI with
+# LLRD 0.75, but the gentle uniform 0.1x encoder LR is what actually rescued SAM2 on RGB
+# (fm_sam2_rgb_fixed_multlow 0.9024 vs the original 0.5558, and vs lp40's 0.7931). Since NDVI
+# is worth ~+0.07 over RGB elsewhere in this project, NDVI x gentle-LR is the combination most
+# likely to be SAM2's true ceiling — and it is the only cell the original design left untested.
+#
+# B4 — SAM2 + NDVI. The deployed reference (0.9218) is EffB5 **+NDVI**, so an RGB-only
+# SAM2 number can never be like-for-like. The original run was barred from NDVI by an
+# in_channels!=3 guard justified by 'the features_only wrapper hides the stem' — false:
+# the stem is at encoder.model.patch_embed, and models/foundation.py now widens it there
+# (EXTRA zero-init, so epoch-0 == RGB, matching the ViT and EffB5 F1 arms).
+#
+# Backbone size: the frozen-feature sweep (scripts/probe_frozen_features.py) found Hiera
+# does NOT improve with scale on this task — base_plus/large probe *below* tiny/small — so
+# the small variant is kept and the extra compute is not spent.
+base: base_v2_fast.yaml
+seed: 44
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_imagenet_ndvi.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+model:
+  architecture: foundation
+  backbone: sam2_hiera_small
+  pretrained: true
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+  auto_policy:
+    mode: trivialaugment
+    magnitude: 1.0
+optimizer:
+  weight_decay: 5.0e-2
+lr_schedule:
+  frozen_lr: 1.0e-3
+  base_lr: 2.0e-4
+  backbone_lr_multiplier: 0.1   # gentle uniform encoder LR — the multlow treatment
+  llrd_decay: null              # multlow treatment: no taper, just a small uniform encoder LR
+  freeze_backbone_epochs: 20
+  warmup_epochs: 5
+  warmup_start_lr: 1.0e-6
+  min_lr: 1.0e-6
+  backbone_warmup_epochs: 5
+mlflow:
+  run_name: fm_sam2_ndvi_multlow_seed44
