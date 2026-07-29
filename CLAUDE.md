@@ -82,6 +82,7 @@ This repo follows SSoT standard, if one variable is mentioned multiple places, r
 - **Normalization**: Per-dataset statistics (not per-image). Saved as `normalization_stats.json` alongside model checkpoints.
 - **Data formats**: Raw values stored on disk. Normalization applied at load time only.
 - **Reproducibility**: Seed 42, deterministic CUDNN, pinned library versions.
+- **Stop schedule**: new training configs use `base: base_v2_fast.yaml` (start_epoch 45 / patience 5 / max_epochs 120). Never template from `phase0c_seed42.yaml` — FROZEN at start_epoch 101.
 
 ## Technical Stack
 

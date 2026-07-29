@@ -100,3 +100,18 @@ def test_validate_schema_matches_base_recipe_keys():
     cfg = load_config(Path(__file__).resolve().parent.parent / "configs" / "base_v2_fast.yaml")
     assert validate_training_config(cfg) is None
     assert set(cfg) - {"_config_path"} <= TRAINING_TOP_LEVEL_KEYS
+
+
+def test_no_new_configs_inherit_the_frozen_phase0c_schedule():
+    """phase0c_seed42.yaml is FROZEN at start_epoch 101; new configs use base_v2_fast.yaml.
+
+    New configs get written by copying a sibling; landing on a phase0c-rooted one silently
+    reinstates the 101-epoch early-stop floor and burns the whole overfit tail. Counting the
+    children needs no exemption list: any *new* one turns this red.
+    """
+    configs = Path(__file__).resolve().parent.parent / "configs"
+    users = [p.name for p in configs.rglob("*.yaml")
+             if (yaml.safe_load(p.read_text()) or {}).get("base") == "phase0c_seed42.yaml"]
+    assert len(users) == 68, (
+        f"{len(users)} configs inherit the FROZEN phase0c schedule (start_epoch 101); expected the "
+        "68 historical ones. New training configs must use `base: base_v2_fast.yaml` (45/5/120).")

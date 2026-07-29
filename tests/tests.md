@@ -148,6 +148,7 @@ Covers the bulk S2 export grid/domain geometry (doc §3); EE + GCS not exercised
 | `test_validate_rejects_top_level_early_stopping` | the recurring bug — top-level `early_stopping:` (silently ignored by train.py) → ValueError naming `training.early_stopping` | real — guards a known GPU-h-wasting foot-gun |
 | `test_validate_rejects_unknown_key_and_lists_all_stray` | every stray top-level key is listed in the error | real |
 | `test_validate_schema_matches_base_recipe_keys` | canonical `base_v2_fast.yaml` validates cleanly; its keys ⊆ allow-list (schema stays in sync with the recipe) | real |
+| `test_no_new_configs_inherit_the_frozen_phase0c_schedule` | exactly 68 configs declare `base: phase0c_seed42.yaml` — a new one would inherit the FROZEN `start_epoch: 101` floor | real — guards the recurring stop-schedule regression |
 
 ### [test_dataset.py](test_dataset.py)
 

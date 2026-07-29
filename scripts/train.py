@@ -717,6 +717,14 @@ def main() -> int:
 
     setup_logging(level="INFO", log_file=str(out_dir / "train.log"))
     logger.info("Starting train.py with cfg=%s out_dir=%s", args.config, out_dir)
+    # Echoed up front so a stale stop schedule (the recurring start_epoch=101) is visible
+    # in the first lines of train.log instead of after 300 epochs of overfit tail.
+    logger.info(
+        "Stop schedule: start_epoch=%s patience=%s max_epochs=%s",
+        cfg["training"]["early_stopping"]["start_epoch"],
+        cfg["training"]["early_stopping"]["patience"],
+        cfg["training"]["max_epochs"],
+    )
 
     deterministic = bool(cfg.get("deterministic", False))
     if not deterministic and run_name.startswith("final"):
