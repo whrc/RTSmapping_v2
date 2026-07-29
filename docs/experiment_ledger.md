@@ -97,6 +97,12 @@ sign-flipped → rejected).
 | phase4_extra_ndvi_seproto | D | corrected | 0.8984 | done | NDVI+SE-proto |
 | phase4_extra_ndvi_seproto_seed43 | D | corrected | 0.8988 | done | seed-confirm |
 | phase4_extra_ndvi_seproto_seed44 | D | corrected | 0.8966 | done | seed-confirm (mean 0.898 ≈ NDVI-alone) |
+<!-- SE-PCA decomposition (2026-07-29): is any single PC the carrier? see Finding "D — SE_PCA decomposition" -->
+| phase4_extra_se_pca1 | D | corrected | 0.8720 | done | PC1 alone ≈ pack 0.8736 |
+| phase4_extra_se_pca2 | D | corrected | 0.8640 | done | **PC2 alone ≈ pack** — not the carrier despite r=−0.765 vs NDVI |
+| phase4_extra_se_pca3 | D | corrected | 0.8776 | done | PC3 alone ≈ pack |
+| phase4_extra_ndvi_sepca2 | D | corrected | 0.8865 | done | **NDVI+PC2 ties NDVI-alone (0.8879 seed42)** — no complement gain |
+| phase4_extra_ndvi_sepca3 | D | corrected | 0.8653 | done | NDVI+PC3 < NDVI-alone (PC3 = most independent band, still no gain) |
 | phase4_f1_full | D | corrected | 0.8903 | done | F1 smart-stem-init (8-band) ≈ NDVI-alone |
 | phase4_f1_ndvi_seproto | D | corrected | 0.8921 | done | F1 (pair) ≈ NDVI-alone |
 | phase4_f2_full | D | corrected | 0.8268 | done | F2 channel-attn collapses on 8-band |
@@ -269,6 +275,39 @@ and more is not better. NDVI-alone 3-seed **0.8985 ≫ RGB 0.830** (+0.07, ≫σ
 Greedy forward from NDVI adds nothing (+SE-PCA 0.900, +TC 0.900, +SE-proto 0.898, +NBR 0.856 — none
 clears G). Heavy fusion **loses**: F3-full 0.818, F5-full 0.848, F5-pair 0.854 (all ≪ NDVI-alone; below
 even the F0 stack). **LOCKED: EXTRA=[NDVI], F0 early channel-stack.**
+
+**D — SE_PCA decomposition: no single PC is the carrier (2026-07-29, single-seed, CLOSED NEGATIVE).**
+The SE_PCA group had only ever been trained as an atomic 3-band pack (0.8736/0.8571), so the greedy-forward
+null above could have been an artefact of bundling — especially since the 8-band QC shows **SE_PCA2 is the
+only SE band that tracks NDVI** (Spearman −0.765 all / −0.66 pos / −0.702 bnd) while PC1/PC3 are inert
+(+0.47 / +0.04). If PC2 carried the signal and PC1+PC3 diluted it, the pack would understate SE. Five arms
+tested that, each an exact clone of `phase4_extra_se_pca.yaml` apart from `channels.extra` + its stats file
+(sliced from the canonical 8-band stats → constants bit-identical to every comparator).
+
+| arm | best_smoothed | seed-42 comparator | Δ |
+|---|---|---|---|
+| PC1 alone | 0.8720 | pack 0.8736 | −0.002 |
+| **PC2 alone** | **0.8640** | pack 0.8736 | −0.010 |
+| PC3 alone | 0.8776 | pack 0.8736 | +0.004 |
+| **NDVI + PC2** | **0.8865** | NDVI-alone 0.8879 | −0.001 |
+| NDVI + PC3 | 0.8653 | NDVI-alone 0.8879 | −0.023 |
+
+**Three negatives.** (1) *Not the carrier* — all three singles land within ±0.010 of the pack and of each
+other, i.e. inside G=0.0112; the PCs are interchangeable and the pack was never diluted. (2) *Does not match
+NDVI* — PC2 alone 0.8640 vs NDVI-alone 0.8879. (3) *Adds nothing to NDVI* — NDVI+PC2 0.8865 ties NDVI-alone
+(Δ −0.001), reproducing the NDVI+pack null (0.900 ≈ 0.8985) at single-band resolution. The −0.765 PC2↔NDVI
+correlation is therefore a shared **response** to exposed soil / dead vegetation, not shared **information**:
+PC2 re-encodes what NDVI already says and carries no usable residual. NDVI+PC3 was run as the informed
+alternative (PC3 is the most independent band in the 8-band stack, dendrogram distance 0.88) and lost by
+more, so independence-from-NDVI does not predict usefulness either. **LOCKED: EXTRA=[NDVI] unchanged;
+SE_PCA closed at the group level and now also per-component.**
+
+Single seed by design: every arm is at or below its comparator, so nothing approaches G in the positive
+direction and a 3-seed confirm would cost 10 runs to re-establish a consistent null. Runs were stopped at
+ep65–75 after 6–8 validations without smoothed improvement (all peaked ep35); `run_summary.json` for these
+five is **reconstructed** from each run's MLflow history with the same moving-average/min_delta rule as
+`training.early_stopping` (the inherited `phase0c` schedule blocks ES until ep101) — see the `provenance`
+field in each file. *Caveat for reuse:* these five have no EMA/deployment checkpoint, only metrics.
 
 **E — Architecture & encoder (RESOLVED 2026-06-25 → EffB5).** Capacity is not the lever, and neither is
 the encoder. No CNN decoder beats UNet++ (FPN 0.794 ties > DeepLabV3+ 0.788 > PSPNet 0.729 ≫ MAnet 0.621);

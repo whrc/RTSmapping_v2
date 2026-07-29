@@ -42,12 +42,21 @@ mkdir -p "${OUTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${OUTROOT
 
 # Optional local-NVMe scratch for the hot run output (see Env note above). HOTROOT is where the
 # container writes during training; on the boot disk it IS OUTROOT (so run_one's sync-back no-ops).
+#
+# HOTROOT is a HOST path (used by the sync-back rsync). HOTROOT_C is the SAME tree as seen from
+# INSIDE the container, and is what --out-dir / MLFLOW_TRACKING_URI / tee must use. The two differ
+# on the boot disk, where /mnt/outputs is bind-mounted at /outputs — passing the host path there
+# makes the container write into its own ephemeral layer, which --rm then destroys (silently,
+# apart from a `tee: No such file or directory` line at startup). That cost 3 completed runs on
+# 2026-07-29. In NVMe mode they coincide because the scratch tree is bind-mounted at its own path.
 NVME_OUT="${NVME_OUT:-}"
 if [ -n "${NVME_OUT}" ]; then
   HOTROOT="${NVME_OUT}/${VERSION}"
+  HOTROOT_C="${HOTROOT}"
   mkdir -p "${HOTROOT}"/{runs,mlflow,logs} 2>/dev/null || sudo mkdir -p "${HOTROOT}"/{runs,mlflow,logs}
 else
   HOTROOT="${OUTROOT}"
+  HOTROOT_C="/outputs/${VERSION}"
 fi
 
 run_one() {  # $1=name  $2=gpu  — one container to completion (blocking; called in background)
@@ -65,11 +74,11 @@ run_one() {  # $1=name  $2=gpu  — one container to completion (blocking; calle
       -v "${ADC}:/gcp_adc.json:ro" \
       -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
       -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
-      -e MLFLOW_TRACKING_URI="file://${HOTROOT}/mlflow/${name}" \
+      -e MLFLOW_TRACKING_URI="file://${HOTROOT_C}/mlflow/${name}" \
       -e GDAL_HTTP_MAX_RETRY=3 -e GDAL_HTTP_RETRY_DELAY=1 \
       --entrypoint bash "$IMAGE" \
       -c "set -o pipefail; ${PATCH} && python scripts/train.py --config configs/${name}.yaml \
-            --out-dir ${HOTROOT}/runs/${name} 2>&1 | tee ${HOTROOT}/logs/${name}.log"
+            --out-dir ${HOTROOT_C}/runs/${name} 2>&1 | tee ${HOTROOT_C}/logs/${name}.log"
   # NVMe mode: persist keepers to the durable boot-disk OUTROOT (harvest reads there), then free the
   # NVMe copy. HOTROOT==OUTROOT on the boot disk → the paths match and this whole block is skipped.
   if [ -n "${NVME_OUT}" ]; then
