@@ -32,10 +32,10 @@ if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
 from data.dataset import RTSDataset, parse_extra_spec  # noqa: E402
 from data.sampler import BalancedBatchSampler  # noqa: E402
 from data.splits import (  # noqa: E402
-    get_tile_ids, load_metadata_multiroot, load_splits_yaml,
+    get_tile_ids, load_metadata_multiroot, load_splits_yaml, load_tile_allowlist,
 )
 from data.transforms import build_train_transforms  # noqa: E402
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, resolve_path  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 from utils.seed import seed_everything  # noqa: E402
 
@@ -104,6 +104,14 @@ def main() -> int:
         data_root, cfg["data"]["metadata_csv"], cfg["data"].get("additional_roots"))
     splits = load_splits_yaml(splits_path)
     tile_ids = get_tile_ids("train", metadata, splits)
+    # Mirror scripts/train.py: an arm restricted by splits.tile_allowlist has EXTRA
+    # dirs that only cover the allowlisted tiles, so validating the full split would
+    # fail on files the run never reads.
+    allowlist_path = cfg.get("splits", {}).get("tile_allowlist")
+    if allowlist_path:
+        allow = load_tile_allowlist(resolve_path(data_root, allowlist_path))
+        tile_ids = [t for t in tile_ids if t in allow]
+        logger.info("Applied tile_allowlist %s (%d ids)", allowlist_path, len(allow))
     logger.info("Train split: %d tiles", len(tile_ids))
 
     extra_channels = parse_extra_spec(cfg["channels"]["extra"])
