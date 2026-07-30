@@ -28,7 +28,45 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**C1–C4 hypothesis-test battery COMPLETE — 23 runs, manuscript CSV shipped (2026-07-25).** The
+**SE-PC2 decomposition + SAM2 re-run honestly (branch `pc2-and-sam2-investigation`, 2026-07-29/30).**
+Two loose ends closed, plus a silent infrastructure bug found and fixed.
+
+**PC2 — CLOSED NEGATIVE.** SE_PCA had only ever been trained as an atomic 3-band pack (0.8736/0.8571),
+and the 8-band QC showed **SE_PCA2 is the only SE band tracking NDVI** (Spearman −0.765), so the pack's
+mediocre score could have been PC2 carrying signal while PC1/PC3 diluted it. Five arms tested that:
+PC1 **0.8720** · PC2 **0.8640** · PC3 **0.8776** (pack 0.8736) · NDVI+PC2 **0.8865** · NDVI+PC3 **0.8653**
+(NDVI-alone 0.8879, all seed 42). Three negatives: no single PC is the carrier (all within ±0.010 of the
+pack, inside G), PC2 alone does not match NDVI, and PC2+NDVI ties NDVI-alone. The −0.765 correlation is a
+shared **response** to exposed soil, not shared **information**. `EXTRA=[NDVI]` unchanged. Single seed by
+design — every arm is at or below its comparator, so a 3-seed confirm would spend 10 runs re-establishing
+a consistent null.
+
+**SAM2 — 0.5558 → 0.9030 (3-seed), still loses to EffB5 0.9218.** The recorded "non-competitive" was
+right in direction and wrong by an order of magnitude, and every reason attached to it was false. The old
+run used the **pre-lock recipe** (`boundary_handling: none` changes the *val labels*, so 0.5558 vs 0.9218
+was never like-for-like), and three premises in its config were disproved by direct audit: Hiera *does*
+expose `.blocks` (16, one level under timm's `features_only` wrapper) so LLRD was always possible; it
+*does* expose `.patch_embed` so NDVI was always possible; and the weights *did* load (202/202 tensors,
+never verified before). An 11-cell factorial then attributed the recovery: **encoder LR is the whole story
+(~+0.34** — flat 1.0× → gentle uniform 0.1×; the original destroyed the encoder every epoch after
+unfreeze, hitting `pixel_iou=0.0` twice), **LLRD is NOT the fix (−0.028**, contrary to expectation),
+**normalization is real (+0.068** ImageNet vs z-score, vs +0.019 for DINOv3), and **NDVI is an interaction
+not a main effect** (+0.0055 under gentle LR, **−0.044** under LLRD — pairing NDVI only with LLRD, as the
+battery first did, would have concluded NDVI harms SAM2). A 24-cell frozen-feature probe
+(`scripts/probe_frozen_features.py`) additionally showed **Hiera does not improve with scale** and that
+**512 beats its native 896**, killing the resolution hypothesis. Key caveat recorded: probe AP does *not*
+predict trained score — use it for triage only. **EffB5 stays deployed**; family E closed for a defensible
+reason rather than a broken run. Full attribution: `docs/experiment_ledger.md` §E-SAM2.
+
+**Infra bug (silent data loss).** `run_gpu_pool.sh` had passed a **host** path as the container's
+`--out-dir`/`MLFLOW_TRACKING_URI` since the NVMe-mode commit; in default (non-NVMe) mode that path does not
+exist inside the container, so every run wrote into its ephemeral layer and `docker run --rm` destroyed it
+on exit. The only symptom was one `tee: No such file or directory` line at startup. Cost **3 completed
+SAM2 runs (~25 GPU-h)**; 7 in-flight runs were recovered with `docker cp`. Fixed by adding `HOTROOT_C`
+(container view) alongside `HOTROOT` (host view), verified by writing through the container and reading
+back on the host. **Anything launched via the pool between that commit and 2026-07-29 lost its artifacts.**
+
+Prior: **C1–C4 hypothesis-test battery COMPLETE — 23 runs, manuscript CSV shipped (2026-07-25).** The
 capacity-vs-representation-vs-labels battery (design: `docs/future_work/experiments_hypothesis_test.md`)
 ran back-to-back on 8×A100 (~40 h, **all 23 `status=completed`, 0 crashes**) on the hardened configs.
 Deliverable **`outputs/metric_robustness.csv`** (`scripts/export_metric_robustness.py`): 45 per-seed rows +
@@ -129,15 +167,27 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**C1–C4 battery done; deliverables written; 8×A100 idle again (2026-07-25).** `outputs/metric_robustness.csv`
-(the manuscript-consumed stats) + the 23 ledger rows + regenerated `docs/report.html` are all in place;
-scores are zero-drift against `run_summary.json`. **Two items parked on a user call, not started:** (1) the
-**NVMe pool integration** — `/mnt/nvme_scratch` (RAID0, 2.9 TB) is provisioned but `run_gpu_pool.sh` still
-writes run/MLflow output to the boot disk; wiring it (NVME_OUT mode + rsync keepers back to durable
-`/mnt/outputs`, move HF cache) needs a pool restart to take effect and a smoke-test, so it waits until the
-next training wave. (2) Whether `build_report.py` should gain **C1–C4 charts** — the report renders the
-curated v2 build-up/findings view and does not enumerate the battery, so surfacing it visually is a
-report-feature change, not bookkeeping. The manuscript itself consumes the CSV directly.
+**Both investigations closed; 8×A100 idle (2026-07-30).** PC2 and SAM2 each reached a verdict and are
+recorded in the ledger (161 rows, zero drift) with `docs/report.html` regenerated (164 runs). Nothing is
+running. **Deployed path unchanged: EffB5 + NDVI, 0.9218.**
+
+**Carried forward from this work:**
+1. **The pool bug is fixed but its blast radius is worth a check** — any run launched through
+   `run_gpu_pool.sh` between the NVMe-mode commit (`9d6f0b2`) and 2026-07-29 wrote its artifacts into a
+   container layer that `--rm` then deleted. The C1–C4 battery predates that commit and is intact, but if
+   any other wave ran in that window its run dirs are gone (MLflow + checkpoints alike).
+2. **Five PC arms have metrics but no deployment checkpoint** — they were stopped manually once past peak
+   (ES could not fire; they inherited `phase0c`'s `start_epoch: 101`), and their `run_summary.json` is
+   *reconstructed* from MLflow history, flagged in a `provenance` field. Fine as ledger evidence, not
+   reusable as weights.
+3. **New template configs to reuse, not re-derive** — `fm_sam2_ndvi_multlow.yaml` is the best SAM2 recipe
+   found (gentle 0.1× uniform encoder LR + ImageNet norm + NDVI); the general lesson for any future
+   foundation encoder is *tame the encoder LR first, and do not assume LLRD transfers from the ViT arms*.
+
+**Still parked on a user call (unchanged):** (1) **NVMe pool integration** — `/mnt/nvme_scratch` (RAID0,
+2.9 TB) is provisioned and `run_gpu_pool.sh` supports `NVME_OUT`, but the default path stays on the boot
+disk; wiring it needs a pool restart + smoke-test. (2) Whether `build_report.py` should gain **C1–C4
+charts** — a report-feature change, not bookkeeping; the manuscript consumes the CSV directly.
 
 Prior: **v2.1 closed; branch `v2.1-pretraining` up for PR (2026-07-18).** The SSL program reached a decisive
 verdict (see *Just completed*) and needs no further compute — all 8 A100s are idle again. The branch

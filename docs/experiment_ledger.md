@@ -124,8 +124,13 @@ sign-flipped → rejected).
 | fm_sam2_rgb_fixed_multlow | E | corrected | 0.9023 | done | **SAM2 locked recipe, gentle uniform 0.1× encoder LR — 3-seed mean 0.8975, σ=0.0035** |
 | fm_sam2_rgb_fixed_multlow_seed43 | E | corrected | 0.8950 | done | seed-confirm (peak ep45) |
 | fm_sam2_rgb_fixed_multlow_seed44 | E | corrected | 0.8952 | done | seed-confirm (peak ep45) |
-| fm_sam2_rgb_fixed_zscore | E | corrected | 0.8065 | done | normalization control — per-dataset z-score, LLRD (vs ImageNet arm: **−0.034**) |
+| fm_sam2_rgb_fixed_zscore | E | corrected | 0.8065 | done | normalization control — per-dataset z-score, LLRD (vs ImageNet arm: **−0.068**) |
+| fm_sam2_rgb_fixed | E | corrected | 0.8746 | done | LLRD 0.75 arm (ImageNet norm) — **LLRD loses to gentle-uniform by 0.028** |
 | fm_sam2_rgb_fixed_lp40 | E | corrected | 0.7931 | done | LLRD + 40-epoch linear probe — longer freeze does not help |
+| fm_sam2_ndvi_fixed | E | corrected | 0.8302 | done | NDVI **under LLRD** — −0.044 vs RGB+LLRD (the NDVI×LLRD interaction) |
+| fm_sam2_ndvi_multlow | E | corrected | 0.9081 | done | **best SAM2 config — NDVI × gentle 0.1× encoder LR; 3-seed mean 0.9030, σ=0.0130** |
+| fm_sam2_ndvi_multlow_seed43 | E | corrected | 0.8883 | done | seed-confirm (peak ep40) |
+| fm_sam2_ndvi_multlow_seed44 | E | corrected | 0.9127 | done | seed-confirm (peak ep70) |
 | fm_dinov3sat_7b_frozen | E | corrected | 0.4747 | killed | sat-7B frozen — diverged, non-competitive |
 | fm_dinov3sat_7b_lrtest | E | corrected | — | lr-test | decoder LR range test — clean up to ~2e-4, explodes ~4e-4 |
 | fm_dinov3sat_7b_tuned_a | E | corrected | 0.7435 | done | honest re-tune, decoder_phase2_start_epoch=10 (scheduler fix) |
@@ -333,48 +338,84 @@ drop-RandomScale + TrivialAugment, *identical* val labels) settles it — **a de
 > and EffB5 (CNN) is ~4× cheaper/faster across the 41.57M-tile pass. The off-recipe "sat edge"
 > (+0.13 IoU / +0.07 obj-F1 on boundary-none labels) **collapses** once both use the same recipe + val
 > labels — a textbook confound, caught by the fair A/B. sat-7B-frozen (0.475) non-competitive; SAM2
-> (0.556) is **not** a like-for-like number — see §E-SAM2. The sat re-run (`fm_dinov3sat_l_ndvi_locked*`)
+> re-run honestly reaches **0.9030** (the 0.556 was a broken run, not a verdict) but still loses by 0.019 — see §E-SAM2. The sat re-run (`fm_dinov3sat_l_ndvi_locked*`)
 > ran to ep60, peaked ep35–40 (best_smoothed 0.9221/0.9286/0.9067), terminated in the overfit tail — a
 > complete verdict.
 
 <!-- E-SAM2:BEGIN -->
-**E — SAM2/Hiera: the 0.5558 is real but mis-anchored (audited 2026-07-28, branch
-`pc2-and-sam2-investigation`).** Two separate problems with how that run was recorded.
+**E — SAM2/Hiera re-opened and re-run honestly (2026-07-28/29, branch `pc2-and-sam2-investigation`).
+Verdict: 0.5558 → 0.9030 (3-seed), still below EffB5 0.9218 → EffB5 stays deployed.** The recorded
+"non-competitive" was right in *direction* and wrong by an order of magnitude in *magnitude*, and every
+reason attached to it was false.
 
-*(1) Not comparable to what it was compared against.* `fm_sam2_rgb` ran the **pre-lock** recipe —
-`boundary_handling: none` (RandomScale on, hand-tuned color, `phase0c` 300-epoch base) — and
-`boundary_handling` changes the **val labels**, so 0.5558 and the locked 0.9218 are not scored on the
-same target. Its same-code-path anchors are **RGB 0.8549** and **DINOv3-B 0.8734**; against those it
-still loses by ~0.28, so "non-competitive" survives, but only at that scope.
+**Why the old number was not a verdict.** (a) It ran the **pre-lock** recipe — `boundary_handling: none`,
+RandomScale on, hand-tuned color, `phase0c` 300-epoch base — and `boundary_handling` changes the **val
+labels**, so 0.5558 and 0.9218 were never scored on the same target; its same-path anchors were RGB 0.8549
+and DINOv3-B 0.8734. (b) It was the only foundation arm fine-tuned with **no layer taper**
+(`llrd_decay: null`, `backbone_lr_multiplier: 1.0`, `wd 5e-2`) and the only one denied its native
+normalization. It collapsed to `pixel_iou = 0.0` at ep15 and ep35 — the same signature that turned out to
+be a bug, not a verdict, for sat-7B.
 
-*(2) The deficit precedes fine-tuning.* From the raw MLflow history, during the frozen linear-probe
-phase (encoder frozen, identical decoder/recipe/normalization to `phase4_fm_dinov3_rgb`):
+**Three premises behind that config were false** (direct audit of the timm wrapper, regression-tested in
+`tests/test_foundation.py` / `tests/test_freeze.py`):
+- *"Hiera has no `.blocks` → LLRD impossible"* — `features_only` keeps the real module at `.model`;
+  `HieraDet` has **16 blocks**. `training/freeze.py` now reaches through.
+- *"the wrapper hides the patch-embed stem → EXTRA impossible"* — it exposes **`.patch_embed`**. SAM2 had
+  been barred from NDVI, the project's largest single channel effect, for no real reason.
+- *weights unverified* — nothing ever checked. They do load: **202/202 tensors**, 33,947,328 params.
 
-| val PR-AUC, LP phase | ep5 | ep10 | ep15 | ep20 | → post-unfreeze |
-|---|---|---|---|---|---|
-| `fm_sam2_rgb` | 0.397 | 0.446 | 0.468 | **0.486** | peak 0.590 (ep30) → flat ~0.55 |
-| `phase4_fm_dinov3_rgb` | 0.554 | 0.548 | 0.424 | **0.682** | 0.898 |
+**The battery** (locked recipe = `base_v2_fast` + ignore_w2 + no RandomScale + TrivialAugment; one
+variable per cell):
 
-So the gap is in the *features*, and fine-tuning then made it worse: `pixel_iou` hit **0.0** at ep15 and
-ep35 (total collapse to background) at the curriculum-hardening boundaries, with a 70× train-loss spike
-at ep18 — the same signature that turned out to be a bug, not a verdict, for sat-7B. SAM2 was also the
-only foundation arm fine-tuned with **no layer taper** (`llrd_decay: null`, `backbone_lr_multiplier: 1.0`,
-`wd 5e-2`; every DINOv3 arm used `llrd_decay: 0.75`) and the only one denied its native normalization.
+| cell | encoder LR | norm | channels | best_smoothed |
+|---|---|---|---|---|
+| `fm_sam2_rgb` (original) | 1.0× flat | z-score | RGB | 0.5558 |
+| `fm_sam2_rgb_fixed_lp40` | LLRD + 40-ep probe | ImageNet | RGB | 0.7931 |
+| `fm_sam2_rgb_fixed_zscore` | LLRD 0.75 | z-score | RGB | 0.8065 |
+| `fm_sam2_ndvi_fixed` | LLRD 0.75 | ImageNet | RGB+NDVI | 0.8302 |
+| `fm_sam2_rgb_fixed` | LLRD 0.75 | ImageNet | RGB | 0.8746 |
+| `fm_sam2_rgb_fixed_multlow` ×3 | **0.1× uniform** | ImageNet | RGB | 0.9023/0.8950/0.8952 → **0.8975** (σ 0.0042) |
+| `fm_sam2_ndvi_multlow` ×3 | **0.1× uniform** | ImageNet | RGB+NDVI | 0.9081/0.8883/0.9127 → **0.9030** (σ 0.0130) |
 
-*Three premises behind that config are false* (verified by direct audit of the timm wrapper):
-- "Hiera has no `.blocks` → LLRD impossible" — the `features_only` wrapper exposes `.model` → `HieraDet`
-  with **`.blocks` (len 16)**. LLRD was always feasible.
-- "the wrapper hides the patch-embed stem → EXTRA impossible" — it exposes **`.patch_embed`**. SAM2 was
-  barred from NDVI (+0.07 over RGB, the project's largest single lever) on a false premise.
-- weights-not-verified — now checked: **202/202 tensors** differ from random init, 33,947,328 params,
-  matching that run's `Backbone frozen (33947328 params)`. The weights did load; that was never the bug.
-  Regression-tested (`tests/test_foundation.py`).
+**Attribution.**
+- **Encoder LR is the whole story (~+0.34).** Flat 1.0× → gentle uniform 0.1× accounts for essentially the
+  entire recovery. The original run was not merely mis-tuned; it destroyed the pretrained encoder on every
+  epoch after unfreeze.
+- **LLRD is *not* the fix (−0.028).** The taper every successful DINOv3 arm used *loses* to a plain small
+  uniform LR here, and adding a longer freeze on top (`lp40`) is worse still. Right instinct from the ViT
+  arms, wrong lever for Hiera.
+- **Normalization is real and large (+0.068)** — ImageNet-native vs per-dataset z-score on the matched LLRD
+  pair (0.8746 vs 0.8065), against +0.019 for web-DINOv3. The z-score arm also stopped improving 40 epochs
+  earlier (peak ep40 vs ep80).
+- **NDVI is an interaction, not a main effect.** Under gentle LR it is +0.0055 (inside that arm's σ 0.0130,
+  i.e. not a real gain); under LLRD it is **−0.044**. Had the battery kept NDVI paired only with LLRD as
+  first designed, it would have concluded NDVI *harms* SAM2 — `fm_sam2_ndvi_multlow` was added mid-campaign
+  precisely to break that confound.
 
-*Bookkeeping:* `best_deployment.pth` for this run is **epoch 85 / 0.56034**, not the epoch-80 / 0.5558 in
-`run_summary.json` — `EarlyStopping` rejected ep85 (Δ 0.0045 < `min_delta` 0.005) while `CheckpointManager`
-saved it. Benign (checkpoint is better than recorded), but a real ES-vs-checkpoint disagreement.
+**Frozen-feature sweep** (`scripts/probe_frozen_features.py`, 24 cells, 200 val tiles, tile-level split —
+a pixel-level split leaks badly and reads AP 0.99 for an encoder whose real LP score is ~0.49):
 
-An honest re-run on the locked recipe is in progress; this note will be replaced by its verdict.
+| backbone | best AP | backbone | best AP |
+|---|---|---|---|
+| `sam2_hiera_tiny` | 0.4608 | `sam2_hiera_base_plus` | 0.3658 |
+| `sam2_hiera_small` | 0.4473 | `sam2_hiera_large` | 0.3820 |
+| DINOv3-B *(control)* | 0.5591 | ViT-L-sat *(control)* | 0.4772 |
+
+Three results: **Hiera does not improve with scale** (tiny/small ≫ base_plus/large — capacity was never the
+constraint, so no large-variant training run was needed); ImageNet norm > z-score for SAM2 in 6/8 pairs;
+and **512 > native 896 in 6/8 pairs**, killing the resolution-mismatch hypothesis without adding any
+production knob. **Caveat, important for reuse: probe AP does not predict trained score.** ViT-L-sat probes
+0.4772 vs SAM2's 0.4473 yet trains 0.9177 vs 0.5558 — a 0.03 feature gap alongside a 0.36 trained gap. The
+probe also preferred z-score for both ViT controls where real training prefers ImageNet. Use it for triage,
+never for verdicts.
+
+**Bookkeeping:** `best_deployment.pth` for the original run is **epoch 85 / 0.56034**, not the epoch-80 /
+0.5558 in `run_summary.json` — `EarlyStopping` rejected ep85 (Δ 0.0045 < `min_delta`) while
+`CheckpointManager` saved it. Benign, but a real ES-vs-checkpoint disagreement.
+
+**Standing:** SAM2's honest best is **0.9030** vs EffB5 **0.9218** — a 0.019 shortfall (~1.7× G), on a
+~4× more expensive encoder. **EffB5 remains deployed**; family E stays closed, now for a defensible reason
+rather than a broken run.
 <!-- E-SAM2:END -->
 
 **E — sat-7B frozen, honestly re-tuned (2026-07-12 — the original 0.4747 was a bug, not a capacity
@@ -606,7 +647,7 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 | F3 dual-encoder / F5 cross-modal attn | D | tested → lose to F0 (heavy fusion extracts less than the stack) |
 | EffB3 capacity-down | E | tested → no-win (0.9050); kept as a cheaper deploy fallback only |
 | sat-7B-frozen | E | tested → non-competitive (0.475) |
-| SAM2 / Hiera | E | **re-opened 2026-07-28** — 0.556 was pre-lock recipe (different val labels) + LLRD/NDVI disabled on false premises; see §E-SAM2 |
+| SAM2 / Hiera | E | re-run honestly 2026-07-29 → **0.9030 3-seed** (was 0.556); still −0.019 vs EffB5 0.9218 on a ~4× costlier encoder → closed, EffB5 stays. See §E-SAM2 |
 | Web-DINOv3 + EXTRA | E | tested → ties EffB5 once NDVI is in → generic FM not the lever |
 | §6.5 loss×wd×curriculum interaction | C/F/G | dropped (moot after wd dropped + curriculum rejected + loss locked) |
 | wd × aug regularization grid | F | dropped (over-parameterization trigger never fired) |
