@@ -291,7 +291,8 @@ even the F0 stack). **LOCKED: EXTRA=[NDVI], F0 early channel-stack.**
 The SE_PCA group had only ever been trained as an atomic 3-band pack (0.8736/0.8571), so the greedy-forward
 null above could have been an artefact of bundling — especially since the 8-band QC shows **SE_PCA2 is the
 only SE band that tracks NDVI** (Spearman −0.765 all / −0.66 pos / −0.702 bnd) while PC1/PC3 are inert
-(+0.47 / +0.04). If PC2 carried the signal and PC1+PC3 diluted it, the pack would understate SE. Five arms
+(+0.47 / +0.04). **Those numbers are on the PRODUCTION PCA basis — see the basis warning below before
+citing them anywhere.** If PC2 carried the signal and PC1+PC3 diluted it, the pack would understate SE. Five arms
 tested that, each an exact clone of `phase4_extra_se_pca.yaml` apart from `channels.extra` + its stats file
 (sliced from the canonical 8-band stats → constants bit-identical to every comparator).
 
@@ -319,6 +320,36 @@ ep65–75 after 6–8 validations without smoothed improvement (all peaked ep35)
 five is **reconstructed** from each run's MLflow history with the same moving-average/min_delta rule as
 `training.early_stopping` (the inherited `phase0c` schedule blocks ES until ep101) — see the `provenance`
 field in each file. *Caveat for reuse:* these five have no EMA/deployment checkpoint, only metrics.
+
+**⚠ TWO PCA BASES EXIST AND THEY DISAGREE ON WHICH COMPONENT IS WHICH — read before citing any SE-PC
+correlation (added 2026-07-30 after the manuscript review flagged an apparent contradiction).**
+
+| | **Production basis** | **Visualization basis** |
+|---|---|---|
+| code | `scripts/build_se_artifacts.py` (`np.linalg.svd`) | `plots/extra_channel_vis/se_sar_plot.py:301-319` (sklearn `PCA`) |
+| fit sample | ~120 **RTS training tiles** × 2,000 px (disturbance-enriched) | 10,000 px sampled across **all 60–74°N land** (generic Arctic) |
+| artifacts | `/mnt/outputs/v1.0/qc/correlation_8band/` | `plots/extra_channel_vis/se_derived/correlation/` |
+| feeds | `se_artifacts.npz` → `se_bands()` → **the EXTRA bands every model actually trained on** | figures only (feasibility study, README marks it *superseded*) |
+| NDVI's correlate | **PC2** (−0.765) | **PC1** (+0.780; no PC2 row at all) |
+
+Different fit samples → different covariance → different axes **and different variance ordering**. PC
+identity is only meaningful relative to the sample it was fit on, so "PC2" does not name the same vector
+in the two studies. Neither is wrong; they answer different questions.
+
+**Only the production basis describes model inputs.** Verified 2026-07-30 by correlating **raw band
+indices** off the on-disk EXTRA GeoTIFFs, trusting no column labels — on 150 positive tiles (matching the
+QC's sample): NDVI↔band3 = **−0.788**, NDVI↔band2 = +0.607, NDVI↔band4 = −0.046, reproducing the QC's
+−0.765 / +0.47 / +0.04. `se_artifacts.npz` `explained_variance = [0.357, 0.119, 0.084]` is descending, so
+row 0 is genuinely PC1, and `GROUP_BANDS["SE_PCA"] = [2,3,4]` → `se_bands()` `{2: pca[0], 3: pca[1],
+4: pca[2]}` is consistent end-to-end. **There is no indexing bug** — an earlier reading of the two tables
+as contradictory led to that hypothesis, which the raw-index check disproves. (A −0.50 figure appears if
+the sample is mixed rather than positive-only; that is tile selection, not a bug.)
+
+**The verdict above is basis-independent.** All three components were trained individually (0.8720 /
+0.8640 / 0.8776 vs pack 0.8736), so whichever component carries the NDVI signal, none is the carrier,
+none matches NDVI-alone, and none adds to it. **For manuscripts:** do not mix the two bases in one
+narrative, and do not cite `plots/extra_channel_vis/se_derived/correlation/` as evidence about model
+inputs — it is the superseded feasibility fit on a different population.
 
 **E — Architecture & encoder (RESOLVED 2026-06-25 → EffB5).** Capacity is not the lever, and neither is
 the encoder. No CNN decoder beats UNet++ (FPN 0.794 ties > DeepLabV3+ 0.788 > PSPNet 0.729 ≫ MAnet 0.621);
