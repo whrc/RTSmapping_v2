@@ -167,9 +167,29 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Both investigations closed; 8×A100 idle (2026-07-30).** PC2 and SAM2 each reached a verdict and are
-recorded in the ledger (161 rows, zero drift) with `docs/report.html` regenerated (164 runs). Nothing is
-running. **Deployed path unchanged: EffB5 + NDVI, 0.9218.**
+**ArcticDEM revisit running — 4-arm seed-42 screen on 4×A100 (branch `arcticdem-revisit`, launched
+2026-07-30 14:22).** ArcticDEM was dropped at the channel-design stage on 2026-05-02 and **never
+trained**; this tests it as the last physically-distinct modality (terrain, not spectra). Arms:
+`dem_rgb_control` (3-ch) · `dem_ndvi_control` (4-ch) · `dem_rgb_terrain` (7-ch) · `dem_ndvi_terrain`
+(8-ch). Numbers and design live in ledger Finding **§D-DEM**; the availability facts are in
+`docs/arcticdem_diagnostic.md`. **Deployed path unchanged meanwhile: EffB5 + NDVI, 0.9218.**
+
+Two Stage-1 measurements drove the design, and both are worth carrying forward:
+1. **The DEM predates the labels everywhere** — 0.0 % of tiles observed after 2021.5 (median `maxdate`
+   2020.6) vs 2024-refined labels. No scar leakage is possible, so a win would be real terrain signal;
+   the channel is simply 3–4 years stale.
+2. **DEM coverage is itself a label cue** — 100 % of positive tiles have ArcticDEM vs 78.3 % of
+   negatives. Missing DEM is NaN → post-norm 0, so a model could clear the gate by reading "DEM absent"
+   as a negative prior without using terrain. Hence the new `splits.tile_allowlist` key: all four arms
+   run on the 17,796 covered tiles, keeping **all** positives. **These four scores are therefore not
+   comparable to the 0.9218 full-set SOTA** — that is why the deployed recipe is re-measured as
+   `dem_ndvi_control` rather than reused.
+
+Also fixed on the way through: the terrain derivatives are computed in **ground metres**, not EPSG:3857
+map units. The pre-existing visualization prototype (`plots/extra_channel_vis`) uses map units, which
+understates slope by 1/cos φ — measured against real GEE data as 2.02× at 60.4° N rising to 4.13× at
+76.0° N, i.e. a latitude fingerprint. Visualization-only, so no past result is affected, but do not port
+that code into a training path.
 
 **Carried forward from this work:**
 1. **The pool bug is fixed but its blast radius is worth a check** — any run launched through
