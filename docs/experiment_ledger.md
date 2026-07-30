@@ -325,6 +325,15 @@ prototype used map units, which understates slope by 1/cos φ — measured again
 at 60.4° N rising to 4.13× at 76.0° N**, i.e. a latitude fingerprint rather than terrain. Locked by
 `test_dem_slope_scales_with_ground_scale_not_map_scale`.
 
+**Metric caveat introduced by the allowlist (found in-flight).** Restricting to covered tiles cuts the
+val negative pool from 2,053 to **1,371**, below the 1,960 the **1:20** ratio needs, so that one term of
+the `pr_auc_ratios: [5,10,20]` geomean falls back to *bootstrap with replacement*
+(`training/metrics.py`, "plan risk #2"). The full-set runs never hit this (2,053 > 1,960), so it is
+specific to this block. All four arms share one val set, so the **Δs stay internally valid**; what
+degrades is the precision of the 1:20 term, which adds variance to the absolute scores. Practical
+consequence: treat a single-seed Δ near G as weaker evidence here than elsewhere, and lean on the
+3-seed sign-consistency test rather than the screen.
+
 Read-out: Δ_single = `dem_rgb_terrain − dem_rgb_control` (§7.2 single-group), Δ_stack =
 `dem_ndvi_terrain − dem_ndvi_control` (deployment). Gate G = 0.0112; lock needs a 3-seed mean Δ ≥ G with
 3/3 sign-consistency, and §7.4's free-rider rule bars DEM from the deployed stack on Δ_stack alone if
