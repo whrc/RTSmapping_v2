@@ -154,6 +154,16 @@ This motivated the Phase 2 investigation below.
 
 Channel set: R, G, B, NIR, SWIR, NBR, NDVI, NDWI, NDMI, TCB, TCW, SE-cosine, SE-PC1, SE-PC2, SE-PC3. Per-tile PCA is excluded (basis drifts across tiles). Global PCA has a fixed basis and is a stable feature.
 
+> **⚠ The SE-PC1/2/3 here are NOT the SE_PCA bands the models train on.** This study's global PCA is fit
+> on 10,000 pixels sampled across all 60–74°N land (`se_sar_plot.py:301-319`, sklearn). The **production**
+> basis that generated the EXTRA stack is a different fit — SVD over ~120 RTS *training* tiles
+> (`scripts/build_se_artifacts.py` → `se_artifacts.npz`) — and the two order their components
+> differently: NDVI's correlate is **PC1 here (+0.78)** but **PC2 in production (−0.765)**. Both are
+> correct for their own sample; "PC2" simply does not name the same vector in the two studies. Cite this
+> table only for the feasibility question it was built for, never as a description of model inputs — for
+> that use `/mnt/outputs/v1.0/qc/correlation_8band/`. See `docs/experiment_ledger.md` family-D
+> ("TWO PCA BASES EXIST") for the raw-band-index verification.
+
 Method: Spearman pairwise in three regimes (all pixels, positive pixels, near-boundary at ±10 px). Pearson as linear-correlation reference (zero-variance column mask patched). No p-values — spatial autocorrelation breaks significance testing.
 
 **Original single-prototype SE-cosine vs each Sentinel auxiliary:**
