@@ -401,12 +401,47 @@ Each row is one **group** — a semantic unit treated together by the Phase 4 ab
 | `SE_PCA` | 2, 3, 4 | 3 | Google Satellite Embedding | First 3 Global PCA axes of the SE feature vector — generic pretrained representation | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Global-PCA orthogonality isn't load-bearing for this task; the network re-learns its own use of PC1/2/3 from the Arctic subset distribution. |
 | `SE_PROTO` | 5 | 1 | Google Satellite Embedding | Cosine similarity (contrast) to a hand-curated RTS prototype embedding | **No z-score.** Already bounded (cosine similarity ∈ [-1, 1]). Either pass raw, or apply fixed `(x − 0) / 0.5` to give a unit-scale signal without erasing the meaningful zero. Per-channel mode required (see note). |
 | `TC` | 6, 7 | 2 | Sentinel-2 (Tasselled Cap transform) | TCB, TCW | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Tasselled-cap components are radiometric quantities with no semantic zero; standard treatment. Two bands → two independent (μ, σ). |
+| `DEM` | 8, 9, 10, 11 | 4 | ArcticDEM V4 2m mosaic | Relative elevation (500 m), slope, TPI (300 m), curvature — see the sidecar note below | Per-dataset z-score, **per band independently**, with `[0.1, 99.9]` percentile clip. Metric terrain quantities with no semantic zero. |
 
-Total EXTRA band count: **8**.
+Total EXTRA band count: **8** in the canonical `EXTRA/` stack; **12** in the `EXTRA_DEM/` sidecar.
+
+#### The `DEM` group lives in a 12-band sidecar, not in `EXTRA/`
+
+Band indices 8–11 are reserved for `DEM` so that a `band:` value in a config means the
+same thing everywhere and `data/extra_channels.py:band_norm_mode()` resolves correctly.
+But those bands are **not** in the canonical `EXTRA/` tiles and cannot be appended to
+them: `scripts/generate_extra_tiles.py:_write_bands` only creates the band skeleton when
+the file is absent, so widening the existing 22,259 8-band tiles would mean rebuilding
+all 27 GB.
+
+Instead `--groups dem` writes `EXTRA_DEM/{tile_id}.tif` — **12 bands**, with 8–11 filled,
+band 0 (NDVI) copied verbatim from `EXTRA/` via `--copy-ndvi-from`, and bands 1–7 left
+NaN. A config reads it by setting `data.extra_dir: EXTRA_DEM`. Copying NDVI rather than
+re-querying Earth Engine is what makes an RGB+NDVI+DEM arm's NDVI values bit-identical
+to its RGB+NDVI comparator's while still coming from one file per tile.
+
+Two properties of the source constrain how the group is used, both measured in
+[docs/arcticdem_diagnostic.md](../docs/arcticdem_diagnostic.md):
+
+- **Partial coverage, correlated with the label.** ArcticDEM covers 100 % of positive
+  tiles but only 78.3 % of negatives, and 71.8 % of the deployed south domain by area.
+  Since missing DEM is NaN → post-norm 0, coverage is itself a label cue; arms using
+  this group must restrict every split to covered tiles via `splits.tile_allowlist`.
+- **The DEM predates the labels.** No tile has an ArcticDEM observation after 2021.5
+  (median `maxdate` 2020.6) against 2024-refined labels, so the group cannot leak a
+  post-2021 slump scar — but it is uniformly 3–4 years stale.
+
+Derivatives are computed in **ground metres**, converted from EPSG:3857 map units by
+`ground_scale_m()` (Web Mercator scale factor 1/cos φ). Deriving them on the map grid
+instead understates slope by 2.0–4.1× across 60–76° N — a latitude fingerprint rather
+than terrain. `plots/extra_channel_vis/extra_channel_plot.py` has this bug and is
+visualization-only; `data/extra_channels.py` is the training path.
 
 > **Implementation status (2026-05-02):** the per-band z-score column reflects what `data/normalization.py:WelfordStats` already computes (each EXTRA channel gets its own μ, σ — see [data/normalization.py:74-75](../data/normalization.py#L74-L75)). The `[0.1, 99.9]` percentile clipping and the `SE_PROTO` per-channel-mode bypass are **not yet implemented**; `scripts/compute_normalization_stats.py` runs Welford on raw values, and `RTSDataset.__getitem__` applies z-score uniformly to every channel. The treatments above are the **design intent** for when Phase 4 EXTRA experiments fire — see `training/experiments.md §7`. Implementing them requires (a) clipping in `compute_normalization_stats.py` and (b) a per-channel `normalization_mode` schema entry in `normalization_stats.json` plus a dispatch in the loader. Both are deferred to a later iteration.
 
-Channels considered but **not** included: NIR (Sentinel-2), Relative Elevation / Shaded Relief / slope / aspect (ArcticDEM), NDMI, SAR backscatter. These remain available for a later iteration if Phase 4 results or post-inference analysis flags a gap that the included groups cannot fill.
+Channels considered but **not** included: NIR (Sentinel-2), Shaded Relief / aspect (ArcticDEM — illumination artifacts, redundant with slope), NDMI, SAR backscatter. These remain available for a later iteration if Phase 4 results or post-inference analysis flags a gap that the included groups cannot fill.
+
+ArcticDEM was previously in this list in full. It is now an implemented group (`DEM`, above) under test as ledger family **D-DEM**; absolute elevation stays excluded deliberately, being a geographic fingerprint rather than a property of the landform.
 
 ### Label File (labels GeoTIFF, fixed)
 

@@ -69,6 +69,7 @@ Fresh temp dir per test — no cross-test state leakage.
 | `test_no_region_leakage_passes_on_clean` | Disjoint splits don't raise (strips `val_balanced` which intentionally duplicates `val_realistic` regions) | real |
 | `test_no_region_leakage_fails_on_overlap` | Region in two splits → `ValueError` mentioning the region | real |
 | `test_split_summary_counts` | Per-split positive/negative counts match the fixture | real |
+| `test_load_tile_allowlist_parses_and_rejects_empty` | One id per line, blanks ignored; empty file → `ValueError` | real — `splits.tile_allowlist` |
 
 ### [test_normalization.py](test_normalization.py)
 
@@ -90,7 +91,8 @@ Fresh temp dir per test — no cross-test state leakage.
 
 ### [test_extra_channels.py](test_extra_channels.py)
 
-EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine is mocked.
+EXTRA derivation SSoT (`data/extra_channels.py`). SE + ArcticDEM math only — Earth Engine is
+mocked or bypassed (`dem_derivatives` is pure numpy/scipy; the grid builders are pure arithmetic).
 
 | Test | Checks | Strictness |
 |---|---|---|
@@ -98,6 +100,17 @@ EXTRA derivation SSoT (`data/extra_channels.py`). SE math only — Earth Engine 
 | `test_se_bands_projection_and_cosine` | With `fetch_se_raw` mocked: `se_bands` returns {2,3,4,5} of shape (H,W); SE_PROTO ∈ [-1,1]; SE_PCA1 == manual `flat @ component[0]` projection | real — SE derivation math |
 | `test_se_bands_nan_propagates` | A no-coverage (NaN) SE pixel yields NaN SE bands; finite pixels stay finite (matches S2 NaN handling) | real |
 | `test_se_bands_zero_vector_is_nan` | A no-coverage SE pixel arriving as an all-zero vector (not NaN) → NaN SE_PCA *and* SE_PROTO, so `(0-pca_mean)@comps.T` can't leak a nonzero artifact | real — B1 NoData contract |
+| `test_group_bands_have_no_duplicate_indices` | `GROUP_BANDS` indices are unique and cover `0..N_EXTRA_BANDS_DEM-1` — `band_norm_mode` resolves by index, so a collision would silently mis-normalize | real — §9 SSoT |
+| `test_dem_slope_is_in_ground_degrees` | 1 m rise per pixel at 1 m/px → exactly 45° | real — terrain math |
+| `test_dem_slope_scales_with_ground_scale_not_map_scale` | Doubling ground m/px halves `tan(slope)` | **real — regression for the Web-Mercator map-unit bug** (2.0–4.1× latitude-dependent slope error) |
+| `test_dem_curvature_sign_and_planar_zero` | Curvature ≈ 0 on a plane; > 0 everywhere in a concave bowl (slump-floor sign convention) | real |
+| `test_dem_relative_elevation_zero_on_uniform_slope_center` | On a plane, elevation − own focal mean ≈ 0 at tile centre | real |
+| `test_dem_derivatives_shape_and_bands` | Returns exactly `DEM_BAND_IDX`, each `(H,W)` float32 with the halo cropped | real |
+| `test_dem_void_stays_nan_and_does_not_poison_the_window` | An ArcticDEM void is NaN in **every** band at that pixel (not displaced by the gradient stencil), while >90 % of the tile stays finite | real — NoData contract |
+| `test_nan_uniform_filter_matches_plain_mean_without_nans` | NaN-aware box mean == `scipy.uniform_filter` when there are no NaNs | real |
+| `test_ground_scale_shrinks_with_latitude` | `ground_scale_m` == map scale × cos(lat) at 60°/74° N | real |
+| `test_coarse_grid_pads_by_the_relev_radius_in_ground_metres` | Coarse grid is square, centred, and pads ≥ `DEM_RELEV_RADIUS_M` of *ground* so the focal window is never edge-extended | real |
+| `test_halo_grid_grows_symmetrically` | Halo grid grows `2*DEM_HALO_PX` per axis with the origin shifted correctly, same CRS/pixel size | real |
 
 ### [test_generate_extra_tiles.py](test_generate_extra_tiles.py)
 
@@ -109,6 +122,9 @@ Covers the CSV-bbox footprint source added for the 2025 inference EXTRA handoff 
 | `test_load_ids_training_schema_has_no_bounds` | Legacy `Tile_ID` CSV (no bbox cols) → ids only, bounds `None` (falls back to `--rgb-dir`) | real |
 | `test_profile_from_bounds_coregisters` | Profile is EPSG:3857, 512², 8-band float32; transform maps pixel (0,0)→(minx,maxy) and (512,512)→(maxx,miny) | real — co-registration contract |
 | `test_write_bands_creates_then_resumes` | First write creates 8-band NaN stack + fills NDVI; tile "done" for `--groups s2` only once {0,1,6,7} all non-NaN | real — resumability |
+| `test_dem_sidecar_is_12_bands_and_leaves_canonical_alone` | `--groups dem` writes a 12-band tile with 8–11 filled and 0–7 NaN, while an 8-band canonical tile stays "complete" at its own count (else a DEM run would mark all 22,259 EXTRA tiles stale) | real — sidecar contract |
+| `test_needs_work_flags_wrong_band_count` | An 8-band file can't satisfy a 12-band request — the reason DEM goes to a sidecar instead of being appended in place | real |
+| `test_read_band_roundtrips_ndvi` | `--copy-ndvi-from` reads band 0 verbatim, so sidecar NDVI is bit-identical to canonical (no GEE re-query, no drift vs the comparator) | real — comparability |
 
 ### [test_export_s2_composites.py](test_export_s2_composites.py)
 
