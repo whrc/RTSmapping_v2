@@ -1,0 +1,24 @@
+# Phase 4 EXTRA channel ablation — NDVI + SE_PCA2 (the PC2 *complement* arm).
+# NDVI + the full 3-band SE_PCA pack was a null (3-seed 0.900 ~ NDVI-alone 0.8985), which is
+# what closed out "greedy forward adds nothing". But that test bundled PC2 with two bands
+# that look inert, so a real PC2 contribution could have been masked. This arm asks the
+# question directly: can PC2 on top of NDVI beat NDVI alone, where the pack could not?
+#
+# Prior is unfavourable — PC2 is r=-0.765 vs NDVI (all pixels), i.e. largely a sign-flipped
+# NDVI, so it may add little. That is exactly why the sibling arm phase4_extra_ndvi_sepca3
+# runs alongside: PC3 is the independent band (r=+0.04 vs NDVI). If PC2 loses while PC3
+# wins, the NDVI+pack null is explained rather than merely reproduced.
+#
+# Identical to phase4_extra_ndvi_sepca.yaml except channels.extra + the stats file (sliced
+# from the canonical 8-band normalization_stats.json → constants bit-identical to that arm).
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_ndvi_sepca2.json
+channels:
+  rgb: true
+  extra:
+    - {name: ndvi, band: 0}
+    - {name: se_pca_2, band: 3}
+mlflow:
+  run_name: phase4_extra_ndvi_sepca2

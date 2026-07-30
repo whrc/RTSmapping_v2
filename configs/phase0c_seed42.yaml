@@ -1,3 +1,7 @@
+# ⚠ FROZEN — historical Phase-0c run config (start_epoch 101 / patience 8 / max_epochs 300).
+# Its 68 children are completed experiments; the values match what those runs actually did.
+# DO NOT use as `base:` for new configs — use `base: base_v2_fast.yaml` (45 / 5 / 120).
+#
 # Phase 0c — Multi-seed baseline, seed 42.
 # Full 300-epoch run with locked normalization (Phase 0a winner) and LRs (Phase 0b winner).
 # Three seeds (42, 43, 44) → measure μ₀ and σ₀ → calibrate gate G for all later phases.

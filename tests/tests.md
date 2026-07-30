@@ -148,6 +148,7 @@ Covers the bulk S2 export grid/domain geometry (doc §3); EE + GCS not exercised
 | `test_validate_rejects_top_level_early_stopping` | the recurring bug — top-level `early_stopping:` (silently ignored by train.py) → ValueError naming `training.early_stopping` | real — guards a known GPU-h-wasting foot-gun |
 | `test_validate_rejects_unknown_key_and_lists_all_stray` | every stray top-level key is listed in the error | real |
 | `test_validate_schema_matches_base_recipe_keys` | canonical `base_v2_fast.yaml` validates cleanly; its keys ⊆ allow-list (schema stays in sync with the recipe) | real |
+| `test_no_new_configs_inherit_the_frozen_phase0c_schedule` | exactly 68 configs declare `base: phase0c_seed42.yaml` — a new one would inherit the FROZEN `start_epoch: 101` floor | real — guards the recurring stop-schedule regression |
 
 ### [test_dataset.py](test_dataset.py)
 
@@ -254,6 +255,8 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_sam2_hierarchical_forward_shape` | SAM2/Hiera (`sam2_hiera_tiny`): native {/4,/8,/16,/32} pyramid → 1×1 proj (4) → FPN → `(B,1,H,W)` | real — guards the hierarchical foundation branch (2026-06-22) |
 | `test_sam2_exposes_encoder_and_head` | `.encoder.parameters()` (LP-FT/freeze) + `.segmentation_head[0]` bias-init compatible | real — integration hooks for the no-LLRD path |
 | `test_sam2_rejects_extra_channels` | SAM2/Hiera path is RGB-only (stem not exposed) → `in_channels≠3` raises `NotImplementedError` | shallow — guard |
+| `test_sam2_features_only_wrapper_exposes_inner_model` | timm's `features_only` wrapper DOES expose `.model` → HieraDet with `.blocks` (16) and `.patch_embed` | real — pins the reach-through that disproves the "no LLRD / no EXTRA possible" premise `fm_sam2_rgb` was built on (2026-07-28) |
+| `test_sam2_pretrained_weights_are_actually_loaded` | `pretrained=True` changes **every** encoder tensor vs random init (audited: 202/202, 33,947,328 params) | real — closes the "nothing ever verified SAM2 weights load" gap; skipped unless the weights are already in the local HF cache, so the module's no-download contract holds (2026-07-28) |
 | `test_dinov3_sat_vitl_forward_shape` | Satellite DINOv3 ViT-L (`vit_large_patch16_dinov3.sat493m`) builds via the isotropic-ViT path → `(B,1,H,W)`; non-hierarchical + has `.blocks` (LP-FT/LLRD apply) | real — guards the satellite-DINOv3 branch (2026-06-22) |
 
 ### [test_losses.py](test_losses.py)

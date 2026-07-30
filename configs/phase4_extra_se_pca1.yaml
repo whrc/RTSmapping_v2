@@ -1,0 +1,18 @@
+# Phase 4 EXTRA channel ablation — SE_PCA **band 2 only** (se_pca_1).
+# Attribution control for the PC2-alone arm: decomposing the 3-band pack into singles is
+# what makes a PC2 result interpretable (is PC2 the carrier, or are all three equal?).
+# PC1 is near-inert against NDVI in the 8-band QC (r=+0.47 all) — expected to land near the
+# RGB anchor 0.8549 if the "PC2 carries it" hypothesis holds.
+#
+# Identical to phase4_extra_se_pca.yaml except channels.extra + the stats file (sliced from
+# the canonical 8-band normalization_stats.json → constants bit-identical to the pack arm).
+base: phase0c_seed42.yaml
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_se_pca1.json
+channels:
+  rgb: true
+  extra:
+    - {name: se_pca_1, band: 2}
+mlflow:
+  run_name: phase4_extra_se_pca1
