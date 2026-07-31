@@ -51,7 +51,7 @@ from data.dataset import RTSDataset, parse_extra_spec  # noqa: E402
 from data.normalization import load_stats, stats_to_arrays  # noqa: E402
 from data.sampler import BalancedBatchSampler, ratio_for_epoch, parse_curriculum_schedule  # noqa: E402
 from data.splits import (  # noqa: E402
-    get_tile_ids, load_metadata_multiroot, load_splits_yaml,
+    get_tile_ids, load_metadata_multiroot, load_splits_yaml, load_tile_allowlist,
 )
 from data.transforms import build_eval_transforms, build_train_transforms  # noqa: E402
 from losses import build_loss  # noqa: E402
@@ -237,6 +237,22 @@ def _setup_data(cfg: dict) -> dict:
     train_ids = get_tile_ids("train", metadata, splits)
     val_ids = get_tile_ids("val_realistic", primary_metadata, splits)
     logger.info("Tile counts: train=%d, val_realistic=%d", len(train_ids), len(val_ids))
+
+    # Tile allowlist (family D-DEM): restricts BOTH splits to a common subset, so
+    # arms whose EXTRA channel is only partly available are compared on tiles
+    # where it always is. Applied before the positive-subset filter so the two
+    # compose predictably.
+    allowlist_path = cfg.get("splits", {}).get("tile_allowlist")
+    if allowlist_path:
+        allow = load_tile_allowlist(resolve_path(data_root, allowlist_path))
+        train_ids = [t for t in train_ids if t in allow]
+        val_ids = [t for t in val_ids if t in allow]
+        if not train_ids or not val_ids:
+            raise ValueError(
+                f"tile_allowlist {allowlist_path} left train={len(train_ids)} "
+                f"val_realistic={len(val_ids)} tiles — check it matches this dataset")
+        logger.info("Applied tile_allowlist %s (%d ids) → train=%d, val_realistic=%d",
+                    allowlist_path, len(allow), len(train_ids), len(val_ids))
 
     # Positive-subset filter (Phase 0 §3.2 LR test, Phase 2 §5.1 data scale).
     # Deterministic: seed is fixed at 42 regardless of cfg.seed so subset

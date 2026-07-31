@@ -207,7 +207,20 @@ sign-flipped → rejected).
 | scale_ndvi_50_seed43 | B | corrected | 0.8333 | done | C4 seed-complete of scale_ndvi_50 |
 | scale_ndvi_50_seed44 | B | corrected | 0.8677 | done | seed-confirm (3-seed mean 0.8546, σ=0.0186) |
 | scale_ndvi_75_seed43 | B | corrected | 0.8931 | done | C4 seed-complete of scale_ndvi_75 |
-| scale_ndvi_75_seed44 | B | corrected | 0.8844 | done | seed-confirm (3-seed mean 0.8836, σ=0.0099) |<!-- RUN-TABLE:END -->
+| scale_ndvi_75_seed44 | B | corrected | 0.8844 | done | seed-confirm (3-seed mean 0.8836, σ=0.0099) |
+<!-- D-DEM: ArcticDEM revisit (2026-07-30). SUBSET SPLIT — these four run on the 17,796
+     ArcticDEM-covered tiles (train 14,597 / val_realistic 1,469, ALL positives kept), because
+     DEM coverage is itself a label cue (100% of positives vs 78.3% of negatives). Compare ONLY
+     within this block; do NOT diff against the 0.9218 full-set SOTA. See Finding §D-DEM and
+     docs/arcticdem_diagnostic.md -->
+| dem_rgb_control | D | dem-subset | 0.8638 | done | RGB-only at the locked recipe (the anchor family D lacked) |
+| dem_rgb_control_seed43 | D | dem-subset | 0.8726 | done | seed-confirm |
+| dem_rgb_control_seed44 | D | dem-subset | 0.8686 | done | seed-confirm (3-seed mean 0.8683, σ=0.0044) |
+| dem_rgb_terrain | D | dem-subset | 0.8833 | done | +DEM(4): §7.2 single-group ablation vs dem_rgb_control |
+| dem_rgb_terrain_seed43 | D | dem-subset | 0.9187 | done | seed-confirm (best_epoch 70 — still improving late) |
+| dem_rgb_terrain_seed44 | D | dem-subset | 0.8983 | done | seed-confirm (3-seed mean 0.9001, σ=0.0178) → **Δ +0.0318, 3/3 signs, PASSES** |
+| dem_ndvi_control | D | dem-subset | 0.9136 | done | RGB+NDVI = deployed recipe, re-measured on the subset |
+| dem_ndvi_terrain | D | dem-subset | 0.9151 | done | +NDVI+DEM(4), 8-ch: Δ_stack **+0.0015 = 0.13×G, FAILS** (single seed) |<!-- RUN-TABLE:END -->
 
 ---
 
@@ -286,6 +299,90 @@ and more is not better. NDVI-alone 3-seed **0.8985 ≫ RGB 0.830** (+0.07, ≫σ
 Greedy forward from NDVI adds nothing (+SE-PCA 0.900, +TC 0.900, +SE-proto 0.898, +NBR 0.856 — none
 clears G). Heavy fusion **loses**: F3-full 0.818, F5-full 0.848, F5-pair 0.854 (all ≪ NDVI-alone; below
 even the F0 stack). **LOCKED: EXTRA=[NDVI], F0 early channel-stack.**
+
+<!-- D-DEM:BEGIN -->
+**D-DEM — ArcticDEM terrain revisit (2026-07-31): terrain is REAL but REDUNDANT with NDVI.**
+
+**Result.** Δ_single (RGB+DEM vs RGB, 3 seeds) = **+0.0318, σ_terrain 0.0178, 3/3 sign-consistent,
+2.8× G → passes both lock criteria.** Δ_stack (RGB+NDVI+DEM vs RGB+NDVI, seed 42) = **+0.0015 = 0.13× G
+→ fails.** For scale, NDVI alone buys +0.0498 over RGB on these same tiles.
+
+| | seed 42 | seed 43 | seed 44 | mean |
+|---|---|---|---|---|
+| `dem_rgb_control` | 0.8638 | 0.8726 | 0.8686 | 0.8683 (σ 0.0044) |
+| `dem_rgb_terrain` | 0.8833 | 0.9187 | 0.8983 | **0.9001 (σ 0.0178)** |
+| Δ per seed | +0.0195 | +0.0461 | +0.0297 | **+0.0318** |
+
+**Verdict: DEM does NOT enter the deployed stack.** §7.4's free-rider rule is satisfied (DEM passed §7.2),
+but the combination gate is what governs deployment and Δ_stack fails it. Terrain is a better
+*alternative* to RGB-only than any previous candidate — **the first non-NDVI channel in family D to clear
+G at all**, where NBR, TC, SE_PCA and SE_PROTO were each nulls — and still not an *addition* to the
+deployed recipe. The natural reading is that terrain and NDVI are two routes to the same discrimination:
+an RTS scar is both bare (low NDVI) and concave (terrain), and NDVI captures it more cheaply and over the
+whole domain. This reproduces family D's original conclusion — "a single well-chosen channel is the
+biggest representation win, and more is not better" — from a genuinely new modality.
+
+**Δ_stack is under-determined, and that is the honest caveat.** It rests on one seed, while this
+experiment measured the terrain arm's seed spread at σ = 0.0178 (4× the control's 0.0044). The sd of a
+single-seed difference is therefore ≈ 0.018 — larger than G — so +0.0015 does not confidently exclude a
+real gain. It is a *failure to demonstrate* a stack benefit, not a demonstration of no benefit. Resolving
+it would cost a 4-run 3-seed confirm on the NDVI pair.
+
+**Terrain arms converge late and unevenly.** `best_epoch` 35/70/50 for terrain vs 35/45/30 for control;
+seed 43 was still improving at epoch 70. All arms share one stop schedule so the comparison is fair, but
+the terrain arm exploits more of it, and its seed-42 run (0.8833, the screen value) is the low end of its
+distribution rather than its centre. Any future terrain work should not template a stop schedule from the
+RGB arms.
+
+**Deployment cost, now moot but recorded:** ArcticDEM covers only 71.8 % of the deployed south domain by
+area, and `inference/tiles.py:388-397` hard-rejects any EXTRA list other than `["ndvi"]`. Because Δ_stack
+fails, neither the 28 % domain shrink nor a terrain inference reader has to be paid for.
+
+---
+
+*Design and provenance, recorded 2026-07-30:* ArcticDEM was dropped at the
+channel-design stage on 2026-05-02 (commit `e630266`) and **never trained** — `data/data.md:409` listed it
+as "considered but not included" with no run behind it. Testing it now as the last physically-distinct
+modality on the shelf (terrain, not spectra), against a bad prior: every non-NDVI channel family D tried
+was a null.
+
+Group `DEM` = relative elevation (500 m), slope, TPI (300 m), curvature at EXTRA bands 8–11, in a 12-band
+`EXTRA_DEM/` sidecar (`data/data.md` §9). Absolute elevation is deliberately excluded — a geographic
+fingerprint, not a landform property.
+
+Two measurements shaped the design (facts in [docs/arcticdem_diagnostic.md](arcticdem_diagnostic.md)):
+
+- **No scar leakage.** The V4 mosaic's own `maxdate` band shows **0.0 %** of tiles observed after 2021.5
+  (median 2020.6) against 2024-refined labels. The DEM cannot contain post-2021 slump development, so a
+  win here would be real terrain signal — but the channel is uniformly 3–4 years stale.
+- **Coverage is a label cue, so the split is restricted.** ArcticDEM covers **100 % of positive tiles vs
+  78.3 % of negatives**; missing DEM is NaN → post-norm 0, so a model could read "DEM absent" as a
+  negative-class prior and clear G without using terrain at all. All four arms therefore run on the
+  17,796 covered tiles (`splits.tile_allowlist`): train 17,951→14,597, val_realistic 2,151→1,469, with
+  **all** 1,513 train and 98 val positives kept. **Scores in this block are not comparable to the 0.9218
+  full-set SOTA** — that is why `dem_ndvi_control` re-measures the deployed recipe here instead of
+  reusing it.
+
+Derivatives are computed in **ground metres**, not EPSG:3857 map units. The pre-existing visualization
+prototype used map units, which understates slope by 1/cos φ — measured against real GEE data as **2.02×
+at 60.4° N rising to 4.13× at 76.0° N**, i.e. a latitude fingerprint rather than terrain. Locked by
+`test_dem_slope_scales_with_ground_scale_not_map_scale`.
+
+**Metric caveat introduced by the allowlist (found in-flight).** Restricting to covered tiles cuts the
+val negative pool from 2,053 to **1,371**, below the 1,960 the **1:20** ratio needs, so that one term of
+the `pr_auc_ratios: [5,10,20]` geomean falls back to *bootstrap with replacement*
+(`training/metrics.py`, "plan risk #2"). The full-set runs never hit this (2,053 > 1,960), so it is
+specific to this block. All four arms share one val set, so the **Δs stay internally valid**; what
+degrades is the precision of the 1:20 term, which adds variance to the absolute scores. Practical
+consequence: treat a single-seed Δ near G as weaker evidence here than elsewhere, and lean on the
+3-seed sign-consistency test rather than the screen.
+
+Read-out: Δ_single = `dem_rgb_terrain − dem_rgb_control` (§7.2 single-group), Δ_stack =
+`dem_ndvi_terrain − dem_ndvi_control` (deployment). Gate G = 0.0112; lock needs a 3-seed mean Δ ≥ G with
+3/3 sign-consistency, and §7.4's free-rider rule bars DEM from the deployed stack on Δ_stack alone if
+Δ_single fails. **Deployment caveat regardless of outcome:** ArcticDEM covers only 71.8 % of the deployed
+south domain by area, and `inference/tiles.py:388-397` hard-rejects any EXTRA list other than `["ndvi"]`.
+<!-- D-DEM:END -->
 
 **D — SE_PCA decomposition: no single PC is the carrier (2026-07-29, single-seed, CLOSED NEGATIVE).**
 The SE_PCA group had only ever been trained as an atomic 3-band pack (0.8736/0.8571), so the greedy-forward
@@ -674,6 +771,7 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 | RandomScale downscale aug | F | tested → dropped (removing it +0.016, all seeds) |
 | Mixing augs (copy-paste / mosaic / cutmix / mixup) | F | tested → no-win (4/4; copy-paste worst) |
 | RandAugment · aug-strength annealing | F | tested → no-win (sub-gate) |
+| ArcticDEM terrain (relev/slope/TPI/curv) | D | tested → **not deployed**: beats RGB alone (+0.0318, 3/3 seeds) but adds nothing on NDVI (+0.0015 = 0.13×G, 1 seed). Redundant with NDVI; see §D-DEM |
 | F2 channel-attention (8-band) | D | tested → collapsed (0.827) |
 | F3 dual-encoder / F5 cross-modal attn | D | tested → lose to F0 (heavy fusion extracts less than the stack) |
 | EffB3 capacity-down | E | tested → no-win (0.9050); kept as a cheaper deploy fallback only |

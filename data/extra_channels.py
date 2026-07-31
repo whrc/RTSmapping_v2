@@ -25,11 +25,21 @@ GROUP_BANDS: dict[str, list[int]] = {
     "SE_PCA": [2, 3, 4],
     "SE_PROTO": [5],
     "TC": [6, 7],
+    "DEM": [8, 9, 10, 11],
 }
 S2_GROUPS = ("NDVI", "NBR", "TC")        # Sentinel-2 derived
 SE_GROUPS = ("SE_PCA", "SE_PROTO")       # Satellite-Embedding derived
+DEM_GROUPS = ("DEM",)                    # ArcticDEM derived
 S2_BAND_IDX = [0, 1, 6, 7]               # ndvi, nbr, tcb, tcw
 SE_BAND_IDX = [2, 3, 4, 5]               # se_pca1..3, se_proto
+DEM_BAND_IDX = [8, 9, 10, 11]            # dem_relev, dem_slope, dem_tpi, dem_curv
+
+# DEM bands live at 8-11 rather than 0-3 so a band index means the same thing in
+# every config and in band_norm_mode(), but they are NOT in the canonical 8-band
+# EXTRA/ tiles. They are written to a 12-band sidecar directory (EXTRA_DEM/) whose
+# bands 1-7 stay NaN — see data/data.md §9. N_EXTRA_BANDS stays 8 because it
+# describes EXTRA/; the sidecar width is N_EXTRA_BANDS_DEM.
+N_EXTRA_BANDS_DEM = 12
 
 # Sentinel-2 acquisition (matches plots/extra_channel_vis/extra_channel_plot.py).
 S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
@@ -48,6 +58,25 @@ TC_WETNESS = [0.1825, 0.1763, 0.1615, 0.0486, -0.7020, -0.6424]
 # -9999 is far outside every S2 index range and exactly representable in float32.
 S2_NODATA_SENTINEL = -9999.0
 
+# ArcticDEM (terrain). The V4 2m mosaic carries elevation + a datamask; its
+# coverage is partial over the Planet domain (docs/arcticdem_diagnostic.md).
+ARCTICDEM_MOSAIC = "UMN/PGC/ArcticDEM/V4/2m_mosaic"
+# Focal radii in GROUND metres for the two scale-relative bands.
+DEM_RELEV_RADIUS_M = 500.0     # relative elevation: hillslope context
+DEM_TPI_RADIUS_M = 300.0       # topographic position index
+# The focal means are computed on an elevation array decimated by this factor over
+# a footprint padded by DEM_RELEV_RADIUS_M. A 500 m ground radius is ~307 px at
+# 70 deg N, so a full-resolution padded fetch would be ~1126**2 px/tile; the focal
+# mean of a >=300 m neighbourhood carries no information at 1.6 m sampling, and
+# decimating first cuts the fetch ~60x.
+DEM_COARSE_FACTOR = 8
+# Elevation halo (px, tile grid) for the 3x3 gradient/Laplacian stencils.
+DEM_HALO_PX = 4
+# No-coverage sentinel, same contract as S2_NODATA_SENTINEL: ArcticDEM is masked
+# over water and data voids, and computePixels would fill those with 0 — a valid
+# elevation. Unmask to the sentinel, restore NaN client-side.
+DEM_NODATA_SENTINEL = -9999.0
+
 # Satellite Embedding (matches plots/extra_channel_vis/se_sar_plot.py).
 SE_COLLECTION = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
 SE_N_BANDS = 64
@@ -61,7 +90,7 @@ SE_MAX_BANDS_PER_FETCH = 32
 #   fixed_scale  -> x / SE_PROTO_SCALE (no z-score; keeps the meaningful zero)
 GROUP_NORM_MODE: dict[str, str] = {
     "NDVI": "zscore", "NBR": "zscore", "SE_PCA": "zscore", "TC": "zscore",
-    "SE_PROTO": "fixed_scale",
+    "SE_PROTO": "fixed_scale", "DEM": "zscore",
 }
 SE_PROTO_SCALE = 0.5
 CLIP_PERCENTILES = (0.1, 99.9)
@@ -162,6 +191,176 @@ def s2_bands(bounds, grid: dict, year: int) -> dict[int, np.ndarray]:
     for arr in out.values():
         arr[arr == S2_NODATA_SENTINEL] = np.nan
     return out
+
+
+# --- ArcticDEM → DEM (8,9,10,11) ---------------------------------------------
+# Every derivative is scale-relative: no absolute elevation band, because raw
+# elevation is a geographic fingerprint that a segmentation encoder can memorise
+# per region rather than a property of the landform.
+#
+# Ground scale, not map scale. Tiles are EPSG:3857, whose scale factor is 1/cos(lat),
+# so a v1.0 tile's ~4.77 map-units/px is ~2.4 ground m/px at 60 deg N and ~1.3 at 74.
+# Mercator is conformal, so that single factor applies to both axes and one scalar
+# `ground_scale` converts every derivative correctly. Deriving slope or a metre-radius
+# focal window on the map grid instead (as plots/extra_channel_vis does) understates
+# slope by 1/cos(lat) — a latitude-dependent 2.0-3.6x error across 60-74 deg N.
+
+def ground_scale_m(bounds: tuple[float, float, float, float],
+                   size_px: int = 512) -> float:
+    """Ground metres per pixel for an EPSG:3857 tile bbox at `size_px`.
+
+    `bounds` = (minx, miny, maxx, maxy) in EPSG:3857 metres.
+    """
+    minx, miny, maxx, maxy = bounds
+    map_scale = (maxx - minx) / size_px
+    lat = _lat_of_mercator_y(0.5 * (miny + maxy))
+    return map_scale * np.cos(np.radians(lat))
+
+
+def _lat_of_mercator_y(y: float) -> float:
+    """Inverse Web-Mercator northing → latitude in degrees."""
+    r = 6378137.0
+    return np.degrees(2.0 * np.arctan(np.exp(y / r)) - 0.5 * np.pi)
+
+
+def _nan_uniform_filter(arr: np.ndarray, size: int) -> np.ndarray:
+    """NaN-aware box mean: a void shrinks the window instead of poisoning it."""
+    from scipy.ndimage import uniform_filter
+
+    valid = np.isfinite(arr)
+    filled = np.where(valid, arr, 0.0)
+    total = uniform_filter(filled, size=size, mode="nearest")
+    weight = uniform_filter(valid.astype("float32"), size=size, mode="nearest")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = total / weight
+    out[weight == 0] = np.nan
+    return out
+
+
+def dem_derivatives(elev: np.ndarray, coarse: np.ndarray,
+                    ground_scale: float, coarse_scale: float,
+                    coarse_pad_px: float) -> dict[int, np.ndarray]:
+    """Terrain derivatives from an elevation tile, keyed by EXTRA band index.
+
+    Args:
+        elev: (H+2*halo, W+2*halo) elevation in metres on the tile grid, NaN where
+            ArcticDEM has no data. The halo feeds the 3x3 stencils and is cropped off.
+        coarse: elevation over the tile padded by ``DEM_RELEV_RADIUS_M`` and
+            decimated by ``DEM_COARSE_FACTOR``, for the large-radius focal means.
+        ground_scale: ground metres per pixel of `elev`.
+        coarse_scale: ground metres per pixel of `coarse`.
+        coarse_pad_px: padding per side in `coarse` pixels, i.e. how much of it to
+            crop off before resampling onto the tile grid.
+
+    Returns:
+        {8: relative elevation (m), 9: slope (deg), 10: TPI (m), 11: curvature (1/m)}
+        each (H, W) float32.
+    """
+    from scipy.ndimage import zoom
+
+    halo = DEM_HALO_PX
+    core = elev[halo:-halo, halo:-halo]
+    h, w = core.shape
+
+    # Slope: |grad| on the metre grid → degrees. np.gradient is central-difference
+    # in the interior, which is why elev carries a halo.
+    dy, dx = np.gradient(elev, ground_scale)
+    slope = np.degrees(np.arctan(np.hypot(dx, dy)))[halo:-halo, halo:-halo]
+
+    # Curvature: Laplacian, 1/m. Concave (slump floor) positive, convex negative.
+    lap = (elev[halo - 1:-halo - 1, halo:-halo] + elev[halo + 1:-halo + 1, halo:-halo]
+           + elev[halo:-halo, halo - 1:-halo - 1] + elev[halo:-halo, halo + 1:-halo + 1]
+           - 4.0 * core) / (ground_scale ** 2)
+
+    # Relative elevation / TPI: elevation minus a focal mean at a fixed GROUND
+    # radius. The mean is taken on the padded coarse array so the window sees real
+    # terrain, then cropped to the tile footprint and resampled up.
+    pad = int(round(coarse_pad_px))
+    rel = {}
+    for band, radius_m in ((8, DEM_RELEV_RADIUS_M), (10, DEM_TPI_RADIUS_M)):
+        size = 2 * max(1, int(round(radius_m / coarse_scale))) + 1
+        smooth = _nan_uniform_filter(coarse, size)
+        inner = smooth[pad:smooth.shape[0] - pad, pad:smooth.shape[1] - pad]
+        upscaled = zoom(inner, (h / inner.shape[0], w / inner.shape[1]),
+                        order=1, mode="nearest")
+        rel[band] = core - upscaled
+
+    out = {8: rel[8], 9: slope, 10: rel[10], 11: lap}
+    # A void is a void in every band. np.gradient's central difference reads the
+    # neighbours, not the centre, so without this a NaN pixel would come back with
+    # an interpolated slope while its neighbours went NaN — the hole displaced by
+    # one pixel instead of where ArcticDEM actually has no data.
+    void = ~np.isfinite(core)
+    for arr in out.values():
+        arr[void] = np.nan
+    return {b: arr.astype("float32") for b, arr in out.items()}
+
+
+def dem_bands(bounds: tuple[float, float, float, float],
+              grid: dict) -> dict[int, np.ndarray]:
+    """Return {band_index: array} for the ArcticDEM group (8,9,10,11).
+
+    Two computePixels calls per tile: the tile grid plus a small halo at full
+    resolution, and a padded decimated grid for the focal means. Pixels where
+    ArcticDEM has no data come back NaN (``DEM_NODATA_SENTINEL`` round-trip), which
+    compute_normalization_stats drops and apply_norm neutralises.
+    """
+    import ee
+
+    dem = (ee.Image(ARCTICDEM_MOSAIC).select("elevation")
+           .unmask(DEM_NODATA_SENTINEL))
+
+    size_px = int(grid["dimensions"]["width"])
+    gs = ground_scale_m(bounds, size_px)
+
+    fine = _fetch(dem, _halo_grid(grid, DEM_HALO_PX), ["elevation"])["elevation"]
+    coarse_grid, coarse_scale, coarse_pad_px = _coarse_grid(bounds, grid, gs)
+    coarse = _fetch(dem, coarse_grid, ["elevation"])["elevation"]
+
+    for arr in (fine, coarse):
+        arr[arr == DEM_NODATA_SENTINEL] = np.nan
+
+    return dem_derivatives(fine, coarse, gs, coarse_scale, coarse_pad_px)
+
+
+def _halo_grid(grid: dict, halo: int) -> dict:
+    """`grid` grown by `halo` px on every side, same pixel size and CRS."""
+    t = grid["affineTransform"]
+    return {
+        "dimensions": {"width": grid["dimensions"]["width"] + 2 * halo,
+                       "height": grid["dimensions"]["height"] + 2 * halo},
+        "affineTransform": {**t,
+                            "translateX": t["translateX"] - halo * t["scaleX"],
+                            "translateY": t["translateY"] - halo * t["scaleY"]},
+        "crsCode": grid["crsCode"],
+    }
+
+
+def _coarse_grid(bounds: tuple[float, float, float, float], grid: dict,
+                 ground_scale: float) -> tuple[dict, float, float]:
+    """Decimated grid over the tile padded by DEM_RELEV_RADIUS_M of ground.
+
+    Returns (grid, ground metres per coarse pixel, padding per side in coarse px).
+    """
+    minx, miny, maxx, maxy = bounds
+    size_px = int(grid["dimensions"]["width"])
+    map_scale = (maxx - minx) / size_px
+    # Pad in map units: ground metres / (ground m per map unit).
+    pad_map = DEM_RELEV_RADIUS_M * map_scale / ground_scale
+    coarse_map_scale = map_scale * DEM_COARSE_FACTOR
+    # Pin the pad to a whole number of coarse pixels so the crop in
+    # dem_derivatives lands exactly on the tile footprint.
+    pad_px = int(np.ceil(pad_map / coarse_map_scale))
+    pad_map = pad_px * coarse_map_scale
+    n = int(np.ceil(size_px * map_scale / coarse_map_scale)) + 2 * pad_px
+    return ({
+        "dimensions": {"width": n, "height": n},
+        "affineTransform": {"scaleX": coarse_map_scale, "shearX": 0,
+                            "translateX": minx - pad_map,
+                            "shearY": 0, "scaleY": -coarse_map_scale,
+                            "translateY": maxy + pad_map},
+        "crsCode": grid["crsCode"],
+    }, ground_scale * DEM_COARSE_FACTOR, float(pad_px))
 
 
 # --- Satellite Embedding (SE) → SE_PCA (2,3,4) + SE_PROTO (5) -----------------

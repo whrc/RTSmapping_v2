@@ -29,7 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data.extra_channels import CLIP_PERCENTILES, SE_PROTO_SCALE, band_norm_mode  # noqa: E402
 from data.normalization import WelfordStats, build_stats_dict, save_stats  # noqa: E402
-from data.splits import get_tile_ids, load_metadata, load_splits_yaml  # noqa: E402
+from data.splits import (  # noqa: E402
+    get_tile_ids, load_metadata, load_splits_yaml, load_tile_allowlist,
+)
 from utils.config import load_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 from utils.seed import seed_everything  # noqa: E402
@@ -79,6 +81,15 @@ def main() -> int:
     splits = load_splits_yaml(splits_path)
 
     train_ids = get_tile_ids("train", metadata, splits)
+    # Honour splits.tile_allowlist so stats are computed over exactly the tiles the
+    # run trains on — otherwise a restricted arm would normalize with constants
+    # derived from tiles it never sees (and EXTRA dirs that only cover the subset
+    # would fail to open).
+    allowlist_path = cfg.get("splits", {}).get("tile_allowlist")
+    if allowlist_path:
+        allow = load_tile_allowlist(f"{data_root.rstrip('/')}/{allowlist_path}")
+        train_ids = [t for t in train_ids if t in allow]
+        logger.info("Applied tile_allowlist %s (%d ids)", allowlist_path, len(allow))
     if args.max_tiles is not None:
         train_ids = train_ids[: args.max_tiles]
     logger.info("Computing stats over %d train tiles", len(train_ids))

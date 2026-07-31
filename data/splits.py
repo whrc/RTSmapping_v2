@@ -58,6 +58,23 @@ def load_splits_yaml(path: str | Path) -> dict[str, list[str]]:
     return splits
 
 
+def load_tile_allowlist(path: str | Path) -> set[str]:
+    """Load a tile-id allowlist: one Tile_ID per line, blanks ignored.
+
+    Used by `splits.tile_allowlist` to restrict every split to a common subset of
+    tiles. Unlike `splits.train_positive_subset_pct` (train positives only) this
+    applies to all splits and both classes, because it exists to remove a
+    per-tile *availability* difference rather than to scale the data: an EXTRA
+    channel that covers only part of the domain otherwise makes its own presence
+    a label cue (docs/arcticdem_diagnostic.md §4).
+    """
+    with _open_text(path) as f:
+        ids = {line.strip() for line in f if line.strip()}
+    if not ids:
+        raise ValueError(f"tile allowlist is empty: {path}")
+    return ids
+
+
 def assert_no_region_leakage(splits: dict[str, list[str]]) -> None:
     """Raise if any region appears in more than one split."""
     seen: dict[str, str] = {}

@@ -9,6 +9,7 @@ from data.splits import (
     get_tile_ids,
     load_metadata,
     load_splits_yaml,
+    load_tile_allowlist,
     split_summary,
 )
 
@@ -60,3 +61,16 @@ def test_split_summary_counts(synthetic_dataset):
     assert summary["train"]["total"] == 6
     assert summary["train"]["positive"] == 4
     assert summary["train"]["negative"] == 2
+
+
+def test_load_tile_allowlist_parses_and_rejects_empty(tmp_path):
+    """One Tile_ID per line, blanks ignored; an empty list is an error, not a
+    silently-empty training set (splits.tile_allowlist, family D-DEM)."""
+    good = tmp_path / "allow.txt"
+    good.write_text("aaa\n\nbbb\n  ccc  \n\n")
+    assert load_tile_allowlist(good) == {"aaa", "bbb", "ccc"}
+
+    empty = tmp_path / "empty.txt"
+    empty.write_text("\n  \n")
+    with pytest.raises(ValueError, match="empty"):
+        load_tile_allowlist(empty)

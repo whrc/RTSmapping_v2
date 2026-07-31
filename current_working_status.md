@@ -167,11 +167,52 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Both investigations closed; 8×A100 idle (2026-07-30).** PC2 and SAM2 each reached a verdict and are
-recorded in the ledger (161 rows, zero drift) with `docs/report.html` regenerated (164 runs). Nothing is
-running. **Deployed path unchanged: EffB5 + NDVI, 0.9218.**
+**ArcticDEM revisit CLOSED — terrain is real but redundant with NDVI (branch `arcticdem-revisit`,
+8 runs, 2026-07-31).** ArcticDEM had been dropped at the channel-design stage on 2026-05-02 and **never
+trained**; this tested it as the last physically-distinct modality (terrain, not spectra). Full numbers
+and design in ledger Finding **§D-DEM**; availability facts in `docs/arcticdem_diagnostic.md`.
+**Deployed path unchanged: EffB5 + NDVI, 0.9218.** 8×A100 now idle.
 
-**Carried forward from this work:**
+- **Δ_single (RGB+DEM vs RGB) = +0.0318**, 3/3 sign-consistent, 2.8× G → passes both lock criteria.
+  The **first non-NDVI channel in family D to clear G at all** (NBR, TC, SE_PCA, SE_PROTO were nulls).
+- **Δ_stack (RGB+NDVI+DEM vs RGB+NDVI) = +0.0015** = 0.13× G → fails. NDVI alone is worth +0.0498 on
+  the same tiles. **DEM does not enter the deployed stack**, so the 28 % domain shrink and a terrain
+  inference reader never have to be paid for.
+- Reading: terrain and NDVI are two routes to the same discrimination — an RTS scar is both bare (low
+  NDVI) and concave (terrain) — and NDVI gets there more cheaply and over the whole domain.
+
+Two Stage-1 measurements drove the design, and both are worth carrying forward:
+1. **The DEM predates the labels everywhere** — 0.0 % of tiles observed after 2021.5 (median `maxdate`
+   2020.6) vs 2024-refined labels. No scar leakage is possible, so a win would be real terrain signal;
+   the channel is simply 3–4 years stale.
+2. **DEM coverage is itself a label cue** — 100 % of positive tiles have ArcticDEM vs 78.3 % of
+   negatives. Missing DEM is NaN → post-norm 0, so a model could clear the gate by reading "DEM absent"
+   as a negative prior without using terrain. Hence the new `splits.tile_allowlist` key: all four arms
+   run on the 17,796 covered tiles, keeping **all** positives. **These four scores are therefore not
+   comparable to the 0.9218 full-set SOTA** — that is why the deployed recipe is re-measured as
+   `dem_ndvi_control` rather than reused.
+
+Also fixed on the way through: the terrain derivatives are computed in **ground metres**, not EPSG:3857
+map units. The pre-existing visualization prototype (`plots/extra_channel_vis`) uses map units, which
+understates slope by 1/cos φ — measured against real GEE data as 2.02× at 60.4° N rising to 4.13× at
+76.0° N, i.e. a latitude fingerprint. Visualization-only, so no past result is affected, but do not port
+that code into a training path.
+
+**Carried forward from the ArcticDEM work:**
+1. **Δ_stack rests on one seed and is under-determined** — this experiment measured the terrain arm's
+   seed spread at σ = 0.0178 (4× the RGB control's 0.0044), so a single-seed difference carries sd
+   ≈ 0.018, larger than G. +0.0015 is a *failure to demonstrate* a stack gain, not a demonstration of
+   none. A 4-run 3-seed confirm on the NDVI pair would settle it; not run, because the screen policy
+   only confirms arms within reach of G.
+2. **Terrain arms converge late and unevenly** — `best_epoch` 35/70/50 vs control 35/45/30, with seed 43
+   still improving at epoch 70. Don't template a stop schedule for terrain work from the RGB arms.
+3. **`EXTRA_DEM/` (58 GB, 17,796 tiles) is on the boot disk** — reusable if terrain is ever revisited
+   (e.g. against a *pure-RGB* North model where no NDVI exists); delete it if not.
+4. **New reusable machinery** — `splits.tile_allowlist` (restrict every split to a common tile subset),
+   `scripts/slice_normalization_stats.py` (per-arm stats without perturbing shared constants), and
+   `computing/Dockerfile.dataprep` (the GEE-capable image; `rts-train:v2` has no `earthengine-api`).
+
+**Carried forward from the earlier PC2/SAM2 work:**
 1. **The pool bug is fixed but its blast radius is worth a check** — any run launched through
    `run_gpu_pool.sh` between the NVMe-mode commit (`9d6f0b2`) and 2026-07-29 wrote its artifacts into a
    container layer that `--rm` then deleted. The C1–C4 battery predates that commit and is intact, but if
