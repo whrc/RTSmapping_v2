@@ -213,10 +213,14 @@ sign-flipped → rejected).
      DEM coverage is itself a label cue (100% of positives vs 78.3% of negatives). Compare ONLY
      within this block; do NOT diff against the 0.9218 full-set SOTA. See Finding §D-DEM and
      docs/arcticdem_diagnostic.md -->
-| dem_rgb_control | D | dem-subset | — | running | RGB-only at the locked recipe (the anchor family D lacked) |
-| dem_ndvi_control | D | dem-subset | — | running | RGB+NDVI = deployed recipe, re-measured on the subset |
-| dem_rgb_terrain | D | dem-subset | — | running | +DEM(4): §7.2 single-group ablation vs dem_rgb_control |
-| dem_ndvi_terrain | D | dem-subset | — | running | +NDVI+DEM(4), 8-ch: the deployment question vs dem_ndvi_control |<!-- RUN-TABLE:END -->
+| dem_rgb_control | D | dem-subset | 0.8638 | done | RGB-only at the locked recipe (the anchor family D lacked) |
+| dem_rgb_control_seed43 | D | dem-subset | 0.8726 | done | seed-confirm |
+| dem_rgb_control_seed44 | D | dem-subset | 0.8686 | done | seed-confirm (3-seed mean 0.8683, σ=0.0044) |
+| dem_rgb_terrain | D | dem-subset | 0.8833 | done | +DEM(4): §7.2 single-group ablation vs dem_rgb_control |
+| dem_rgb_terrain_seed43 | D | dem-subset | 0.9187 | done | seed-confirm (best_epoch 70 — still improving late) |
+| dem_rgb_terrain_seed44 | D | dem-subset | 0.8983 | done | seed-confirm (3-seed mean 0.9001, σ=0.0178) → **Δ +0.0318, 3/3 signs, PASSES** |
+| dem_ndvi_control | D | dem-subset | 0.9136 | done | RGB+NDVI = deployed recipe, re-measured on the subset |
+| dem_ndvi_terrain | D | dem-subset | 0.9151 | done | +NDVI+DEM(4), 8-ch: Δ_stack **+0.0015 = 0.13×G, FAILS** (single seed) |<!-- RUN-TABLE:END -->
 
 ---
 
@@ -297,7 +301,46 @@ clears G). Heavy fusion **loses**: F3-full 0.818, F5-full 0.848, F5-pair 0.854 (
 even the F0 stack). **LOCKED: EXTRA=[NDVI], F0 early channel-stack.**
 
 <!-- D-DEM:BEGIN -->
-**D-DEM — ArcticDEM terrain revisit (2026-07-30, IN PROGRESS).** ArcticDEM was dropped at the
+**D-DEM — ArcticDEM terrain revisit (2026-07-31): terrain is REAL but REDUNDANT with NDVI.**
+
+**Result.** Δ_single (RGB+DEM vs RGB, 3 seeds) = **+0.0318, σ_terrain 0.0178, 3/3 sign-consistent,
+2.8× G → passes both lock criteria.** Δ_stack (RGB+NDVI+DEM vs RGB+NDVI, seed 42) = **+0.0015 = 0.13× G
+→ fails.** For scale, NDVI alone buys +0.0498 over RGB on these same tiles.
+
+| | seed 42 | seed 43 | seed 44 | mean |
+|---|---|---|---|---|
+| `dem_rgb_control` | 0.8638 | 0.8726 | 0.8686 | 0.8683 (σ 0.0044) |
+| `dem_rgb_terrain` | 0.8833 | 0.9187 | 0.8983 | **0.9001 (σ 0.0178)** |
+| Δ per seed | +0.0195 | +0.0461 | +0.0297 | **+0.0318** |
+
+**Verdict: DEM does NOT enter the deployed stack.** §7.4's free-rider rule is satisfied (DEM passed §7.2),
+but the combination gate is what governs deployment and Δ_stack fails it. Terrain is a better
+*alternative* to RGB-only than any previous candidate — **the first non-NDVI channel in family D to clear
+G at all**, where NBR, TC, SE_PCA and SE_PROTO were each nulls — and still not an *addition* to the
+deployed recipe. The natural reading is that terrain and NDVI are two routes to the same discrimination:
+an RTS scar is both bare (low NDVI) and concave (terrain), and NDVI captures it more cheaply and over the
+whole domain. This reproduces family D's original conclusion — "a single well-chosen channel is the
+biggest representation win, and more is not better" — from a genuinely new modality.
+
+**Δ_stack is under-determined, and that is the honest caveat.** It rests on one seed, while this
+experiment measured the terrain arm's seed spread at σ = 0.0178 (4× the control's 0.0044). The sd of a
+single-seed difference is therefore ≈ 0.018 — larger than G — so +0.0015 does not confidently exclude a
+real gain. It is a *failure to demonstrate* a stack benefit, not a demonstration of no benefit. Resolving
+it would cost a 4-run 3-seed confirm on the NDVI pair.
+
+**Terrain arms converge late and unevenly.** `best_epoch` 35/70/50 for terrain vs 35/45/30 for control;
+seed 43 was still improving at epoch 70. All arms share one stop schedule so the comparison is fair, but
+the terrain arm exploits more of it, and its seed-42 run (0.8833, the screen value) is the low end of its
+distribution rather than its centre. Any future terrain work should not template a stop schedule from the
+RGB arms.
+
+**Deployment cost, now moot but recorded:** ArcticDEM covers only 71.8 % of the deployed south domain by
+area, and `inference/tiles.py:388-397` hard-rejects any EXTRA list other than `["ndvi"]`. Because Δ_stack
+fails, neither the 28 % domain shrink nor a terrain inference reader has to be paid for.
+
+---
+
+*Design and provenance, recorded 2026-07-30:* ArcticDEM was dropped at the
 channel-design stage on 2026-05-02 (commit `e630266`) and **never trained** — `data/data.md:409` listed it
 as "considered but not included" with no run behind it. Testing it now as the last physically-distinct
 modality on the shelf (terrain, not spectra), against a bad prior: every non-NDVI channel family D tried
@@ -728,6 +771,7 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 | RandomScale downscale aug | F | tested → dropped (removing it +0.016, all seeds) |
 | Mixing augs (copy-paste / mosaic / cutmix / mixup) | F | tested → no-win (4/4; copy-paste worst) |
 | RandAugment · aug-strength annealing | F | tested → no-win (sub-gate) |
+| ArcticDEM terrain (relev/slope/TPI/curv) | D | tested → **not deployed**: beats RGB alone (+0.0318, 3/3 seeds) but adds nothing on NDVI (+0.0015 = 0.13×G, 1 seed). Redundant with NDVI; see §D-DEM |
 | F2 channel-attention (8-band) | D | tested → collapsed (0.827) |
 | F3 dual-encoder / F5 cross-modal attn | D | tested → lose to F0 (heavy fusion extracts less than the stack) |
 | EffB3 capacity-down | E | tested → no-win (0.9050); kept as a cheaper deploy fallback only |

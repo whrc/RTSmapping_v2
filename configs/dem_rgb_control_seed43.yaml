@@ -1,0 +1,29 @@
+# ArcticDEM revisit — family D-DEM. RGB-only control on the ArcticDEM-covered subset.
+#
+# Why this arm exists: the only RGB anchor in the ledger (phase4_extra_rgb_baseline,
+# 3-seed 0.8549) predates the locked recipe, so it cannot serve as the comparator for
+# a channel added on top of that recipe. This is RGB-only AT the locked recipe.
+#
+# Why the allowlist: ArcticDEM covers 100% of positive tiles but only 78.3% of
+# negatives (docs/arcticdem_diagnostic.md §4). Missing DEM is all-NaN -> post-norm 0,
+# so a DEM arm could read "DEM absent" as a negative-class prior and clear the gate
+# without using terrain. All four D-DEM arms therefore run on the same 17,796 covered
+# tiles. NOTE: scores in this family are NOT comparable to the 0.9218 full-set SOTA.
+base: base_v2_fast.yaml
+seed: 43
+data:
+  data_root: /outputs/v1.0/data_local
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_arcticdem_ndvi.json
+splits:
+  tile_allowlist: arcticdem_covered_tiles.txt
+channels:
+  rgb: true
+  extra: []
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+  auto_policy: {mode: trivialaugment, magnitude: 1.0}
+mlflow:
+  run_name: dem_rgb_control_seed43

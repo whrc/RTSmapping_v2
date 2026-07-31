@@ -1,0 +1,29 @@
+# ArcticDEM revisit — family D-DEM. RGB + 4 ArcticDEM terrain bands.
+# The §7.2 single-group ablation: does terrain carry signal on its own?
+# Compare against dem_rgb_control (same recipe, same tiles, extra: []).
+#
+# Bands 8-11 live in the 12-band EXTRA_DEM sidecar (data/data.md §9); bands 1-7 there
+# are NaN by construction. Derivatives are in ground metres, not EPSG:3857 map units.
+base: base_v2_fast.yaml
+seed: 44
+data:
+  data_root: /outputs/v1.0/data_local
+  extra_dir: EXTRA_DEM
+  normalization_stats_path: /outputs/v1.0/staging/v1_splits/normalization_stats_arcticdem_terrain.json
+splits:
+  tile_allowlist: arcticdem_covered_tiles.txt
+channels:
+  rgb: true
+  extra:
+    - {name: dem_relev, band: 8}
+    - {name: dem_slope, band: 9}
+    - {name: dem_tpi,   band: 10}
+    - {name: dem_curv,  band: 11}
+loss:
+  boundary_handling: ignore
+  boundary_ignore_width: 2
+augmentation:
+  multi_scale: {p: 0.0}
+  auto_policy: {mode: trivialaugment, magnitude: 1.0}
+mlflow:
+  run_name: dem_rgb_terrain_seed44
