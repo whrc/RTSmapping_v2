@@ -57,11 +57,17 @@ script's header comment for why). No install, no download, opens in a browser.
 
 **No account at all? The public GEE App** (source `post-inference/ee_south_app.js`,
 published at `https://abruptthawmapping.projects.earthengine.app/view/south-rts-map`)
-shows the high-confidence inventory + 95 m likelihood surface to anyone with the
-link — no Earth Engine account, no data access needed. Built from small
-ingested assets only (`south_likelihood_95m`, `south_rts_high_confidence`,
-`south_rts_centroids`), so it loads fast; full-res probability stays in the
-Code Editor script above.
+opens the inventory to anyone with the link — no Earth Engine account, no data
+access needed. It picks the right representation for your zoom: the
+threshold-free 10 km expected-area surface when you are looking at the Arctic,
+detection points in between, and the **nested 0.30 / 0.65 contour pair** once
+outlines mean something (z12+). A minimum-size slider filters on the geodesic
+`area_m2` with a live count/area readout and a retention chart, so you can see
+what any minimum mapping unit — including the legacy `min_blob` 2000 px —
+costs; clicking a detection shows its attributes, including how it shrinks at
+0.45/0.65/0.80. The map state lives in the URL, so a link carries your view and
+your filters. Assets-only (see `south_products.md` §D3 for the list), so it
+loads fast; full-res probability stays in the Code Editor script above.
 
 ## 1. The products (in GCS)
 
