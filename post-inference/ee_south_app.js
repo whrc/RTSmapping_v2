@@ -434,15 +434,16 @@ function syncUrl() {
 // would return an ee.Geometry needing a blocking getInfo() — a server round-trip
 // on every pan, which is exactly what this app promises not to do.
 var syncView = ui.util.debounce(function() {
-  if (!urlReady || !lastCenter) return;
+  if (!urlReady) return;
+  ui.url.set('z', Map.getZoom());
+  if (!lastCenter) return;          // zoomed but never panned — z is still valid
   ui.url.set('lon', Math.round(lastCenter.lon * 1e4) / 1e4);
   ui.url.set('lat', Math.round(lastCenter.lat * 1e4) / 1e4);
-  ui.url.set('z', Map.getZoom());
 }, 900);
 
 function num(key, dflt) {
-  var v = ui.url.get(key, dflt);
-  return typeof v === 'number' ? v : parseFloat(v);
+  var v = parseFloat(ui.url.get(key, dflt));
+  return isNaN(v) ? dflt : v;       // a hand-edited URL must not break startup
 }
 
 // ---------- panel ----------
