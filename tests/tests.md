@@ -660,6 +660,22 @@ with embedded WGS84 outlines + chip COG URIs. GPU-free.
 |---|---|---|
 | `test_rater_embeds_features_and_chip_uris` | FEATURES JSON parses, chip URIs from tile_ids on the usc1 mirror prefix, rings in lon/lat, loadGeoTIFF/Export present | real — generator contract |
 
+### [test_build_ee_app_stats.py](test_build_ee_app_stats.py)
+
+`scripts/build_ee_app_stats.py` — precomputes the public app's MMU retention
+ladders so the size slider needs no server-side aggregation. GPU-free;
+synthetic 9-polygon inventory.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_retention_starts_whole_and_decreases` | MMU 0 keeps every polygon and the whole area; both series monotone non-increasing | real — ladder contract |
+| `test_retention_filter_is_inclusive_at_the_threshold` | `area_m2 >= mmu`, matching `ee.Filter.gte` and `vectorize_region`'s geodesic filter | real — off-by-one guard |
+| `test_tier_series_sum_to_the_whole_inventory` | per-tier ladders sum to the pooled ladder at every step (the disjointness the app relies on to combine tiers client-side) | real — the app's core assumption |
+| `test_non_exhaustive_conf_class_is_rejected` | an unclassified polygon raises rather than silently vanishing from the readout | real — fail-loud |
+| `test_min_blob_ground_area_shrinks_with_latitude` | pixel MMU ground area is `res²·cos²(lat)`; ~7× spread across the domain | real — the latitude-bias claim the panel makes |
+| `test_ladder_carries_arts_p1_and_the_representative_min_blob` | 79 m² and the derived min_blob value are ladder members, so both presets land exactly | real — preset contract |
+| `test_write_js_emits_a_parseable_literal` | `var APP_STATS = {…};` round-trips through JSON.parse equal to the input | real — generator contract |
+
 ### [test_sample_qc_polygons.py](test_sample_qc_polygons.py)
 
 `scripts/sample_qc_polygons.py` — fixed-seed stratified QC sample (n per

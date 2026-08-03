@@ -167,7 +167,46 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**ArcticDEM revisit CLOSED — terrain is real but redundant with NDVI (branch `arcticdem-revisit`,
+**Public GEE app redesigned + the 0.65 contour built as a product (branch `gee-app-redesign`,
+2026-08-03).** The app had three layers and two problems: the 95 m likelihood surface was invisible
+zoomed out and coarse zoomed in, and nothing exposed the threshold or size filtering. Code and data
+are done; **the app itself still needs a manual paste + Update in the Code Editor** — publishing is a
+UI action, so it cannot be scripted from here.
+
+- **Why the 95 m layer failed (one root cause, both symptoms).** Ingested as a continuous raster it
+  gets **MEAN** pyramiding — EE discards the file's own block-max overviews — so zoomed out the mean
+  fell below the layer's own `.gte(0.3)` mask and it erased itself. Retired rather than repaired:
+  MAX pyramiding would make it visible but not quantitative (max-prob over a 10 km screen pixel
+  saturates to ~1.0 wherever one detection exists). The overview is now the threshold-free
+  **10 km expected-area** grid, which is a continuous field and survives pyramiding.
+- **New product `south_rts_t65.gpkg` — 23,682 polygons / 259.91 km²** (19 min on 90 cores, no new
+  code: `vectorize_region.py --threshold 0.65 --min-area-m2 0`). The 0.65 contour existed nowhere as
+  geometry before — candidates are outlined at 0.30 and only carry `area_m2_t65` as a number, and
+  `south_rts.gpkg` has min_blob 2000 px baked in. Two cross-code-path checks: **0 of 23,682** cores
+  fall outside a 0.30 candidate, and Σ`area_m2` agrees with Σ`area_m2_t65` to **+1.08 %**.
+- **A 0.65 cut is really a 0.648 cut.** `int(round(0.65 × 250))` hits Python's round-half-to-even →
+  **162**, not 163. One `scaled_uint8` quantization step (0.004), shared by every 0.65 product. Its
+  one visible consequence: 129 cores (0.54 %) sit in candidates whose `max_prob` is exactly 0.648,
+  which `conf_class` calls `medium` — so the 0.65 layer is **not** a strict subset of
+  `high_confidence`. Recorded in `south_products.md`, not "fixed".
+- **The min_blob answer.** The shipped inventory applies **no MMU at all** (2 px technical floor);
+  `min_blob_size_px: 2000` only ever applied to the legacy `south_rts.gpkg`. And 2000 px is a *pixel*
+  count, so its ground floor slides ≈7× with latitude — **18,860 m² at 50°N → 2,671 m² at 76°N**,
+  and **4,532 m²** at this inventory's median latitude (71.63°N), which is what the app's preset uses.
+- **Three new public EE assets** (`south_rts_candidates`, `south_rts_t65`, `south_density_10km`) via
+  the new `scripts/ingest_ee_app_assets.py`, which pins the shapefile field renames the `.dbf`
+  10-char limit forces (`centroid_lat`/`centroid_lon` collide; `tile_ids` overflows the 254-char cap).
+- **Performance is the app's design constraint, not an afterthought.** Every count and area in the
+  panel comes from ladders precomputed by `scripts/build_ee_app_stats.py` (7 unit tests), so dragging
+  the size slider costs **zero** server round-trips; `.evaluate()` survives in one place, the click
+  inspector. Outlines use `paint()` not `style()`; only the density layer paints at the opening zoom;
+  the zoom handler returns early within a band.
+- **Noted, not acted on:** every EE call warns that `pdg-project-406720` *"has exceeded the compute
+  quota of its noncommercial tier and is currently in restricted mode"*. Ingestion tasks still ran
+  fine. The published app runs under `abruptthawmapping`, not pdg, so viewer compute should be
+  unaffected — but this is worth a look before any EE-heavy work.
+
+Prior: **ArcticDEM revisit CLOSED — terrain is real but redundant with NDVI (branch `arcticdem-revisit`,
 8 runs, 2026-07-31).** ArcticDEM had been dropped at the channel-design stage on 2026-05-02 and **never
 trained**; this tested it as the last physically-distinct modality (terrain, not spectra). Full numbers
 and design in ledger Finding **§D-DEM**; availability facts in `docs/arcticdem_diagnostic.md`.

@@ -32,6 +32,7 @@ four access forms:
 | `south_rts_high_confidence.gpkg` | `rts_class = 'high_confidence'` only | "just show me the slumps" — zero-decision fact map (model-derived tier, not human-verified) |
 | `south_rts_centroids.gpkg` | representative point per polygon | pan-Arctic-zoom browsing; web maps |
 | `south_rts_attributes.csv` / `.parquet` | attribute table, no geometry | pandas/R/Excel statistics, no GIS |
+| `south_rts_t65.gpkg` | the same probabilities re-cut at 0.65, MMU≈0 (see below) | the 0.65 contour as geometry — nested inside the 0.30 outlines |
 
 Attributes: `rts_id`, `conf_class`, `rts_class`, `max_prob`, `mean_prob`,
 `area_m2`, `perimeter_m` (geodesic, WGS84 ellipsoid — never measure in 3857),
@@ -75,6 +76,30 @@ The original `south_rts.gpkg` (thr 0.65, min_blob 2000 px, 10,984 polygons /
 `south_rts_high_confidence` supersedes the interim `south_rts_high.gpkg` and
 the briefly-shipped `south_rts_confirmed.gpkg` (both deleted; 'confirmed' was
 renamed 2026-07-17 — it wrongly implied human verification).
+
+**`south_rts_t65.gpkg` — the 0.65 core outlines** (built 2026-08-03 for the
+public GEE app): **23,682 polygons / 259.91 km²**, the same probability shards
+re-cut at threshold 0.65 with **no MMU** (`vectorize_region.py --threshold 0.65
+--min-area-m2 0`, 2 px technical floor), carrying the same attribute schema.
+This is the *geometry* of the 0.65 contour, which nothing else in the family
+has: the candidate polygons are outlined at 0.30 and only carry `area_m2_t65`
+as a number, and `south_rts.gpkg` is the 0.65 cut with min_blob 2000 px already
+baked in. Pairing it with the 0.30 outlines gives a nested contour pair.
+
+Two checks at build time, both across independent code paths:
+`{p≥0.65} ⊆ {p≥0.30}` holds exactly — **0 of 23,682** cores fall outside a
+candidate polygon; and Σ`area_m2` = 259.91 km² against Σ`area_m2_t65` = 257.13
+km² over the candidates (**+1.08%**), the polygonized boundary versus the
+pixel-fraction estimator agreeing to about a percent.
+
+**A 0.65 cut is really a 0.648 cut.** `_polygonize_block` binarizes at
+`int(round(thr × 250))`, and Python rounds halves to even, so `round(162.5)` =
+**162** — decoded 0.648, not 0.650. That is one `scaled_uint8` quantization
+step (1/250 = 0.004), below what the raster can resolve, and every 0.65 product
+shares it (`south_mask`, `south_rts.gpkg`, `south_rts_t65.gpkg`). Its one
+visible consequence: 129 cores (0.54%) sit inside candidate polygons whose
+`max_prob` is exactly 0.648, which `conf_class` therefore calls `medium` — so
+the 0.65 core layer is **not** a strict subset of `high_confidence`.
 
 **QC artifacts** (kept for reproducibility and v3): `qc_sample.gpkg` (280
 stratified polygons, rated), `qc_ratings.csv` (the verdicts, also uploaded to
@@ -127,6 +152,27 @@ mass ordering is 238 km² @0.65 mask < 688 km² @0.30 MMU≈0 outlines <
 | `arcgis_south_products.md` | how to open everything in ArcGIS Pro (+ GEE viewer) |
 | `south_rts_summary.md` / `.html` | factsheet: totals, size distribution vs ARTS v6, latitude distribution, hotspot figure, measured precision grid |
 | `deliverables/README.md` (repo) / `products/README.md` (GCS) | ADC/PDG handover: minimized submission manifest, WMTS tiling convention, dataset + file-level metadata |
+
+**Earth Engine assets** — public, under `projects/pdg-project-406720/assets/`.
+Ingested by `scripts/ingest_ee_app_assets.py` (which pins the shapefile field
+renames the `.dbf` 10-char limit forces — `centroid_lat`/`centroid_lon` would
+otherwise collide, and `tile_ids` overflows the 254-char text cap and is
+dropped).
+
+| Asset | Source | Used by |
+|---|---|---|
+| `south_rts_candidates` | `south_rts_candidates.gpkg` | app — 0.30 contour, points, inspector |
+| `south_rts_t65` | `south_rts_t65.gpkg` | app — 0.65 core contour |
+| `south_density_10km` | `density_10km_expected_m2.tif` (MEAN pyramiding) | app — zoomed-out overview |
+| `south_rts_centroids` | `south_rts_centroids.gpkg` | app — mid-zoom points |
+| `south_rts_high_confidence`, `south_likelihood_95m`, `south_mask`, `south_rts` | earlier cuts | `ee_south_viewer.js`; kept for provenance, **not used by the app** |
+
+`south_likelihood_95m` is retired *from the app*: ingested as a continuous
+raster it gets MEAN pyramiding, so zoomed out its mean fell below the app's own
+`.gte(0.3)` mask and the layer erased itself. Re-ingesting with MAX pyramiding
+would make it visible but not quantitative (max-prob over a 10 km screen pixel
+saturates to ~1.0 wherever one detection exists), so the overview is the
+threshold-free density grid instead.
 
 ## Caveats (read before using any product)
 
