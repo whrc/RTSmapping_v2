@@ -1,0 +1,227 @@
+<!doctype html><meta charset="utf-8"><title>RTS review campaign</title>
+<!--
+  The campaign rating UI. Descends from scripts/build_qc_rating_page.py's
+  offline page (same keys, same two-crop layout, same localStorage safety net)
+  with the three things a multi-reviewer census needs: batches claimed from the
+  server, image prefetch so rating is never blocked on a download, and a
+  submit-once-per-batch handoff.
+
+  Spec: post-inference/review_campaign.md
+-->
+<style>
+body{font-family:system-ui,sans-serif;background:#191919;color:#eee;margin:0;
+     display:flex;flex-direction:column;align-items:center}
+#bar{display:flex;gap:10px;align-items:center;margin:6px;flex-wrap:wrap}
+#imgs{display:flex;gap:8px;margin:6px}
+#imgs img{width:44vw;max-width:560px;image-rendering:auto;border:1px solid #444;
+          background:#000;aspect-ratio:1}
+button{font-size:15px;padding:6px 14px;cursor:pointer}
+button:disabled{opacity:.4;cursor:default}
+.v-rts{background:#2a78d6;color:#fff}.v-false{background:#666;color:#fff}
+.v-unsure{background:#eda100;color:#000}
+#meta{font-size:15px}#status,#campaign{color:#aaa;font-size:13px}
+kbd{background:#333;border-radius:3px;padding:1px 5px}
+#track{width:96vw;max-width:1140px;height:6px;background:#333;border-radius:3px}
+#fill{height:100%;width:0;background:#2a78d6;border-radius:3px}
+</style>
+
+<div id="bar">
+  <span id="meta">loading…</span>
+  <button class="v-rts" onclick="rate('rts')">RTS <kbd>1</kbd></button>
+  <button class="v-false" onclick="rate('false')">false <kbd>2</kbd></button>
+  <button class="v-unsure" onclick="rate('unsure')">unsure <kbd>3</kbd></button>
+  <button onclick="nav(-1)">◀ <kbd>←</kbd></button>
+  <button onclick="nav(1)">▶ <kbd>→</kbd></button>
+  <button onclick="toggleOutline()"><span id="outline">outline: on</span>
+    <kbd>o</kbd></button>
+  <button id="submit" onclick="submitBatch()" style="background:#0a0" disabled>
+    SUBMIT batch</button>
+</div>
+<div id="track"><div id="fill"></div></div>
+<div id="imgs"><img id="tight" alt="tight crop"><img id="wide" alt="wide crop"></div>
+<div id="bar"><span id="status"></span> · <span id="campaign"></span></div>
+
+<script>
+var PREFETCH = 5;          // items ahead to warm the browser cache
+var HEARTBEAT_MS = 60000;  // keep our claim alive while the batch is open
+
+var reviewer = null, authenticated = false;
+var batch = null, items = [], idx = 0, verdicts = {}, prefetched = [];
+
+// Behind IAP the server knows who this is from the signed assertion and
+// ignores anything we send, so don't ask. Only prompt when there is no
+// authenticated identity (local runs, the offline pack).
+async function identify() {
+  var stored = localStorage.getItem('reviewer') || '';
+  var r = await fetch('/api/me?reviewer=' + encodeURIComponent(stored));
+  var me = await r.json();
+  authenticated = me.authenticated;
+  reviewer = me.reviewer;
+  if (!reviewer) {
+    while (!reviewer) { reviewer = (prompt('Your name (used to attribute verdicts):') || '').trim(); }
+    localStorage.setItem('reviewer', reviewer);
+  }
+}
+
+function bufKey(b) { return 'verdicts:' + b; }
+function saveBuf() { localStorage.setItem(bufKey(batch), JSON.stringify(verdicts)); }
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+// --- loading a batch ------------------------------------------------------
+async function openBatch(data) {
+  batch = data.batch_id;
+  items = data.items;
+  if (batch === null) {
+    setStatus('');
+    document.getElementById('meta').textContent =
+        'Campaign complete — every batch has been reviewed. Thank you!';
+    document.getElementById('submit').disabled = true;
+    return;
+  }
+  verdicts = JSON.parse(localStorage.getItem(bufKey(batch)) || '{}');
+  localStorage.setItem('open_batch', batch);
+  idx = 0;
+  while (idx < items.length - 1 && verdicts[items[idx].rts_id]) idx++;  // resume
+  prefetched = [];
+  show();
+  refreshCampaign();
+}
+
+async function claimNext() {
+  setStatus('claiming a batch…');
+  var r = await fetch('/api/next?reviewer=' + encodeURIComponent(reviewer));
+  openBatch(await r.json());
+}
+
+async function start() {
+  await identify();
+  // An unsubmitted batch in localStorage outranks a new claim: never abandon
+  // work that was rated but not yet sent.
+  var open = localStorage.getItem('open_batch');
+  if (open) {
+    var r = await fetch('/api/batch/' + open);
+    if (r.ok) { openBatch(await r.json()); return; }
+    // 409: someone else finished it while we were away (our claim went stale).
+    setStatus('batch ' + open + ' was completed by another reviewer — ' +
+              'your unsent verdicts for it were discarded.');
+    localStorage.removeItem(bufKey(open));
+    localStorage.removeItem('open_batch');
+  }
+  claimNext();
+}
+
+// --- rating ---------------------------------------------------------------
+// The outline is burned into the JPEG, so toggling swaps to a separately
+// rendered copy of the same imagery rather than hiding anything client-side.
+// Sticky across items and reloads: judging a whole batch unoutlined is a
+// deliberate mode, not a per-item peek.
+var outlineOn = localStorage.getItem('outline_off') !== '1';
+
+function toggleOutline() {
+  outlineOn = !outlineOn;
+  localStorage.setItem('outline_off', outlineOn ? '0' : '1');
+  show();
+}
+
+function show() {
+  var f = items[idx];
+  document.getElementById('tight').src =
+      outlineOn ? f.tight_url : (f.tight_plain_url || f.tight_url);
+  document.getElementById('wide').src =
+      outlineOn ? f.wide_url : (f.wide_plain_url || f.wide_url);
+  document.getElementById('outline').textContent =
+      'outline: ' + (outlineOn ? 'on' : 'off');
+  var n = Object.keys(verdicts).length;
+  // The model's probability is deliberately NOT shown: a reviewer told the
+  // model is 99% sure is primed to agree, and this pass exists to measure the
+  // model, not to confirm it. Size is neutral orientation.
+  document.getElementById('meta').textContent =
+      batch + ' · ' + (idx + 1) + '/' + items.length +
+      ' · ' + Math.round(f.area_m2) + ' m²' +
+      ' · verdict: ' + (verdicts[f.rts_id] || '—');
+  document.getElementById('fill').style.width =
+      (100 * n / items.length) + '%';
+  document.getElementById('submit').disabled = n < items.length;
+  setStatus(n + '/' + items.length + ' rated (saved locally on every keystroke)'
+            + (n === items.length ? ' — ready to SUBMIT' : ''));
+  prefetch();
+}
+
+function prefetch() {
+  for (var k = idx + 1; k <= idx + PREFETCH && k < items.length; k++) {
+    if (prefetched[k]) continue;
+    prefetched[k] = true;
+    // Warm whichever pair is actually on screen; the other set is fetched on
+    // demand when the toggle flips (and cached from then on).
+    [outlineOn ? items[k].tight_url : items[k].tight_plain_url,
+     outlineOn ? items[k].wide_url : items[k].wide_plain_url]
+      .forEach(function (u) { if (u) { var im = new Image(); im.src = u; } });
+  }
+}
+
+function rate(v) {
+  if (!items.length) return;
+  verdicts[items[idx].rts_id] = v;
+  saveBuf();
+  if (idx < items.length - 1) nav(1); else show();
+}
+
+function nav(d) {
+  idx = Math.max(0, Math.min(items.length - 1, idx + d));
+  show();
+}
+
+// --- submitting -----------------------------------------------------------
+async function submitBatch() {
+  document.getElementById('submit').disabled = true;
+  setStatus('submitting ' + batch + '…');
+  var r = await fetch('/api/batch', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewer: reviewer, batch_id: batch,
+                          verdicts: verdicts})
+  });
+  if (!r.ok) {
+    setStatus('submit failed (' + r.status + ') — your verdicts are still ' +
+              'saved locally; press SUBMIT again.');
+    document.getElementById('submit').disabled = false;
+    return;
+  }
+  var res = await r.json();
+  if (!res.written) setStatus('batch was already submitted by someone else.');
+  localStorage.removeItem(bufKey(batch));
+  localStorage.removeItem('open_batch');
+  claimNext();
+}
+
+// --- campaign status ------------------------------------------------------
+async function refreshCampaign() {
+  var p = await (await fetch('/api/progress')).json();
+  var head = p.headline_max_prob === null ? '—'
+             : 'every polygon with p ≥ ' + p.headline_max_prob.toFixed(3) +
+               ' reviewed';
+  document.getElementById('campaign').textContent =
+      (reviewer || '?') + (authenticated ? '' : ' (unverified)') + ' · ' +
+      'campaign: ' + p.items_done.toLocaleString() + '/' +
+      p.items_total.toLocaleString() + ' polygons · ' +
+      p.area_km2_done.toFixed(1) + '/' + p.area_km2_total.toFixed(1) + ' km² · ' +
+      p.batches_done + '/' + p.batches_total + ' batches · ' + head;
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === '1') rate('rts');
+  else if (e.key === '2') rate('false');
+  else if (e.key === '3') rate('unsure');
+  else if (e.key === 'ArrowLeft') nav(-1);
+  else if (e.key === 'ArrowRight') nav(1);
+  else if (e.key === 'o' || e.key === 'O') toggleOutline();
+});
+setInterval(function () {
+  if (batch) fetch('/api/heartbeat', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewer: reviewer, batch_id: batch})
+  });
+}, HEARTBEAT_MS);
+
+start();
+</script>

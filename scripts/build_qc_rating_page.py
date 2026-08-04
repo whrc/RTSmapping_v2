@@ -20,69 +20,26 @@ from __future__ import annotations
 
 import argparse
 import base64
-import io
 import json
 import logging
 import sys
 from pathlib import Path
 
 import geopandas as gpd
-import numpy as np
 import rasterio
-from rasterio import windows
-from rasterio.enums import Resampling
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from review.crops import crop_bounds, render_crop  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-TIGHT_MIN_M, TIGHT_PAD = 250.0, 3.0    # tight view: 3× feature, ≥250 m
-WIDE_MIN_M, WIDE_PAD = 1500.0, 10.0    # wide view: 10× feature, ≥1.5 km
 
-
-def _crop_bounds(b: tuple) -> tuple[tuple, tuple]:
-    """(tight, wide) square crop bounds centred on the feature bbox."""
-    cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
-    ext = max(b[2] - b[0], b[3] - b[1])
-
-    def sq(side):
-        h = side / 2
-        return (cx - h, cy - h, cx + h, cy + h)
-
-    return (sq(max(TIGHT_MIN_M, ext * TIGHT_PAD)),
-            sq(max(WIDE_MIN_M, ext * WIDE_PAD)))
-
-
-def _render_crop(src, geoms, crop, png_px: int) -> str:
-    """Windowed read of the chip mosaic → PNG data-URI with outlines drawn."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    win = windows.from_bounds(*crop, transform=src.transform)
-    img = src.read(out_shape=(src.count, png_px, png_px), window=win,
-                   boundless=True, fill_value=0,
-                   resampling=Resampling.bilinear)
-    fig = plt.figure(figsize=(png_px / 100, png_px / 100), dpi=100)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.imshow(np.moveaxis(img, 0, -1), extent=(crop[0], crop[2], crop[1],
-                                               crop[3]))
-    for g in geoms:
-        parts = g.geoms if g.geom_type.startswith("Multi") else [g]
-        for p in parts:
-            x, y = p.exterior.xy
-            ax.plot(x, y, color="red", linewidth=1.4)
-    ax.set_xlim(crop[0], crop[2])
-    ax.set_ylim(crop[1], crop[3])
-    ax.axis("off")
-    buf = io.BytesIO()
-    # JPEG: photographic chips compress ~7x vs PNG — keeps the single-file
-    # page browser-friendly (280 polygons × 2 crops)
-    fig.savefig(buf, format="jpg", dpi=100, pil_kwargs={"quality": 82})
-    plt.close(fig)
-    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+def _data_uri(src, geoms, crop, png_px: int) -> str:
+    """Rendered crop as an inline data-URI — this page embeds its imagery."""
+    return ("data:image/jpeg;base64,"
+            + base64.b64encode(render_crop(src, geoms, crop, png_px)).decode())
 
 
 _HTML = """<!doctype html><meta charset="utf-8"><title>RTS QC rater (offline)</title>
@@ -165,12 +122,12 @@ def build_page(sample_gpkg: str, chips_vrt: str, out_html: str,
     items = []
     with rasterio.open(chips_vrt) as src:
         for _, r in gdf.iterrows():
-            tight, wide = _crop_bounds(r.geometry.bounds)
+            tight, wide = crop_bounds(r.geometry.bounds)
             items.append({
                 "id": int(r["rts_id"]), "cls": str(r["conf_class"]),
                 "a": float(r["area_m2"]),
-                "t": _render_crop(src, [r.geometry], tight, png_px),
-                "w": _render_crop(src, [r.geometry], wide, png_px),
+                "t": _data_uri(src, [r.geometry], tight, png_px),
+                "w": _data_uri(src, [r.geometry], wide, png_px),
             })
     html = _HTML.replace("__ITEMS__", json.dumps(items))
     Path(out_html).write_text(html)
