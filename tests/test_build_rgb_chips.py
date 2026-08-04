@@ -107,3 +107,28 @@ def test_write_rgb_chip_is_georeferenced_uint8_and_matches_quad_values(tmp_path)
     assert (arr[0] == 10).all()
     assert (arr[1] == 20).all()
     assert (arr[2] == 30).all()
+
+
+def test_chip_write_is_atomic(tmp_path, monkeypatch):
+    """Resume skips any tile whose file exists, so a half-written chip would be
+    skipped forever. A failed write must leave nothing behind."""
+    import rasterio as rio
+
+    from scripts import build_rgb_chips as brc
+
+    real_open = rio.open
+
+    def exploding_open(path, mode="r", **kw):
+        if mode == "w":
+            raise OSError("disk full")
+        return real_open(path, mode, **kw)
+
+    monkeypatch.setattr(brc.rasterio, "open", exploding_open)
+    out = tmp_path / "t0_0.tif"
+    monkeypatch.setattr(brc, "read_tile",
+                        lambda *a, **k: (np.zeros((3, 8, 8), "uint8"),
+                                         np.zeros((8, 8), bool)))
+    with pytest.raises(OSError):
+        brc.write_rgb_chip("t0_0", (0.0, 0.0, 10.0, 10.0), None, str(out))
+    assert not out.exists()
+    assert list(tmp_path.glob("*.partial")) == []

@@ -167,6 +167,140 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
+**Collaborative review campaign built — a 2–3 person team can now traverse all 60,167 candidates
+(branch `review-campaign`, 2026-08-03).** The South inventory has no human verification; everything
+in `south_products.md` traces back to one 280-polygon stratified sample. This builds the machinery to
+replace that extrapolation with a census. Protocol SSoT: `post-inference/review_campaign.md`.
+
+- **Queue ordered by descending `max_prob`**, so the campaign's claim at any moment is *"every
+  polygon with `max_prob ≥ p` is human-reviewed"* — a statement in the attribute the product family
+  already exposes, and one that holds at any stopping point (60,167 items ≈ 134 person-hours, so
+  stopping early is the expected case, not the failure case). Item order is shuffled *within* each
+  batch against rater response bias; the reviewer brief says plainly that the head of the queue is
+  **not** the precision peak (caveat 1: precision peaks at 0.65 and falls above it).
+- **Assignment reuses `inference/claim.py` unchanged** — the same `if_generation_match=0` atomic
+  claim, heartbeat and stale-reclaim that ran the pan-Arctic inference queue. A review batch is
+  claimed exactly like an inference shard, so two reviewers can never get one batch and a
+  walked-away reviewer's batch returns to the pool.
+- **No imagery ever lands on the host.** Crops are streamed out of the bucket through the app
+  (`/crop/<key>`, prefix-checked so it cannot read anything else); nothing is written to disk. FastAPI
+  + the existing keyboard UI rather than Gradio.
+- **The blocker found on the way: the chip archive covered only 29.9% of the inventory.**
+  `internal/rgb_chips/` (29,850 chips) was built for the 10,984-polygon 0.65 product, not the 60,167
+  candidates, which reference **118,586** tiles — so 17,980 of 60,167 polygons (452 of 688 km²) had
+  imagery and the rest would have been served blank crops. Fixed by re-running
+  `build_rgb_chips.py` against `south_rts_candidates.gpkg`; the script gained `--workers`,
+  skip-existing resume, an atomic write-then-rename (resume skips existing files, so a truncated
+  chip would be skipped forever), and a `-input_file_list` VRT build (118k paths overflow argv).
+  **88,736 chips written in 13 min at 64 workers, 0 errors.** The crop archive that followed is
+  **120,334 JPEGs / 3.2 GB with only 20 polygons (0.03%) lacking imagery**, versus the ~70% the old
+  archive would have produced.
+- **Crop rendering was 53× too slow until indexed.** Reading a crop from the 29,850-source mosaic VRT
+  costs ~2.1 s because GDAL scans the source list per window — 62 h for the archive. `chip_index`
+  parses the VRT once and each crop is read from a micro-VRT of the 2–3 chips it touches: 0.070
+  s/polygon of worker time — the full 60,167 rendered in ~7 min on 90 workers.
+- **Two real bugs the tests caught before any data moved**: a replicate clamped into its own batch
+  (one `rts_id` twice in a batch, which a verdict map keyed by id cannot represent), and a blank-crop
+  detector that counted antialiased red outline as imagery — replaced by a source-pixel probe.
+- **76 new unit tests** — 75 across 5 new files (crops/manifest/store/app/merge) plus a chip-write
+  atomicity regression. Full suite **456 → 532 passed, 2 skipped**.
+- **Verified beyond the suite**, all on real artifacts: the refactored offline rater rebuilds the
+  shipped `qc_rater.html` to a **byte-identical MD5**; the claim loop runs against real GCS
+  (claim → heartbeat → 200-verdict submit → idempotent retry → 409 → progress); replaying the 2026-07
+  ratings through the merge reproduces their **65 rts / 152 false / 63 unsure** split and writes the
+  60,167-row verified layer with the 59,887 unreviewed polygons null; and `score_qc_ratings.py`
+  reproduces the published `qc_precision_grid.csv` byte-identically.
+
+**Host: Cloud Run behind IAP — and a corrected premise.** The host was first chosen on throughput
+grounds (per-item round-trips ≈ 100 person-hours), and that reasoning was **wrong**: the rating loop
+is entirely client-side — `rate()`/`nav()`/`show()` make no network calls, `/api/next` returns all 200
+items at once, verdicts buffer in `localStorage`, one POST submits. Rating itself is **zero
+requests**. The real bottleneck is the human judgement, as the user pointed out, so the decision was
+re-made on cost, credentials and setup:
+
+- **~$0** (Cloud Run free tier covers the traffic, scales to zero) vs $9/mo HF PRO or ~$13/mo VM.
+- **No service-account key, and no signing permission either.** Crops are streamed through the app,
+  so the runtime SA needs only `objectViewer`/`objectCreator` on the one bucket — see the permission
+  wall below, which is what forced this.
+- **Direct IAP** (GA 2026, no load balancer): reviewers sign in with their existing Woodwell Google
+  accounts, and **verdict attribution becomes authenticated** rather than a typed name — it feeds the
+  inter-rater κ, so a client-supplied name is now ignored whenever an assertion is present, and a
+  forged assertion is a 401, never a silent fallback.
+- Claiming is already atomic in GCS, so the app is **safe to autoscale by construction**.
+
+Since 2026 HF requires a paid plan for any compute Space; only static Spaces are free, and a static
+Space cannot hold credentials (its *secrets* are readable from the browser). `build_hf_space.sh`
+keeps that path working as a documented fallback. Comparison: `review_campaign.md` §10.1.
+
+Verified locally: one image serves `PORT=8080` (Cloud Run) and the default 7860 (HF); `/api/me`
+behaves in all three identity cases; a **forged assertion is rejected with 401 against Google's real
+key server**. 21 tests in the app suite.
+
+**The deploy hit a permission wall, and half of it was designed away.** The first run of
+`deploy_cloud_run.sh` failed on `iam.serviceAccounts.setIamPolicy`. Probing the project showed the
+shortfall is general: the operating account holds **no `setIamPolicy` of any kind** here — not on the
+service account, not on the Cloud Run service, not on IAP — though it *can* create service accounts,
+build, deploy, and administer the bucket (`review_campaign.md` §10.3 has the full table).
+
+- **Signing is gone rather than waited on.** It was the only thing needing the refused SA binding, so
+  crops now stream through the app instead. This also removes the one link that could never be tested
+  off-platform: the container was run against the **real bucket** and served a real crop (560×560
+  JPEG, 30,647 bytes, HTTP 200) on `objectViewer` alone, while the manifest, a `..` traversal and a
+  missing crop each returned 404. Bonus: a signed URL is a bearer token, so proxying also puts the
+  licence-restricted crops behind the same auth as everything else. Cost is 169 ms/crop measured from
+  outside the bucket's region, against ~8 s/item of human judgement, five prefetched ahead.
+- **The IAP brand — the prerequisite flagged as possibly needing an admin — already exists.** Moot.
+- **A third wall at the image push:** Cloud Build runs as the compute default SA, which cannot write
+  to `pdg-artifact-registry`. The operating account can, so the script now builds locally and pushes
+  directly — Cloud Build is out of the path, and the deployed image is byte-for-byte the tested one.
+- **Two bindings genuinely need an admin** and cannot be designed away, because they *are* the access
+  control: IAP service agent → `run.invoker`, and each reviewer → `iap.httpsResourceAccessor`. The
+  script no longer aborts on them; it completes the deploy and reprints each refused binding verbatim
+  for whoever holds project admin.
+
+Cloud Run deployed and proven to run there (<https://rts-review-bl6ow4qsaa-uw.a.run.app>, revision
+`rts-review-00001`, `Ready`, IAP on): its logs show the container starting under `rts-review-app@` and
+reading the campaign with just the bucket roles — *"campaign loaded: 60467 items in 301 batches"*.
+But it is unreachable, and **"just make it public" turns out to be the same wall**: tried, and
+`--allow-unauthenticated` is `roles/run.invoker` for `allUsers`, refused by the identical
+`run.services.setIamPolicy`. There is no way to open a Cloud Run service from this account.
+
+**Live for the team on an open VM instead — <http://8.229.247.193/> (2026-08-04).** A VM's front door
+is a firewall rule, not an IAM policy, and firewall rules the operators *do* control. So
+`scripts/deploy_review_vm.sh` builds `rts-review-vm` (`e2-small`, `us-west1-a`, static IP, tag
+`rts-review` open on `tcp:80` to `0.0.0.0/0`), shipping the image through the campaign bucket because
+granting the VM's SA registry access would be yet another blocked IAM write. Verified over the public
+IP: rater page 200, **301 batches / 60,167 items**, a crop served as a 30,647-byte JPEG, the manifest
+still 404 through `/crop`, and no batch claimed during the checks. **Reviewers need only the link** —
+no account, no install, no SSH.
+
+The trade, taken with the user's eyes open: **no authentication** (the unlisted URL *is* the access
+control), **self-declared attribution** — so κ means "these two names disagreed", not a verified
+identity — and **no TLS** on a bare IP. Cloud Run stays deployed and IAP-fronted; both hosts read the
+same GCS state, so if an admin ever runs the four refused bindings, switching hosts is just a
+different URL and the queue carries over untouched.
+
+**First real batch landed 2026-08-04** — `b00000`, 200/200 rated and submitted, 15.30 km², claim →
+verdicts → `done` all correct in GCS, and the 7 items rated into `b00001` stayed in the browser
+exactly as designed (nothing partial is ever written). Two changes the user asked for off the back of
+it:
+
+- **A claim never expires** (`STALE_AFTER_S = inf`). The inference queue reclaimed a shard after 30
+  min because a crashed worker's shard was pure loss; a reviewer is not a crashed worker — their
+  part-rated batch is in `localStorage` and still good tomorrow, and reclaiming it would have the
+  same 200 polygons rated twice. Cost: a genuinely abandoned batch is stranded until released by
+  hand, so `review_campaign.md` §6.1 now documents that (delete the claim object, after checking with
+  the holder).
+- **An outline toggle** (`o`, or the button). The red outline is drawn *into* the pixels by
+  `render_crop`, so this could not be a client-side switch — the archive now carries four JPEGs per
+  polygon instead of two (`_t_plain` / `_w_plain`, +3 GB) and the toggle swaps between them. Sticky
+  across items and reloads, so judging a batch unoutlined is a deliberate mode, not a per-item peek.
+
+**Open — nothing blocking.** The campaign can start now. One measurement gap worth knowing:
+`reviewed_at` is stamped once at submit, identical across a batch's 200 rows, so per-item pace is not
+recoverable from the verdicts — only batch pace (claim → submit).
+
+Prior: 
 **Public GEE app redesigned + the 0.65 contour built as a product (branch `gee-app-redesign`,
 2026-08-03).** The app had three layers and two problems: the 95 m likelihood surface was invisible
 zoomed out and coarse zoomed in, and nothing exposed the threshold or size filtering. Code and data

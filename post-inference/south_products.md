@@ -44,7 +44,7 @@ real RTS can contain NoData), `detection_scale`, `tile_ids`.
 
 **Confidence tiers** (by `max_prob`, inclusive bounds — SSoT
 `scripts/export_south_products.py:TIER_BOUNDS`) with **measured South QC
-precision** (2026-07 stratified rating, 279 verdicts, 63 unsure excluded;
+precision** (2026-07 stratified rating, 280 verdicts, 63 unsure excluded;
 `qc_precision_grid.csv` has the full tier × size grid with Wilson CIs):
 
 | Tier | max_prob | South QC precision (by size band) |
@@ -174,6 +174,38 @@ would make it visible but not quantitative (max-prob over a 10 km screen pixel
 saturates to ~1.0 wherever one detection exists), so the overview is the
 threshold-free density grid instead.
 
+### D4 — Human-verified inventory (review campaign)
+
+A 2–3 person team is traversing **all 60,167 candidate polygons** and recording a
+`rts`/`false`/`unsure` verdict on each, replacing the sampled precision estimates
+above with a census. Protocol SSoT: `post-inference/review_campaign.md`; this
+entry is the catalog's pointer to it.
+
+The queue is ordered by descending `max_prob`, so the campaign's claim at any
+moment is **"every polygon with `max_prob ≥ p` is human-reviewed"** — see the
+`review_agreement.json` report for the current `p`. It is stoppable at any point:
+unreviewed polygons carry a null verdict and are excluded from the verified cut.
+
+| File | What | Status |
+|---|---|---|
+| `internal/rgb_chips/` + `rgb_chips.vrt` | the RGB chip mosaic, **rebuilt 2026-08-03 from 29,850 → 118,586 chips (60.7 GiB)**: it had been cut for the 10,984-polygon 0.65 product and covered only 29.9% of the 0.30 candidates | `scripts/build_rgb_chips.py --gpkg south_rts_candidates.gpkg --workers 64` |
+| `internal/review_crops/<rts_id>_{t,w}.jpg` | two rendered crops per polygon (tight ~3× feature, wide ~1.5 km), red outline burned in — **120,334 JPEGs / 3.2 GB**, 20 polygons (0.03%) without imagery (`no_imagery.csv`) | built by `scripts/build_review_crops.py`; **`internal/`, not `products/`** — PlanetScope-derived, not for redistribution |
+| `review/manifest.parquet` | the queue: 60,467 items (60,167 coverage + 300 injected replicates) in 301 batches of 200 | built by `scripts/build_review_manifest.py`, deterministic |
+| `review/verdicts/<batch_id>.jsonl` | one immutable file per completed batch | written by the review app as the campaign runs |
+| `south_rts_verified.gpkg` | candidates + `qc_verdict`, `n_reviews`, `reviewers`, `agreement`, `reviewed_at` | produced by `scripts/merge_review_verdicts.py`; re-run any time |
+| `south_rts_verified_true.gpkg` | `qc_verdict = 'rts'` — the human-verified inventory | ditto |
+| `qc_false_hard_negatives.gpkg` | every `false` — supersedes the 152-polygon v3 hard-negative seed | ditto |
+| `review_agreement.json` | coverage, per-reviewer counts, Cohen's κ on ~300 cross-reviewer replicate pairs, and the confusion matrix against the 2026-07 pass | ditto |
+
+`review_verdicts.csv` is shaped exactly like `qc_ratings.csv`, so
+`scripts/score_qc_ratings.py` re-derives the tier × size precision grid from the
+census with no change — at which point the Wilson intervals in the table above
+collapse and caveats 2 and 3 are superseded **for reviewed polygons**.
+
+Reviewing is a **precision** pass over what the model found. It does not look for
+missed slumps, so caveat 7's "recall on 2025 imagery is unmeasurable" stands
+regardless of how far the campaign gets.
+
 ## Caveats (read before using any product)
 
 1. **Precision is NOT monotonic in threshold.** Object precision *peaks* at
@@ -184,7 +216,7 @@ threshold-free density grid instead.
    precision is 0.54–0.90 depending on size band. `medium`/`low` are triage
    pools: at best every second, at worst almost no polygon is real. Use them
    for prospecting and recall-sensitive analyses only.
-3. **23% of QC verdicts were `unsure`** (63/279) — excluded from the precision
+3. **23% of QC verdicts were `unsure`** (63/280) — excluded from the precision
    numbers, which therefore carry an extra uncertainty band (true precision
    lies between the all-false and all-rts extremes). The QC sample is
    stratified per (tier × size) cell, so pooled rates are *not* map-level

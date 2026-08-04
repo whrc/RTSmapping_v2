@@ -55,8 +55,8 @@ def test_tiny_polygon_gets_minimum_context_window(tmp_path):
     ~250 m so the feature has context; the wide view floors at ~1500 m
     (clamped to the mosaic)."""
     sample, chips = _fixture(tmp_path)
-    from scripts.build_qc_rating_page import _crop_bounds
-    tight, wide = _crop_bounds((1200, 1200, 1230, 1230))
+    from review.crops import crop_bounds
+    tight, wide = crop_bounds((1200, 1200, 1230, 1230))
     assert tight[2] - tight[0] >= 250.0
     assert wide[2] - wide[0] >= 1500.0
     # both stay centred on the polygon

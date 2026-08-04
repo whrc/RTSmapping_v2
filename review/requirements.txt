@@ -1,0 +1,14 @@
+# Review campaign app only — deliberately tiny. No torch, no rasterio, no
+# geopandas: the app never touches imagery or geometry, it serves signed URLs
+# over a manifest, so the Space image stays a few hundred MB rather than 30 GB.
+#
+# Pinned to requirements_frozen.txt, which is the repo's version SSoT. The
+# unit tests ran inside rts-train:v2, whose fastapi/uvicorn/pydantic are a
+# patch release ahead and pandas/pyarrow behind — no API used here differs
+# across those, and the endpoint tests pass on both.
+fastapi==0.136.1
+uvicorn==0.46.0
+pydantic==2.13.3
+pandas==2.3.3
+pyarrow==23.0.1
+google-cloud-storage==3.10.1

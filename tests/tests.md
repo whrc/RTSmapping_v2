@@ -651,6 +651,11 @@ per-polygon tile loads were the rating bottleneck. GPU-free.
 | `test_page_embeds_images_and_rating_machinery` | 2 data-URI crops per polygon; ITEMS JSON; localStorage/keydown/export tokens | real — generator contract |
 | `test_tiny_polygon_gets_minimum_context_window` | tight ≥250 m, wide ≥1.5 km, centred | real — context floors |
 
+Crop geometry + rendering now live in `review/crops.py`, shared with the review
+campaign so both surfaces show pixel-identical views; this file's second test
+imports `crop_bounds` from there. The refactor was verified by rebuilding the
+shipped `qc_rater.html` and confirming a byte-identical MD5.
+
 ### [test_build_ee_qc_rater.py](test_build_ee_qc_rater.py)
 
 `scripts/build_ee_qc_rater.py` — generates the GEE Code Editor rating app
@@ -739,6 +744,12 @@ one synthetic RGBA quad COG.
 | `test_build_tile_bboxes_returns_only_requested_ids` | join against the tile-list CSV returns exactly the requested ids with correct bounds | real |
 | `test_build_tile_bboxes_raises_on_missing_tile_id` | a `tile_id` referenced by the gpkg but absent from the tile list raises (surfaced data-integrity mismatch, not silently dropped) | real |
 | `test_write_rgb_chip_is_georeferenced_uint8_and_matches_quad_values` | `write_rgb_chip` → `read_tile` end-to-end: output is a 3-band uint8 GeoTIFF, EPSG:3857, correct bounds, pixel values match the source quad | real — exercises the actual inference read path |
+| `test_chip_write_is_atomic` | a failed write leaves neither a truncated `.tif` nor a `.partial` | real — the resume path skips any existing file, so a truncated chip would be skipped forever |
+
+Gained `--workers`, skip-existing resume, and a `-input_file_list` VRT build on
+2026-08-03 for the review campaign: the 0.30 candidate inventory references
+118,586 tiles (vs 29,850 chipped for the 0.65 product), and 118k paths overflow
+argv. See `post-inference/review_campaign.md` §4.1.
 
 ### [test_claim.py](test_claim.py)
 
@@ -858,6 +869,122 @@ An autouse fixture `_isolate_mlflow_tracking_uri` clears `MLFLOW_TRACKING_URI` b
 | `test_select_preview_tiles_is_seed_independent` | Same fixed list → identical previews for seed 42 vs 43 (cross-experiment comparability) | real — guards the seed-coupling bug fix |
 | `test_select_preview_tiles_falls_back_when_none_in_val` | If no configured tile is in val, fall back to the seeded heuristic | real — graceful fallback |
 | `test_resume_ema_shadow_on_model_device` | `_resume_from` moves the restored EMA shadow to the model's device; `ema.update` must not raise cpu/cuda mismatch (skipped without CUDA) | real — regression for 2026-06-11 A100 resume crash |
+
+### [test_review_crops.py](test_review_crops.py)
+
+`review/crops.py` (crop geometry + rendering, shared with the offline pack) and
+`chip_index` in `scripts/build_review_crops.py`. GPU-free; builds a real 2-chip
+VRT with `gdalbuildvrt`.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_crop_bounds_apply_the_minimum_context_floors` | tight ≥250 m, wide ≥1.5 km for a tiny feature | real — context floors |
+| `test_crop_bounds_scale_with_a_large_feature` | above the floor the crop is 3×/10× the feature | real |
+| `test_crop_bounds_are_square_and_centred` | square, centred on a non-square feature | real |
+| `test_index_bounds_match_the_chips_own_bounds` | indexed bounds equal rasterio's own per file | real — a wrong index silently selects no chips and yields blank crops |
+| `test_index_paths_are_absolute_and_readable` | VRT-relative sources resolved to absolute, openable paths | real — workers run from another cwd |
+| `test_index_lists_each_chip_once_not_once_per_band` | band-1 sources only; all 3 bands would triple the index | real |
+| `test_has_imagery_is_true_over_a_populated_chip` | probe sees real pixels | real |
+| `test_has_imagery_is_false_over_a_nodata_chip` | an all-NoData chip reads as absent | real — the coverage report depends on it |
+| `test_has_imagery_is_false_off_the_mosaic` | boundless fill reads as absent, not as dark imagery | real — replaced a colour-based check that mistook antialiased outline for content |
+| `test_render_crop_returns_a_jpeg` | output is JPEG-encoded | shallow |
+| `test_outline_false_renders_the_same_view_without_the_red` | `outline=False` drops the red outline pixels and keeps the imagery | real — counts red pixels, not bytes; the toggle's whole premise |
+
+### [test_review_manifest.py](test_review_manifest.py)
+
+`scripts/build_review_manifest.py` — the review campaign's queue construction
+(`post-inference/review_campaign.md` §3, §5). GPU-free, network-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_every_polygon_appears_exactly_once_as_coverage` | the coverage invariant — no polygon skipped, none reviewed twice by accident | real — the census claim rests on it |
+| `test_batches_are_full_except_the_last` | batch sizes 300/300/300/100 for 1,000 items | real |
+| `test_batch_and_item_ids_never_collide_within_a_batch` | (batch_id, rts_id) unique — a duplicate would collapse two items into one verdict | real — caught a live bug (replicate clamped into its own batch) |
+| `test_batches_are_cut_in_descending_probability_order` | each batch's floor ≥ the next batch's ceiling | real — the "every polygon with p ≥ x is reviewed" headline |
+| `test_item_order_within_a_batch_is_shuffled` | a batch is not probability-sorted internally; `seq` is still 0..n-1 | real — response-bias defence |
+| `test_replicates_are_injected_into_later_batches` | every replicate sits exactly `REPLICATE_OFFSET` batches after its source | real — caught the clamping bug |
+| `test_replicates_are_spread_through_the_campaign` | replicate batches span the queue rather than clustering | real — else kappa measures one slice |
+| `test_zero_replicates_is_allowed` | `n_replicates=0` yields a pure coverage queue | shallow |
+| `test_rebuild_is_identical` | deterministic under seed 42 | real — rebuildable manifest |
+| `test_duplicate_input_ids_are_rejected` | a duplicated `rts_id` in the inventory is an error | real |
+
+### [test_review_store.py](test_review_store.py)
+
+`review/store.py` — campaign queue + verdict store over `inference/claim.py`
+(§6, §9). Network-free; reuses `test_claim.py`'s FakeBucket.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_two_reviewers_never_get_the_same_batch` | atomic claiming across reviewers | real — the core collaboration invariant |
+| `test_queue_is_served_in_probability_order` | batches handed out in ascending id = descending probability | real |
+| `test_exhausted_queue_returns_none` | a finished campaign reports completion | real |
+| `test_a_claim_never_goes_stale` | a held batch stays held at any heartbeat age (`STALE_AFTER_S = inf`) | real — a reviewer's part-rated batch must never be handed to someone else |
+| `test_a_released_claim_is_re_servable` | deleting the claim object frees the batch — the only recovery path now | real |
+| `test_fresh_claim_is_not_stolen` | a live claim is respected | real |
+| `test_submitted_batch_is_never_re_served` | done markers survive restart | real |
+| `test_submit_is_idempotent` | a retried submit neither doubles nor overwrites | real — double-click / retry safety |
+| `test_submit_rejects_an_id_from_another_batch` | cross-batch verdicts are an error | real |
+| `test_submit_rejects_an_unknown_verdict` | vocabulary is enforced | real |
+| `test_submit_rejects_an_unknown_batch` | unknown batch is an error | shallow |
+| `test_injected_items_are_flagged_in_the_record` | replicates are marked in the JSONL, so the merge can separate them | real |
+| `test_batch_items_are_in_presentation_order_with_crop_keys` | shuffled order preserved; all four crop keys (outlined + plain) derived from the prefix | real |
+| `test_headline_counts_only_a_contiguous_prefix` | finishing a later batch does not inflate the headline claim | real — the product's honesty guard |
+| `test_progress_counts_coverage_items_not_injected_ones` | injected items excluded from coverage totals | real |
+
+### [test_review_app.py](test_review_app.py)
+
+`review/app.py` — the campaign's HTTP contract (§6). Network-free: FakeBucket
+plus a stubbed IAP verifier, via FastAPI's `TestClient`.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_claim_returns_items_with_crop_urls` | items carry proxy URLs and never leak raw object keys | real — the "no imagery on the host" design |
+| `test_crop_streams_the_jpeg` | `/crop/<key>` returns the bytes as `image/jpeg`, cacheable | real — the whole imagery path |
+| `test_crop_refuses_objects_outside_the_crop_prefix` | verdicts/manifest are unreachable through the proxy, including via `..` | real — otherwise the proxy reads the whole bucket |
+| `test_crop_of_a_missing_object_is_404_not_500` | the 20 no-imagery polygons degrade gracefully | real |
+| `test_two_reviewers_get_different_batches` | claiming is atomic through the API | real |
+| `test_exhausted_campaign_reports_null_batch` | the UI's completion signal | real |
+| `test_reopen_serves_a_held_batch_again` | browser-reload resume returns the same items | real — reload safety |
+| `test_reopen_of_a_submitted_batch_is_a_conflict` | 409 so the UI can discard stale local verdicts | real |
+| `test_reopen_of_an_unknown_batch_is_404` | unknown batch is not a 500 | shallow |
+| `test_submit_persists_and_is_idempotent` | written=True then written=False | real |
+| `test_bad_verdict_is_a_400_not_a_500` | store `ValueError` maps to a client error | real |
+| `test_progress_tracks_submissions` | progress reflects a completed batch | real |
+| `test_index_serves_the_rater` | the UI is served at `/` | shallow |
+| `test_iap_identity_is_used_when_present` | a verified IAP assertion sets the reviewer | real |
+| `test_client_cannot_override_the_iap_identity` | a supplied name is ignored behind IAP | real — attribution feeds κ and the audit trail, so it must not be typeable |
+| `test_claim_is_recorded_under_the_iap_identity` | the verdict JSONL carries the authenticated address, not the client's | real |
+| `test_an_unverifiable_assertion_is_rejected` | a forged assertion 401s rather than falling back to the typed name | real — the fallback would otherwise be a bypass |
+| `test_supplied_name_is_used_when_there_is_no_iap` | local runs and the offline pack still work | real |
+| `test_no_identity_at_all_is_a_403` | no name and no assertion is refused | real |
+| `test_me_reports_no_identity_rather_than_failing` | `/api/me` answers before the UI has a name | real — the UI calls it first |
+
+### [test_review_merge.py](test_review_merge.py)
+
+`scripts/merge_review_verdicts.py` — pooling verdicts into the verified
+inventory plus the agreement statistics (§7–§8). GPU-free, network-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_kappa_matches_a_hand_computed_table` | kappa = 0.4 for a 2×2 with po=0.7, pe=0.5 | real — pins the statistic against a hand computation |
+| `test_kappa_is_one_for_perfect_agreement` | identical series → 1.0 | real |
+| `test_kappa_is_nan_when_one_label_is_universal` | degenerate case is NaN, not a spurious 1.0 | real — would otherwise flatter the campaign |
+| `test_kappa_of_an_empty_sample_is_nan` | no pairs → NaN | shallow |
+| `test_replicate_pairs_join_a_replicate_to_its_coverage_verdict` | pairing carries both verdicts and both reviewers | real |
+| `test_a_replicate_without_its_coverage_verdict_is_dropped` | unpaired replicates are not counted | real |
+| `test_coverage_verdict_wins_over_the_replicate` | precedence rule; `n_reviews`/`reviewers` populated | real — decides what the product says |
+| `test_agreement_is_true_when_both_reviewers_match` | agreement flag set | real |
+| `test_unreplicated_polygons_have_no_agreement_value` | NaN rather than a fabricated True | real |
+| `test_a_stray_id_is_an_error_not_a_silent_drop` | a verdict outside the manifest raises | real — data-integrity guard |
+| `test_duplicate_coverage_verdicts_keep_the_latest` | deterministic conflict resolution | real |
+| `test_a_partial_campaign_merges_only_what_was_rated` | partial campaigns produce partial products | real — stop-anytime design |
+| `test_an_empty_campaign_merges_to_an_empty_frame` | schema preserved when nothing is rated | shallow |
+| `test_report_counts_coverage_and_excludes_injected_from_the_total` | denominators exclude injected rows | real — else "% reviewed" is wrong |
+| `test_kappa_is_only_computed_across_different_reviewers` | self-agreement is not reported as inter-rater | real — the statistic's meaning |
+| `test_report_compares_against_the_2026_07_pass` | drift check against the prior solo ratings | real |
+| `test_read_verdicts_reads_every_batch_file` | all batch JSONLs are pooled | real |
+| `test_read_verdicts_of_an_empty_campaign_is_an_empty_frame` | empty campaign has a usable schema | shallow |
+| `test_duplicate_coverage_verdicts_do_not_inflate_the_pair_count` | joining on a non-unique id must not multiply the agreement sample | real — guards a silent kappa inflation |
 
 ---
 

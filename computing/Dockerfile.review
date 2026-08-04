@@ -1,0 +1,36 @@
+# Review campaign app — the image behind the private Hugging Face Space.
+#
+# Deliberately unrelated to rts-train:v2 (30 GB): this app never opens a
+# raster, so it needs neither torch nor the geospatial stack. It serves a
+# manifest and mints signed GCS URLs, and the browser fetches crops straight
+# from the bucket — no imagery is ever written to this container.
+#
+# Build from the REPO ROOT:
+#     docker build -f computing/Dockerfile.review -t rts-review:v1 .
+#
+# For the HF Space, the Space repo holds this file as `Dockerfile` alongside
+# copies of `review/`, `inference/__init__.py` and `inference/claim.py`.
+# Deployment steps: post-inference/review_campaign.md §10.
+
+FROM python:3.11-slim
+
+# HF Spaces run the container as uid 1000 and expect the app on 7860.
+RUN useradd -m -u 1000 app
+WORKDIR /app
+
+COPY review/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy only the runtime modules. review/crops.py is deliberately excluded: it
+# imports rasterio, which this image does not have, and only the offline
+# crop-building scripts use it. claim.py is the atomic GCS queue shared with the
+# inference fleet; the rest of that package is not needed either.
+COPY review/__init__.py review/app.py review/store.py ./review/
+COPY review/static/ ./review/static/
+COPY inference/__init__.py inference/claim.py ./inference/
+
+USER app
+EXPOSE 7860
+# Shell form so $PORT expands: Cloud Run injects PORT (8080), HF Spaces expect
+# the app_port from the Space README (7860). One image serves both.
+CMD exec uvicorn review.app:app --host 0.0.0.0 --port "${PORT:-7860}"
