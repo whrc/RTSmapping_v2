@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../../../mnt/outputs"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "RTSmappingDL"
+	}
+}

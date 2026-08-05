@@ -918,8 +918,10 @@ VRT with `gdalbuildvrt`.
 | `test_two_reviewers_never_get_the_same_batch` | atomic claiming across reviewers | real — the core collaboration invariant |
 | `test_queue_is_served_in_probability_order` | batches handed out in ascending id = descending probability | real |
 | `test_exhausted_queue_returns_none` | a finished campaign reports completion | real |
-| `test_a_claim_never_goes_stale` | a held batch stays held at any heartbeat age (`STALE_AFTER_S = inf`) | real — a reviewer's part-rated batch must never be handed to someone else |
-| `test_a_released_claim_is_re_servable` | deleting the claim object frees the batch — the only recovery path now | real |
+| `test_a_claim_outlives_any_rating_session` | a two-day-old claim is still held | real — a reviewer's part-rated batch must not be handed to someone else overnight |
+| `test_a_claim_older_than_the_ttl_returns_to_the_pool` | past one week the batch is presumed abandoned and re-served | real |
+| `test_the_ttl_is_one_week_in_seconds` | `STALE_AFTER_S == 604800.0` | real — a wrong unit here silently steals live batches |
+| `test_a_released_claim_is_re_servable` | deleting the claim object frees the batch before the TTL | real |
 | `test_fresh_claim_is_not_stolen` | a live claim is respected | real |
 | `test_submitted_batch_is_never_re_served` | done markers survive restart | real |
 | `test_submit_is_idempotent` | a retried submit neither doubles nor overwrites | real — double-click / retry safety |

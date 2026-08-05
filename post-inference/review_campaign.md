@@ -144,14 +144,19 @@ it on the same inventory produces a byte-identical file.
 exactly as an inference shard was: `if_generation_match=0` create-if-absent, so two reviewers can
 never hold the same batch. `done` markers are the source of truth on restart.
 
-**A review claim never expires** (`STALE_AFTER_S = inf`, user's call 2026-08-04). The inference queue
-reclaimed a shard after 30 minutes because a crashed worker's shard was pure loss. A reviewer is not
-a crashed worker: their part-rated batch is sitting in their browser's `localStorage` and is still
-good tomorrow. Reclaiming it would hand the same 200 polygons to a second reviewer and have them
-rated twice. So a batch is yours until you submit it — close the tab, go home, come back Monday.
+**A review claim lasts one week** (`STALE_AFTER_S = 604800.0` — seconds, measured from the last
+heartbeat). The inference queue reclaimed a shard after 30 minutes because a crashed worker's shard
+was pure loss. A reviewer is not a crashed worker: their part-rated batch is sitting in their
+browser's `localStorage` and is still good tomorrow, so a short TTL would hand the same 200 polygons
+to a second reviewer and have them rated twice. A week covers a weekend and a holiday — close the
+tab, go home, come back Monday — while still letting a truly abandoned batch return to the pool on
+its own rather than needing §6.1.
 
-The heartbeat still runs every 60 s, but it no longer defends anything; it is now only a record of
-when a held batch was last touched, which is what you look at before releasing one by hand.
+The heartbeat still runs every 60 s and pushes the expiry out, though at a week's TTL that rarely
+matters. Its practical value is the timestamp: the only record of when a held batch was last touched.
+
+**Changing the TTL needs a redeploy, not just an edit.** The app runs from a container image, so the
+constant is baked in at build time — edit `review/store.py`, then `scripts/deploy_review_vm.sh`.
 
 Reviewer lifecycle:
 
@@ -171,9 +176,9 @@ submission is idempotent.
 
 ### 6.1 Releasing a stranded batch
 
-Nothing reclaims automatically any more, so a batch claimed by someone who has genuinely stopped
-stays out of the pool and blocks the contiguous-prefix headline (§9). Releasing it is deleting one
-object — the batch returns to the queue with no verdicts lost, because nothing was ever written:
+A batch claimed by someone who has genuinely stopped stays out of the pool for a week and blocks the
+contiguous-prefix headline (§9). To get it back sooner, delete one object — the batch returns to the
+queue with no verdicts lost, because nothing was ever written:
 
 ```bash
 # who holds what, and when they last touched it

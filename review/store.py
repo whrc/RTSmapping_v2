@@ -2,8 +2,8 @@
 
 A thin layer over `inference.claim.ClaimStore` (reused unchanged — same
 `if_generation_match=0` atomicity and heartbeat that ran the pan-Arctic
-inference queue, but **no stale-reclaim**: see :data:`STALE_AFTER_S`) plus the
-manifest and the verdict objects. Holds
+inference queue, with a far longer claim TTL: see :data:`STALE_AFTER_S`) plus
+the manifest and the verdict objects. Holds
 **no web dependencies**, so the whole protocol is unit-testable against the
 fake bucket in `tests/test_claim.py`.
 
@@ -25,16 +25,20 @@ logger = logging.getLogger(__name__)
 
 VERDICTS = ("rts", "false", "unsure")
 
-# A review claim NEVER expires (user's call, 2026-08-04). The inference queue
-# reclaimed a shard after 30 min because a crashed worker's shard was pure loss.
-# A reviewer is not a crashed worker: their part-rated batch sits in the
-# browser's localStorage and is still good hours or days later. Expiring the
-# claim would hand that batch to someone else and have the same 200 polygons
-# rated twice — wasted effort, and two verdicts for one coverage slot.
+# How long a claimed batch stays claimed, in SECONDS, measured from the last
+# heartbeat (`inference.claim.ClaimStore.reclaim_if_stale`).
 #
-# The cost is that a genuinely abandoned batch is stranded until released by
-# hand (`review_campaign.md` §6.1); nothing reclaims it automatically.
-STALE_AFTER_S = float("inf")
+# The inference queue used 30 min because a crashed worker's shard was pure
+# loss. A reviewer is not a crashed worker: their part-rated batch sits in the
+# browser's localStorage and is still good the next morning, so a short TTL
+# would hand those 200 polygons to a second reviewer and have them rated twice.
+# One week is long enough to cover a weekend and a holiday, while still letting
+# a truly abandoned batch return to the pool on its own instead of needing the
+# manual release in `review_campaign.md` §6.1.
+#
+# Changing this needs a redeploy, not just an edit — the app runs from a
+# container image (`scripts/deploy_review_vm.sh`).
+STALE_AFTER_S = 7 * 24 * 3600.0  # one week
 
 
 class ReviewStore:
@@ -79,10 +83,11 @@ class ReviewStore:
     def heartbeat(self, reviewer: str, batch_id: str) -> None:
         """Record that this batch is still being worked on.
 
-        Nothing reclaims a claim any more (:data:`STALE_AFTER_S`), so this no
-        longer defends the batch. It is kept because the heartbeat timestamp is
-        the only signal of *when* a held batch was last touched, which is what
-        you look at before releasing one by hand.
+        This pushes the batch's expiry out by another :data:`STALE_AFTER_S`,
+        but at a one-week TTL that hardly matters — an open tab beats every
+        60 s, and no rating session runs for a week. Its real value is the
+        timestamp: it is the only record of *when* a held batch was last
+        touched, which is what you look at before releasing one by hand.
         """
         self._claims(reviewer).heartbeat(batch_id)
 

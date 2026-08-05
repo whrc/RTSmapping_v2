@@ -285,12 +285,12 @@ verdicts → `done` all correct in GCS, and the 7 items rated into `b00001` stay
 exactly as designed (nothing partial is ever written). Two changes the user asked for off the back of
 it:
 
-- **A claim never expires** (`STALE_AFTER_S = inf`). The inference queue reclaimed a shard after 30
-  min because a crashed worker's shard was pure loss; a reviewer is not a crashed worker — their
-  part-rated batch is in `localStorage` and still good tomorrow, and reclaiming it would have the
-  same 200 polygons rated twice. Cost: a genuinely abandoned batch is stranded until released by
-  hand, so `review_campaign.md` §6.1 now documents that (delete the claim object, after checking with
-  the holder).
+- **A claim lasts one week** (`STALE_AFTER_S = 604800.0` seconds; first set to `inf`, then given a
+  finite TTL on 2026-08-04). The inference queue reclaimed a shard after 30 min because a crashed
+  worker's shard was pure loss; a reviewer is not a crashed worker — their part-rated batch is in
+  `localStorage` and still good tomorrow, and reclaiming it would have the same 200 polygons rated
+  twice. A week covers a weekend while still letting a truly abandoned batch return by itself;
+  `review_campaign.md` §6.1 documents the manual release for getting one back sooner.
 - **An outline toggle** (`o`, or the button). The red outline is drawn *into* the pixels by
   `render_crop`, so this could not be a client-side switch — the archive now carries four JPEGs per
   polygon instead of two (`_t_plain` / `_w_plain`, +3 GB) and the toggle swaps between them. Sticky

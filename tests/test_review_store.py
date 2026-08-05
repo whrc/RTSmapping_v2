@@ -2,14 +2,17 @@
 
 Network-free: reuses the FakeBucket from `tests/test_claim.py`, which emulates
 GCS create-if-absent atomicity. Covers the invariants a multi-reviewer campaign
-depends on: two reviewers never get one batch, a walked-away reviewer's batch
-returns to the pool, a submitted batch is never re-served, submission is
-idempotent, and the headline progress claim only counts a contiguous prefix.
+depends on: two reviewers never get one batch, a claim outlives any plausible
+rating session but not a week, a submitted batch is never re-served, submission
+is idempotent, and the headline progress claim only counts a contiguous prefix.
 
 Spec: `post-inference/review_campaign.md` §6, §9.
 """
 
 from __future__ import annotations
+
+import json
+import time
 
 import pandas as pd
 import pytest
@@ -63,19 +66,33 @@ def test_exhausted_queue_returns_none(store):
     assert store.claim_next("late") is None
 
 
-def test_a_claim_never_goes_stale(store):
-    """A held batch stays held however old the heartbeat is (2026-08-04).
+def test_a_claim_outlives_any_rating_session(store):
+    """A batch left overnight is still its reviewer's in the morning.
 
     The inference queue reclaimed after 30 min; a reviewer must not have their
     part-rated batch handed to someone else, because their verdicts live in the
-    browser and would then be rated twice.
+    browser and would then be rated twice. Two days is far beyond any plausible
+    session and well inside the one-week TTL.
     """
     store.claim_next("ann")
-    # An hour-zero heartbeat: older than any finite TTL could be.
+    two_days_ago = time.time() - 2 * 24 * 3600
     store.bucket.blob("campaign/review/claims/b00000").upload_from_string(
-        '{"worker_id": "ann", "heartbeat_at": 0.0}')
+        json.dumps({"worker_id": "ann", "heartbeat_at": two_days_ago}))
     assert store.claim_next("bob") == "b00001"
-    assert STALE_AFTER_S == float("inf")
+
+
+def test_a_claim_older_than_the_ttl_returns_to_the_pool(store):
+    """Past one week the batch is presumed abandoned and re-served."""
+    store.claim_next("ann")
+    expired = time.time() - STALE_AFTER_S - 60
+    store.bucket.blob("campaign/review/claims/b00000").upload_from_string(
+        json.dumps({"worker_id": "ann", "heartbeat_at": expired}))
+    assert store.claim_next("bob") == "b00000"
+
+
+def test_the_ttl_is_one_week_in_seconds(store):
+    """The unit is seconds — a wrong unit here silently steals live batches."""
+    assert STALE_AFTER_S == 604800.0
 
 
 def test_a_released_claim_is_re_servable(store):
