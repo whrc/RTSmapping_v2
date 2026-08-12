@@ -71,6 +71,15 @@ There is no size cut inside `high_confidence` because size did not predict false
 high <500 m² cell is unmeasured but also empty: the inventory contains zero
 such polygons.)
 
+**Held-out test score for this rule** (2026-08-12, `scripts/score_product_rule.py`,
+re-cut of the frozen `test_probs.npz`): object P/R/F1 at IoU≥0.3 —
+`high_confidence` **0.854 / 0.516 / 0.644**, whole candidate inventory
+**0.532 / 0.581 / 0.556**. One-region GT (215 objects), and the tile-scored
+replication cannot reproduce the cross-tile seam dissolve. Both anchors (min_blob
+80 and 2000) reproduce exactly as a parity gate. See the *Shipped product rule on
+Test-Realistic* sub-block in `docs/experiment_ledger.md`; artifact
+`/mnt/outputs/v1.0/diagnostics/product_rule_scorecard_frozen_test.json`.
+
 The original `south_rts.gpkg` (thr 0.65, min_blob 2000 px, 10,984 polygons /
 238.08 km², delivered 2026-07-11) **remains untouched** for provenance;
 `south_rts_high_confidence` supersedes the interim `south_rts_high.gpkg` and

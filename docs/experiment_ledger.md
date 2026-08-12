@@ -661,6 +661,50 @@ by one region, 118/132 objects in Canadian Low Arctic). **First-product point on
 (tp 86 / fp 26 / fn 129), vs the min_blob-80 anchor 0.584 / 0.437 / 0.500. Artifacts:
 `/mnt/outputs/v1.0/test_realistic/effb5_ensemble_by_region.json`, `/mnt/outputs/v1.0/diagnostics/test_probs.npz`.
 
+*Shipped product rule on Test-Realistic* (2026-08-12, `scripts/score_product_rule.py`, another re-cut of the
+same `test_probs.npz` cache — no model run, no imagery read, no config touched). **Motive:** both numbers above
+are fixed-min-size rules at the 0.65 contour, and the **delivered South map uses neither**. It is vectorised at
+the **0.30** contour (`vectorize_region.py --threshold 0.30`), given a per-polygon `max_prob`, and banded by
+`export_south_products.assign_conf_class` / `assign_rts_class`, whose high tier carries **no size floor at
+all**. That rule had never been scored on test. **Parity gated:** the run reproduces both anchors exactly
+(min_blob 80 → 0.5839 / 0.4372 / 0.5000; min_blob 2000 → 0.7679 / 0.4000 / 0.5260, tp 86 / fp 26 / fn 129) or
+writes no artifact; the anchor block also matches `object_scorecard.py --min-blob 2000` field-for-field
+including the bootstrap CIs. Object metrics, IoU≥0.3, 215 GT objects, 95% tile-cluster CIs:
+
+| rule | ships as | P | R | F1 | tp / fp / fn | n_pred | IoU med |
+|---|---|---|---|---|---|---|---|
+| thr 0.65 · min_blob 80 (ledger J) | — | 0.584 [0.500–0.670] | 0.437 [0.365–0.518] | 0.500 | 94 / 67 / 121 | 161 | 0.622 |
+| thr 0.65 · min_blob 2000 | — | 0.768 [0.685–0.849] | 0.400 [0.324–0.479] | 0.526 | 86 / 26 / 129 | 112 | 0.632 |
+| **0.30 contour, all polygons** | `south_rts_candidates.gpkg` | **0.532** [0.467–0.603] | **0.581** [0.512–0.654] | **0.556** | 125 / 110 / 90 | 235 | 0.728 |
+| **0.30 contour, `rts_class == high_confidence`** | `south_rts_high_confidence.gpkg` | **0.854** [0.783–0.915] | **0.516** [0.445–0.593] | **0.644** | 111 / 19 / 104 | 130 | 0.760 |
+| high_confidence selection, outline re-cut at 0.65 | *not shipped — geometry control* | 0.669 [0.587–0.757] | 0.405 [0.340–0.484] | 0.504 | 87 / 43 / 128 | 130 | 0.620 |
+
+**Both product rows are reported co-equally — neither is designated the headline**; `south_rts_candidates.gpkg`
+and `south_rts_high_confidence.gpkg` are both delivered files (the 2026-07 review campaign covered all 60,167
+candidates), so which one a downstream document calls "the map" is that document's framing decision.
+**This does NOT supersede the frozen J number** — it is a different *rule* on the same probabilities, the same
+category of re-cut as the min_blob-2000 point above.
+
+*What the last row buys:* the geometry control isolates selection from outline. Holding the kept object set
+fixed at 130 and re-cutting only their outlines from the 0.30 contour to the 0.65 contour drops P 0.854→0.669
+and R 0.516→0.405, with matched IoU median 0.760→0.620. So the adaptive rule's margin over the anchors is
+earned by the **0.30 outline**, not by the tier selection: the wider contour fits the reference polygons well
+enough to clear IoU 0.3 on objects whose 0.65 core is too small to match. Consistent with that, the 0.30 rows
+carry more under-segmentation (n_merges 10–11 vs 2 at the anchors) and more border truncation
+(n_pred_edge_touching 25 vs 1).
+
+*Replication limits, all stamped in the artifact's `fidelity_limits`:* cross-tile **seam dissolve** cannot be
+reproduced on isolated 512×512 tiles (measured exposure: 25 of 130 high-tier blobs touch a border; truncation
+makes the tier test *conservative*, since max over a truncated blob ≤ max over the dissolved polygon); the
+`candidate`/`marginal` sub-tiers are **not scored** because `CANDIDATE_MAX_AREA_M2 = 500 m²` is a geodesic area
+the cache cannot supply (the high tier has no area rule, so it is exact, and the all-polygons row bounds the
+rest); the probability **field** is the single-window test-tile estimator, not the 344-stride fused mosaic — the
+*rule* is replicated exactly, the field it runs on is not the deployed one. The tier test is applied on the
+`scaled_uint8` grid the COGs actually carry, so `max_prob >= 0.65` is `u8 >= 163` (≥0.652) — deliberately not
+the `u8 >= 162` (≥0.648) that binarising the raster at 0.65 gives, which is the documented reason 129 t65 cores
+sit in medium polygons. Still a **one-region** number (all 215 GT objects in Northwest Russian-Novaya Zemlya
+tundra), as with J and K. Artifact: `/mnt/outputs/v1.0/diagnostics/product_rule_scorecard_frozen_test.json`.
+
 **M — Multi-scale (0.5x context-expanded training POC, started 2026-07-02).** Motivation: the v2.0
 model does not transfer zero-shot to 2× GSD (scale-0.5 tiny-AOI test: 0 blobs vs 9, hot-region IoU
 0.000 — `docs/inference_validation.md`), and the inference.md §6.4 gate presumes multi-scale must come
