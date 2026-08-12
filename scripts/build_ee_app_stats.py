@@ -12,10 +12,12 @@ so per-tier ladders sum client-side to the exact number for any tier combination
 series: every polygon in it has `max_prob >= 0.65` by construction, so it is
 all-`high` and the tier control does not apply to it.
 
-`min_blob_size_px` is a *pixel* count, so its ground floor scales with
-`res² · cos²(lat)` — the latitude bias that motivated the move to a geodesic
-MMU. The reference values below are emitted per latitude, plus one
-representative value at the inventory's median latitude for the app's preset.
+`vectorize_min_blob_px` (the LEGACY product floor, superseded) is a *pixel*
+count, so its ground floor scales with `res² · cos²(lat)` — the latitude bias
+that motivated the move to a geodesic MMU. The reference values below are
+emitted per latitude, plus one representative value at the inventory's median
+latitude for the app's preset. The app's own slider is `LADDER_M2`, in m² — a
+viewer-side display filter, not applied to the shipped file.
 
 Usage:
     python scripts/build_ee_app_stats.py \
@@ -39,7 +41,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, vectorize_min_blob_px  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -160,7 +162,7 @@ def main() -> int:
     p.add_argument("--region-log", required=True,
                    help="region_log.json — SSoT for resolution_m")
     p.add_argument("--deployment-config", default="configs/deployment.yaml",
-                   help="SSoT for min_blob_size_px")
+                   help="SSoT for the legacy vectorize_min_blob_px reference value")
     p.add_argument("--out", required=True, type=Path)
     args = p.parse_args()
     setup_logging()
@@ -168,7 +170,7 @@ def main() -> int:
     candidates = read_table(args.candidates)
     t65 = read_table(args.t65)
     resolution_m = float(json.loads(Path(args.region_log).read_text())["resolution_m"])
-    min_blob_px = int(load_config(args.deployment_config)["min_blob_size_px"])
+    min_blob_px = vectorize_min_blob_px(load_config(args.deployment_config))
 
     stats = build_stats(candidates, t65, min_blob_px, resolution_m)
     logger.info("candidates %d (%.1f km²) | t65 %d (%.1f km²) | min_blob %d px "

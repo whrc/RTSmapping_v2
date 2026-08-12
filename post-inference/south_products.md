@@ -16,13 +16,95 @@ git `7b7d74c`, 41,567,572 tiles / 2,079 shards, completed 2026-07-10; canvas
 **Decode (raster products).** Pixel value = **probability × 250**
 (`scaled_uint8`); **255 = NoData**. `prob = pixel / 250.0`.
 
+## Size parameters — which number is which
+
+> Four different size floors in this repo are called some variant of
+> "min_blob" or "MMU". Three of them are **not** the product rule. This section
+> is the SSoT; quote it, and do not restate its numbers elsewhere.
+
+### The product rule — the only one to cite as the method
+
+> **The shipped inventory applies no minimum mapping unit.**
+> `vectorize_region.py --threshold 0.30 --min-area-m2 0`. The sole floor is a
+> 2-pixel technical floor to kill single-pixel noise = **2.7–22 m²** across the
+> map's 46.03–76.00°N span (it is a *pixel* floor, so it shrinks poleward).
+> Measured: the smallest polygon in the delivered file is **2.69 m²** — the
+> 2-px floor at 76°N. **6,761 polygons (11.2%) fall below ARTS P1 = 79 m².**
+> Size acceptance is not a floor at all: it is the QC-calibrated adaptive
+> `rts_class` rule (below).
+
+### Not the product rule
+
+These appear in `configs/deployment.yaml`, the experiment ledger and the git
+history. None of them produced the delivered inventory.
+
+| Parameter | Value | Units | What it is | What it is **not** |
+|---|---|---|---|---|
+| `metrics.min_blob_size_px` (17 training configs → `training/metrics.py`) | 10 | px | eval-only speckle guard for val/test object metrics | never applied to a product |
+| `--min-blobs` tuning grid (`tune_object_operating_point.py`) | 1, 5, 10, 20, 40, **80** | px | the Val-Realistic sweep; **80 is the grid maximum** | not a product floor |
+| `vectorize_min_blob_px` (`configs/deployment.yaml`) | 2000 | px | **superseded** first-product floor → `south_rts.gpkg` | **never swept** — 25× the grid max, a 2026-06-26 user choice scored post hoc |
+| `LADDER_M2` (`build_ee_app_stats.py`) | 0…20000, 24 rungs | m² | the GEE app's viewer-side display slider | not applied to the delivered file |
+
+**One key held three values.** `configs/deployment.yaml`'s pixel floor was
+`10` (2026-05-04) → `80` (2026-06-25) → `2000` (2026-06-26). All three are
+legitimately "the deployment min_blob", at different dates — which is why
+ledger J's frozen `obj-P 0.584` is a **min_blob 80** number while the config
+reads 2000 today. The sweep that chose 80 was **19 thresholds × {1,5,10,20,40,80}
+px × 3 morph radii = 342 cells**; 2000 was never in it.
+
+### Which stage does a number act on?
+
+The sharpest distinction, and the easiest to lose: whether a floor filters
+**ground-truth labels** or **model predictions**.
+
+| Stage | Identifiers | Acts on | Units | Shipped value |
+|---|---|---|---|---|
+| **A. Label / GT** | `data.min_mapping_unit_px`; `apply_min_mapping_unit()`, `clean_positive_label(min_size=)` in `data/label_cleaning.py`; `object_scorecard.py --min-mapping-unit` | **ground truth** — sub-floor positives become **255 ignore**, never background | px | **0 = OFF** |
+| **B. Eval** | `metrics.min_blob_size_px`; `object_scorecard.py --min-blob`; `evaluate_test.py --region-min-blobs` | **model predictions** | px | 10 (eval); 80 & 2000 reported side by side |
+| **C. Tuning** | `tune_object_operating_point.py --min-blobs` | model predictions | px | grid {1…80} |
+| **D. Vectorization** | `--min-area-m2` ✅ / `vectorize_min_blob_px` ❌ | **polygons** | **m²** / px | **`--min-area-m2 0`** |
+
+Three consequences worth stating plainly:
+
+1. **`--min-blob` filters predictions; `--min-mapping-unit` filters ground
+   truth.** They sit on the same `object_scorecard.py` command line and are not
+   interchangeable — one changes what the model is credited with, the other
+   changes what it is asked to find.
+2. **"MMU" is overloaded.** In `data/` it is a *GT label* floor in **pixels**
+   whose removals become ignore(255). In `post-inference/` it is a *polygon
+   area* floor in **m²**. Same acronym, different stage, different units.
+3. **The model was not trained with an MMU.** `data.min_mapping_unit_px` is `0`
+   in every shipped config — "the Minimum Mapping Unit is a scoring-time
+   correction, not a training change" (`configs/v1_1_seed42.yaml`). The
+   **"MMU-600"** figure in the diary is a GT-scoring sensitivity check, never a
+   training or product setting.
+
+### Pixel floors converted to ground area
+
+A pixel floor is **not** a constant area: EPSG:3857 pixel ground area is
+`res² · cos²(lat)` at res = 4.777 m, so it slides ~7× across this map. Use this
+table rather than re-deriving — and note that **80 px is not 79 m²**, a
+near-collision with ARTS P1 that is easy to make.
+
+| pixel floor | at 50°N | at 71.63°N (inventory median) | at 76°N |
+|---|---|---|---|
+| 2 px (technical, shipped) | 19 m² | 5 m² | 3 m² |
+| 10 px (eval filter) | 94 m² | 23 m² | 13 m² |
+| **80 px (ledger J anchor)** | 754 m² | **181 m²** | 107 m² |
+| 2000 px (legacy product) | 18,857 m² | 4,533 m² | 2,671 m² |
+
+The test-region GT sits near 70°N, so ledger J's 80 px ≈ **214 m²** there.
+Never quote the cos-uncorrected product (`80 × 4.777²` = 1,826 m²) — it is an
+intermediate with no physical meaning, not a ground area.
+
 ## The three packages
 
 ### D1 — RTS Inventory (vector)
 
 One dataset — the **MMU≈0 candidate inventory**, vectorized at threshold
-**0.30** with **no minimum mapping unit** (technical floor 2 px ≈ 10–45 m²,
-below ARTS P1 = 79 m²; seam-dissolved): **60,167 polygons / 688.2 km²**
+**0.30** with **no minimum mapping unit** (technical floor 2 px ≈ 2.7–22 m²
+over the 46–76°N span, smallest shipped polygon 2.69 m²; 6,761 polygons /
+11.2% below ARTS P1 = 79 m²; seam-dissolved): **60,167 polygons / 688.2 km²**
 (high 19,068 / 529.7 km² · medium 11,865 · low 29,234; built 2026-07-16) — in
 four access forms:
 
@@ -230,9 +312,11 @@ regardless of how far the campaign gets.
    lies between the all-false and all-rts extremes). The QC sample is
    stratified per (tier × size) cell, so pooled rates are *not* map-level
    precision.
-4. **No minimum mapping unit.** Polygons go down to ~2 px (10–45 m²);
-   the floor is latitude-constant in geodesic m² (the old 2000-px pixel MMU
-   and its latitude bias are gone). Tiny polygons are often partial detections
+4. **No minimum mapping unit.** Polygons go down to the 2-px technical floor
+   (2.7–22 m² over the map's latitude span; smallest shipped polygon 2.69 m²);
+   the MMU dial is latitude-constant in geodesic m² (the old 2000-px pixel
+   floor and its latitude bias are gone — see "Size parameters — which number
+   is which"). Tiny polygons are often partial detections
    sitting on a part of a real slump — correct location, under-delineated
    extent.
 5. **Geometry is the 0.30 outline.** In the tiered inventory every polygon —

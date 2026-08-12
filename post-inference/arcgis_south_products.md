@@ -115,7 +115,8 @@ are only needed for the raster.)*
 - **Polygons by confidence:** symbolize `south_rts` with graduated colors on
   `mean_prob` (or `max_prob`) to triage strong vs marginal detections.
 - **Size filter / triage:** `area_m2` is the geodesic slump area. The tiered
-  inventory has **no minimum mapping unit** (floor ~2 px ≈ 10–45 m²) — use a
+  inventory has **no minimum mapping unit** (floor ~2 px ≈ 2.7–22 m²; smallest
+  polygon 2.69 m²) — use a
   Definition Query on `area_m2` if you want your own MMU, and `nodata_frac`
   to soft-screen NoData-context false positives.
 - **Imagery context:** add an *Imagery* basemap, or the 2025 PlanetScope quads, to

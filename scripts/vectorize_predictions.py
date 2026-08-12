@@ -28,7 +28,7 @@ from shapely.geometry import shape
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, vectorize_min_blob_px  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,10 @@ def vectorize(mask_path: str, prob_path: str, tile_list_path: str,
     """Build the §9.3 polygon layer from mask + probability rasters.
 
     Blobs smaller than ``min_blob_px`` pixels are dropped (the deployment
-    ``min_blob_size_px`` object-decision filter — a vectorization-stage param,
-    see configs/deployment.yaml). Probability pixel-stats are read windowed from
+    ``vectorize_min_blob_px`` object-decision filter — a vectorization-stage
+    param in PIXELS, see configs/deployment.yaml; distinct from the eval-stage
+    ``metrics.min_blob_size_px`` and from the shipped geodesic ``--min-area-m2``
+    MMU in m²). Probability pixel-stats are read windowed from
     the COG per polygon, so this scales to region rasters far larger than RAM.
     """
     import pandas as pd
@@ -118,7 +120,7 @@ def main() -> int:
     dep_cfg = load_config(f"{str(args.package).rstrip('/')}/deployment_config.yaml")
     gdf = vectorize(args.mask, args.prob, args.tile_list,
                     scales=dep_cfg.get("scales", [1.0]),
-                    min_blob_px=int(dep_cfg.get("min_blob_size_px", 0)))
+                    min_blob_px=vectorize_min_blob_px(dep_cfg))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(args.output, driver="GPKG")
     logger.info("Wrote %s", args.output)

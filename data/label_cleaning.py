@@ -15,6 +15,15 @@ Design decisions (data-v1.1, from the team): removed slivers → **ignore (255)*
 background (don't penalise the model on ambiguous sub-MMU blobs); close radius small
 (default 1) to avoid merging genuinely distinct adjacent slumps; existing 255 ignore is
 preserved (close/fill only move 0↔1).
+
+SCOPE — "MMU" here is a **ground-truth label** floor in **pixels**, applied before
+scoring/training. It is NOT the product's minimum mapping unit, which is a **polygon
+area** floor in **m²** (`vectorize_region.py --min-area-m2`). Nor is it a prediction
+filter: `object_scorecard.py --min-mapping-unit` calls into here and filters GT, while
+that script's `--min-blob` filters predictions. `data.min_mapping_unit_px` is **0 (OFF)**
+in every shipped training config — the MMU is a scoring-time correction, not a training
+change. Full disambiguation of the four size parameters that share these names:
+`post-inference/south_products.md` §"Size parameters — which number is which".
 """
 
 from __future__ import annotations

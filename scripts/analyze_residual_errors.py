@@ -54,6 +54,7 @@ from training.metrics import (  # noqa: E402
     _object_match_detail,
     _safe_div,
 )
+from utils.config import vectorize_min_blob_px  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -380,7 +381,7 @@ def main() -> int:
 
     dep = yaml.safe_load(Path(args.deployment_yaml).read_text())
     deploy_thr = float(dep["threshold"])
-    product_min_blob = int(dep.get("min_blob_size_px", 10))
+    product_min_blob = vectorize_min_blob_px(dep, 10)
 
     logger.info("Loading cached val predictions: %s", args.cache)
     z = np.load(args.cache, allow_pickle=True)

@@ -165,6 +165,11 @@ Covers the bulk S2 export grid/domain geometry (doc §3); EE + GCS not exercised
 | `test_validate_rejects_unknown_key_and_lists_all_stray` | every stray top-level key is listed in the error | real |
 | `test_validate_schema_matches_base_recipe_keys` | canonical `base_v2_fast.yaml` validates cleanly; its keys ⊆ allow-list (schema stays in sync with the recipe) | real |
 | `test_no_new_configs_inherit_the_frozen_phase0c_schedule` | exactly 68 configs declare `base: phase0c_seed42.yaml` — a new one would inherit the FROZEN `start_epoch: 101` floor | real — guards the recurring stop-schedule regression |
+| `test_vectorize_min_blob_px_prefers_new_key` | `vectorize_min_blob_px` is read when present | shallow |
+| `test_vectorize_min_blob_px_reads_legacy_key_with_warning` | deployment packages already on GCS carry the pre-2026-08-12 `min_blob_size_px`; still resolves, and warns | real — back-compat contract for shipped packages |
+| `test_vectorize_min_blob_px_new_key_wins_over_legacy` | new key takes precedence when both are present | real |
+| `test_vectorize_min_blob_px_default_when_absent` | neither key → caller's default | shallow |
+| `test_deployment_yaml_uses_the_renamed_key` | `configs/deployment.yaml` carries `vectorize_min_blob_px` and no longer the eval-colliding `min_blob_size_px` | real — guards the name split that caused the 10/80/2000 manuscript confusion |
 
 ### [test_dataset.py](test_dataset.py)
 

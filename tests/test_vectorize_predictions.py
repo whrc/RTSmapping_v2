@@ -1,8 +1,9 @@
 """Vectorization (scripts/vectorize_predictions.py): mask → RTS polygons with the
-min_blob_size_px object filter and windowed probability pixel-stats.
+pixel blob filter and windowed probability pixel-stats.
 
-Guards two things the Tier-2 smoke missed: the deployment `min_blob_size_px`
-filter (added 2026-07-06) and the rasterio-1.4 `Window` rounding fix (the old
+Guards two things the Tier-2 smoke missed: the deployment `vectorize_min_blob_px`
+filter (added 2026-07-06; renamed from `min_blob_size_px` 2026-08-12 to separate it
+from the eval-stage `metrics.min_blob_size_px`) and the rasterio-1.4 `Window` rounding fix (the old
 `round_offsets("floor")` positional API was removed and raised at runtime).
 """
 

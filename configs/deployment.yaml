@@ -1,3 +1,21 @@
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │ THIS FILE IS NOT THE SHIPPED PRODUCT RULE.                               │
+# │                                                                          │
+# │ `threshold: 0.65` + `vectorize_min_blob_px: 2000` below describe the      │
+# │ SUPERSEDED first product — `south_rts.gpkg` (10,984 polygons /           │
+# │ 238.08 km², delivered 2026-07-11, kept only for provenance).             │
+# │                                                                          │
+# │ The DELIVERED inventory is cut at threshold **0.30** with **no minimum   │
+# │ mapping unit** (`vectorize_region.py --threshold 0.30 --min-area-m2 0`,   │
+# │ 60,167 polygons / 688.2 km²). Size acceptance is the QC-calibrated        │
+# │ adaptive `rts_class` rule, not a fixed floor.                             │
+# │                                                                          │
+# │ Do not quote any number in this file as the mapping method. The product   │
+# │ SSoT is `post-inference/south_products.md` §"Size parameters — which      │
+# │ number is which", which also disambiguates the four size parameters that  │
+# │ share the name "min_blob" / "MMU".                                        │
+# └──────────────────────────────────────────────────────────────────────────┘
+#
 # Deployment config — shared by calibration (training.md §12) and inference
 # (inference.md §8.2). Single source of truth for everything that must match
 # between the two (training.md §4.6):
@@ -16,12 +34,15 @@
 # Val-Realistic, 2026-06-25): the pixel-precision calibrate.py threshold (0.1224)
 # is the wrong operating point for an object-detection product — it spews speckle
 # FPs (obj-F1 0.30, 443 FP objects). PRECISION-LEANING choice (user, 2026-06-25):
-# thr 0.65 + min_blob 80 (morph off) → the object-precision MAXIMUM of the grid,
+# thr 0.65 + min_blob 80 px (morph off) → the object-precision MAXIMUM of the grid,
 # obj-P 0.611 / obj-R 0.439 (obj-F1 0.511), pixel-P 0.987 — beyond 0.65 both
 # obj-P and obj-R fall. A pan-Arctic survey map favouring few false slumps over
 # completeness, per the project's precision-over-recall priority.
 # (obj-F1-argmax alternative was thr 0.30: obj-F1 0.567, obj-P 0.489/obj-R 0.674.
 #  Pixel-calibrated value for reference: 0.122401.)
+# NB (2026-08-12): the value below is the 2026-06-25 operating point and is the
+# threshold of the SUPERSEDED product. The shipped inventory is cut at 0.30 —
+# the obj-F1-argmax alternative named above. See the banner at the top.
 threshold: 0.65
 
 # Temperature scaling parameter learned on val (training.md §12.1).
@@ -58,15 +79,34 @@ scales: [1.0]
 # Cross-scale fusion method (only used when len(scales) > 1).
 fusion: "weighted_mean"     # weighted_mean | max | consensus
 
-# Min blob size for object-level decisions (px). FIRST PRODUCT (user choice
-# 2026-06-26, precision-leaning): thr 0.65 + min_blob 2000 → Val obj-P 0.79 /
-# obj-R 0.35. A VECTORIZATION-stage param — it does NOT affect the probability
-# COGs the inference pass writes, so other products (other thr/min_blob) can be
-# cut from the same probabilities later. NB: the Test-Realistic anchor in ledger
-# J (obj-P 0.584) was measured at min_blob 80 — a different point on the *same*
-# probabilities; the min_blob-2000 product's test number can be recomputed from
-# the cached test predictions when post-inference runs.
-min_blob_size_px: 2000
+# SUPERSEDED — legacy product only. Vectorization-stage minimum blob size, in
+# EPSG:3857 PIXELS (not m²). Renamed from `min_blob_size_px` on 2026-08-12;
+# utils.config.vectorize_min_blob_px still reads the old name from packages
+# already on GCS.
+#
+# WHY THE RENAME — this one key held three different values over time, and all
+# three are quoted somewhere as "the deployment min_blob":
+#   10   (e630266, 2026-05-04)  — matched the eval-stage default
+#   80   (db38892, 2026-06-25)  — LIVE WHEN THE LEDGER-J ONE-SHOT RAN, which is
+#                                 why J's obj-P 0.584 is a "min_blob 80" number
+#   2000 (757825a, 2026-06-26)  — the value below
+# It is also distinct from `metrics.min_blob_size_px: 10` in the training
+# configs (an eval-only filter) and from the shipped geodesic `--min-area-m2`
+# MMU (m², latitude-constant). Four parameters, confusable names:
+# post-inference/south_products.md §"Size parameters — which number is which".
+#
+# FIRST PRODUCT (user choice 2026-06-26, precision-leaning): thr 0.65 +
+# min_blob 2000 px → Val obj-P 0.79 / obj-R 0.35. NOT the result of a sweep —
+# the tuning grid (tune_object_operating_point.py) topped out at 80 px, so this
+# is 25x the largest value ever swept, evaluated only by post-hoc recompute.
+# Being a pixel count, its ground floor slides ~7x with latitude: 18,857 m² at
+# 50°N → 4,533 m² at 71.63°N (inventory median) → 2,671 m² at 76°N.
+#
+# A VECTORIZATION-stage param — it does NOT affect the probability COGs the
+# inference pass writes, so other products (other thr/min_blob) can be cut from
+# the same probabilities later; that is exactly how the shipped 0.30 / no-MMU
+# inventory was produced from these same probabilities.
+vectorize_min_blob_px: 2000
 
 # Inference-time runtime values. Single source of truth; specs reference these
 # keys instead of restating numbers (inference.md §4.1, §4.2, §4.3, §8.1).

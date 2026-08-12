@@ -88,7 +88,8 @@ with no minimum mapping unit, each classified `high_confidence` / `candidate` /
   mean → temperature scaling → Gaussian-weighted overlap fusion (σ = 128 px)
   onto the region canvas; run completed 2026-07-10, git `7b7d74c`.
 - *Vectorization:* threshold 0.30, seam-dissolved, no minimum mapping unit
-  (technical floor 2 px ≈ 10–45 m²).
+  (technical floor 2 px ≈ 2.7–22 m² over the map's latitude span; smallest
+  shipped polygon 2.69 m²).
 - *QC calibration:* 280-polygon stratified sample (confidence tier × size
   band) expert-rated in 2026-07; 279 verdicts scored into a precision grid
   (Wilson CIs); grid cells clearing 0.5 precision define `rts_class`

@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from inference.quad_index import WORLD_MIN  # noqa: E402
 from inference.writer import NODATA_SCALED_U8, SCALE_U8  # noqa: E402
 from scripts.vectorize_predictions import _GEOD, _TO_WGS84  # noqa: E402
-from utils.config import load_config  # noqa: E402
+from utils.config import load_config, vectorize_min_blob_px  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -224,7 +224,16 @@ def vectorize_region(blocks_dir: str, prob_path: str, tile_list: str,
                      workers: int, threshold: float | None = None,
                      window_px: int = 8192,
                      min_area_m2: float | None = None) -> gpd.GeoDataFrame:
-    """Parallel polygonize of block masks → dissolved, min_blob-filtered polygons.
+    """Parallel polygonize of block masks → dissolved, size-filtered polygons.
+
+    Two mutually exclusive size floors, and they are not interchangeable:
+
+    * ``min_area_m2`` (not None) — the **shipped** rule: a geodesic MMU in m²,
+      constant on the ground at every latitude. ``0`` means no MMU, leaving only
+      the 2-px technical floor. ``min_blob_px`` is *overwritten* in this mode.
+    * ``min_blob_px`` (when ``min_area_m2`` is None) — the **superseded** pixel
+      floor from the package (``vectorize_min_blob_px``). A pixel count in 3857,
+      so its ground area slides ~7x from 50°N to 76°N.
 
     With ``threshold`` set, polygonizes the probability super-tile COGs
     (``probability_*.tif``, the delivered product shards) at that decoded
@@ -328,20 +337,28 @@ def main() -> int:
                         "instead of the pre-thresholded mask blocks")
     p.add_argument("--window-px", type=int, default=8192,
                    help="processing window size for --threshold mode")
-    p.add_argument("--min-area-m2", type=float, default=None,
-                   help="geodesic MMU in m² (latitude-constant; overrides the "
-                        "package's pixel min_blob; 0 = keep everything above "
-                        "the 2-px technical floor)")
+    p.add_argument("--min-area-m2", type=float, default=0.0,
+                   help="geodesic MMU in m², latitude-constant. DEFAULT 0 = the "
+                        "SHIPPED rule: keep everything above the 2-px technical "
+                        "floor (no minimum mapping unit)")
+    p.add_argument("--legacy-min-blob-px", action="store_true",
+                   help="opt in to the SUPERSEDED pixel floor from the package's "
+                        "vectorize_min_blob_px (2000 px) instead of the geodesic "
+                        "MMU. Reproduces the legacy south_rts.gpkg; a pixel floor "
+                        "slides ~7x with latitude. Ignores --min-area-m2.")
     args = p.parse_args()
     setup_logging()
 
     dep_cfg = load_config(f"{str(args.package).rstrip('/')}/deployment_config.yaml")
+    if args.legacy_min_blob_px:
+        logger.warning("--legacy-min-blob-px: using the SUPERSEDED pixel floor; this "
+                       "reproduces south_rts.gpkg, NOT the shipped inventory")
     gdf = vectorize_region(args.blocks_dir, args.prob, args.tile_list,
                            scales=dep_cfg.get("scales", [1.0]),
-                           min_blob_px=int(dep_cfg.get("min_blob_size_px", 0)),
+                           min_blob_px=vectorize_min_blob_px(dep_cfg),
                            workers=args.workers, threshold=args.threshold,
                            window_px=args.window_px,
-                           min_area_m2=args.min_area_m2)
+                           min_area_m2=None if args.legacy_min_blob_px else args.min_area_m2)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(args.output, driver="GPKG")
     logger.info("Wrote %s", args.output)

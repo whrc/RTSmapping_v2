@@ -49,6 +49,7 @@ from scripts.analyze_residual_errors import (  # noqa: E402
     _geometry_summary,
     _prf_counts,
 )
+from utils.config import vectorize_min_blob_px  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -203,10 +204,13 @@ def main() -> int:
                    help="label for this split (e.g. heldout_val, frozen_test, insample_train)")
     p.add_argument("--deployment-yaml", default="configs/deployment.yaml")
     p.add_argument("--min-blob", type=int, default=None,
-                   help="override min_blob (default: deployment.yaml min_blob_size_px)")
+                   help="PREDICTION-side size floor (px): predicted blobs smaller than this are "
+                        "dropped before matching. Default: deployment.yaml vectorize_min_blob_px. "
+                        "NOT the same as --min-mapping-unit, which filters GT.")
     p.add_argument("--min-mapping-unit", type=int, default=0,
-                   help="Minimum Mapping Unit (px): GT positive components smaller than this are "
-                        "relabeled to ignore before scoring (0 = off). Frozen-model re-score; no retrain.")
+                   help="GROUND-TRUTH-side size floor (px): GT positive components smaller than "
+                        "this are relabeled to ignore before scoring (0 = off). Frozen-model "
+                        "re-score; no retrain. NOT the same as --min-blob, which filters predictions.")
     p.add_argument("--low-thr", type=float, default=0.3)
     p.add_argument("--iou-thr", type=float, default=0.3)
     p.add_argument("--overlap-frac", type=float, default=0.1,
@@ -221,7 +225,7 @@ def main() -> int:
 
     dep = yaml.safe_load(Path(args.deployment_yaml).read_text())
     thr = float(dep["threshold"])
-    min_blob = int(args.min_blob) if args.min_blob is not None else int(dep.get("min_blob_size_px", 10))
+    min_blob = int(args.min_blob) if args.min_blob is not None else vectorize_min_blob_px(dep, 10)
 
     logger.info("Loading cached predictions: %s", args.cache)
     z = np.load(args.cache, allow_pickle=True)

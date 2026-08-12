@@ -54,7 +54,7 @@ from inference.predictor import predict_probs_ensemble  # noqa: E402
 from models import build_model  # noqa: E402
 from scripts.calibrate import load_checkpoint  # noqa: E402
 from training import metrics as metrics_mod  # noqa: E402
-from utils.config import load_config, resolve_path  # noqa: E402
+from utils.config import load_config, resolve_path, vectorize_min_blob_px  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -225,7 +225,7 @@ def evaluate_test(
         "data": {"label_ignore_index": int(train_cfg["data"]["label_ignore_index"])},
         "metrics": {
             "reporting_threshold": float(dep_cfg["threshold"]),
-            "min_blob_size_px": int(dep_cfg.get("min_blob_size_px", 10)),
+            "min_blob_size_px": vectorize_min_blob_px(dep_cfg, 10),
             "object_iou_threshold": float(train_cfg["metrics"]["object_iou_threshold"]),
         },
     }
@@ -276,6 +276,10 @@ def evaluate_test_ensemble(
     output_path: Path | None = None,
     device: str | None = None,
     by_region: bool = False,
+    # Both historical operating points, scored side by side. 80 px was the value
+    # `deployment.yaml` held on 2026-06-25 when the frozen ledger-J one-shot ran
+    # (obj-P 0.584); 2000 px is the 2026-06-26 first-product choice (obj-P 0.768).
+    # Neither is the shipped rule — see post-inference/south_products.md.
     region_min_blobs: tuple[int, ...] = (80, 2000),
     cache_probs: Path | None = None,
 ) -> dict:
@@ -303,7 +307,7 @@ def evaluate_test_ensemble(
     threshold = float(dep_cfg["threshold"])
     logger.info("ENSEMBLE Test-Realistic: %d members %s | T=%.4f thr=%.3f min_blob=%d tta=%s precision=%s",
                 len(checkpoints), list(checkpoints), temperature, threshold,
-                int(dep_cfg.get("min_blob_size_px", 10)), tta, precision)
+                vectorize_min_blob_px(dep_cfg, 10), tta, precision)
 
     # Data: test_realistic, boundary none (never ignore at test time).
     metadata = load_metadata(resolve_path(cfg["data"]["data_root"], cfg["data"]["metadata_csv"]))
@@ -331,7 +335,7 @@ def evaluate_test_ensemble(
         "data": {"label_ignore_index": int(cfg["data"]["label_ignore_index"])},
         "metrics": {
             "reporting_threshold": threshold,
-            "min_blob_size_px": int(dep_cfg.get("min_blob_size_px", 10)),
+            "min_blob_size_px": vectorize_min_blob_px(dep_cfg, 10),
             "object_iou_threshold": float(cfg["metrics"]["object_iou_threshold"]),
         },
     }
@@ -363,7 +367,7 @@ def evaluate_test_ensemble(
     metrics = acc.compute()
     metrics.update({"_ensemble_members": list(checkpoints), "_tta": tta,
                     "_threshold": threshold, "_temperature": temperature,
-                    "_min_blob_size_px": int(dep_cfg.get("min_blob_size_px", 10)), "_scale": 1.0})
+                    "_min_blob_size_px": vectorize_min_blob_px(dep_cfg, 10), "_scale": 1.0})
 
     if by_region:
         from scripts.analyze_residual_errors import score_by_region

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +130,38 @@ def resolve_path(data_root: str, subpath: str) -> str:
     without duplicating the rstrip-and-slash idiom.
     """
     return f"{data_root.rstrip('/')}/{subpath}"
+
+
+def vectorize_min_blob_px(dep_cfg: dict[str, Any], default: int = 0) -> int:
+    """Read the LEGACY vectorization-stage pixel floor from a deployment config.
+
+    This is **not** the shipped product's minimum mapping unit. The delivered
+    South inventory is cut with the geodesic MMU (``vectorize_region.py
+    --min-area-m2``, in m²); this pixel count only ever produced the superseded
+    `south_rts.gpkg`. See `post-inference/south_products.md` §"Size parameters".
+
+    Reads ``vectorize_min_blob_px``, falling back to the pre-2026-08-12 key name
+    ``min_blob_size_px`` — still present in the deployment packages already
+    written to GCS — with a warning.
+
+    Args:
+        dep_cfg: A parsed deployment config (``deployment.yaml`` or a package's
+            ``deployment_config.yaml``).
+        default: Value to return when neither key is present.
+
+    Returns:
+        The pixel floor, or ``default`` if unset.
+    """
+    if "vectorize_min_blob_px" in dep_cfg:
+        return int(dep_cfg["vectorize_min_blob_px"])
+    if "min_blob_size_px" in dep_cfg:
+        logging.getLogger(__name__).warning(
+            "deployment config uses the legacy key 'min_blob_size_px' (%s); it was "
+            "renamed to 'vectorize_min_blob_px' on 2026-08-12 to separate it from the "
+            "eval-stage 'metrics.min_blob_size_px' and the shipped geodesic "
+            "--min-area-m2 MMU. Reading it anyway.", dep_cfg["min_blob_size_px"])
+        return int(dep_cfg["min_blob_size_px"])
+    return default
 
 
 def require(cfg: dict[str, Any], dotted_key: str) -> Any:

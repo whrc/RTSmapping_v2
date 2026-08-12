@@ -602,7 +602,11 @@ sub-gate).
 **H.2 — Object operating point (DONE 2026-06-25, `scripts/tune_object_operating_point.py`, Val-Realistic).**
 The calibrate.py threshold (0.1224) is tuned for *pixel* precision and is the **wrong operating point for an
 object product**: at thr 0.1224 / min_blob 10 the ensemble scores obj-F1 **0.304** (obj-P 0.189, 443 FP objects,
-424 of them no-overlap speckle). Sweeping threshold × min_blob × morph-close picks the **obj-F1 argmax at the
+424 of them no-overlap speckle). **The swept grid was 19 thresholds × min_blob {1, 5, 10, 20, 40, 80} px × morph
+radius {0, 1, 2} = 342 cells** over 2151 tiles — so **80 px is the grid maximum**, and the later first-product
+value **2000 px was never swept** (25× the max; a 2026-06-26 user choice scored only by post-hoc recompute).
+All min_blob values here are *prediction-side pixel* counts — see `post-inference/south_products.md`
+§"Size parameters — which number is which". Sweeping threshold × min_blob × morph-close picks the **obj-F1 argmax at the
 pixel-P≥0.8 floor: thr 0.30 + min_blob 80 + morph off** → obj-F1 **0.567** (obj-P 0.489 / obj-R 0.674, pixel-P
 0.931, FP objects 443→93). Robust plateau (obj-F1≈0.56 over thr 0.30–0.35; morph radius 0/1/2 identical → off).
 **DEPLOYED operating point (user choice 2026-06-25, precision-leaning): thr 0.65 + min_blob 80 + morph off** →

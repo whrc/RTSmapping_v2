@@ -15,6 +15,7 @@ from utils.config import (
     _deep_merge,
     load_config,
     validate_training_config,
+    vectorize_min_blob_px,
 )
 
 
@@ -115,3 +116,32 @@ def test_no_new_configs_inherit_the_frozen_phase0c_schedule():
     assert len(users) == 68, (
         f"{len(users)} configs inherit the FROZEN phase0c schedule (start_epoch 101); expected the "
         "68 historical ones. New training configs must use `base: base_v2_fast.yaml` (45/5/120).")
+
+
+def test_vectorize_min_blob_px_prefers_new_key():
+    assert vectorize_min_blob_px({"vectorize_min_blob_px": 2000}) == 2000
+
+
+def test_vectorize_min_blob_px_reads_legacy_key_with_warning(caplog):
+    """Deployment packages already on GCS carry the pre-2026-08-12 name."""
+    with caplog.at_level("WARNING"):
+        assert vectorize_min_blob_px({"min_blob_size_px": 2000}) == 2000
+    assert "legacy key" in caplog.text
+
+
+def test_vectorize_min_blob_px_new_key_wins_over_legacy():
+    assert vectorize_min_blob_px(
+        {"vectorize_min_blob_px": 10, "min_blob_size_px": 2000}) == 10
+
+
+def test_vectorize_min_blob_px_default_when_absent():
+    assert vectorize_min_blob_px({}, 10) == 10
+
+
+def test_deployment_yaml_uses_the_renamed_key():
+    """The eval-stage `metrics.min_blob_size_px` and this vectorization-stage floor
+    are different parameters; the shared name is what confused the manuscript drafts.
+    """
+    cfg = load_config(Path(__file__).resolve().parent.parent / "configs" / "deployment.yaml")
+    assert cfg["vectorize_min_blob_px"] == 2000
+    assert "min_blob_size_px" not in cfg

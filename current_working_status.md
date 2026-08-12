@@ -300,6 +300,43 @@ it:
 `reviewed_at` is stamped once at submit, identical across a batch's 200 rows, so per-item pace is not
 recoverable from the verdicts — only batch pace (claim → submit).
 
+---
+
+**Size-parameter disambiguation — the 10 / 80 / 2000 confusion, root-caused and closed (2026-08-12).**
+Manuscript drafts kept fusing the `min_blob` numbers. The cause was not carelessness:
+`configs/deployment.yaml`'s pixel floor **held all three values in sequence** — `10` (e630266,
+2026-05-04) → `80` (db38892, 2026-06-25, *live when the frozen ledger-J one-shot ran*, which is why
+J's obj-P 0.584 is a min_blob-80 number) → `2000` (757825a, 2026-06-26). All three are legitimately
+"the deployment min_blob", at different dates, and **none of them is the shipped rule** — the
+delivered inventory uses the different-unit geodesic MMU (`--min-area-m2 0`, m²).
+
+- **One name, four parameters, now separated.** `min_blob_size_px` → **`vectorize_min_blob_px`** in
+  `deployment.yaml`, read through `utils.config.vectorize_min_blob_px()` which falls back to the old
+  key (still in the GCS packages) with a warning. The eval-stage `metrics.min_blob_size_px: 10` and
+  every label-side identifier keep their names — they were already correctly scoped.
+- **The shipped rule is now the default code path.** `vectorize_region.py --min-area-m2` defaults to
+  `0.0`; reproducing the superseded product needs an explicit `--legacy-min-blob-px`. Previously a
+  bare re-run silently rebuilt the legacy `south_rts.gpkg` floor.
+- **A wrong number was propagating to 4 files.** "technical floor 2 px ≈ **10–45 m²**" — the `45` had
+  simply dropped the `cos²(lat)` correction (2 × 4.777² = 45.6 m² is the *equator* value). Checked
+  against the shipped attribute table: the true 2-px floor is **2.7–22 m²** over the 46–76°N span and
+  the smallest delivered polygon is **2.69 m²** (the floor at 76°N). **6,761 polygons (11.2%)** sit
+  below ARTS P1 = 79 m².
+- **A spec contradicted the code.** `post-inference.md` described the vectorization filter as the
+  10-px *eval* parameter from `baseline.yaml`; the code reads `deployment.yaml`. Corrected.
+- **New SSoT:** `south_products.md` §"Size parameters — which number is which" — deliberately
+  asymmetric (product rule alone first, everything else demoted under "Not the product rule"), plus
+  a px→m² conversion table (**80 px is not 79 m²**; it is 181 m² at the inventory's median latitude)
+  and a stage table separating **label/GT** floors from **prediction** floors. `object_scorecard.py`'s
+  `--min-blob` (predictions) and `--min-mapping-unit` (ground truth) are opposite sides of the match;
+  `data.min_mapping_unit_px` is **0/OFF** in every shipped config, and "MMU-600" is a GT-scoring
+  sensitivity check, never a training or product setting.
+- **Verified by cold reader, not by inspection.** A fresh subagent given the manuscript's questions
+  against the *pre-fix* repo answered the MMU as "2.7–**45** m²" and, having computed the true minimum
+  2.69 m² itself, **explained the contradiction away** as "a nominal mid-latitude figure" — the docs
+  beat the data. Post-fix, the same probe answers all seven questions correctly. Parity held: both
+  frozen anchors reproduce exactly (`anchors_all_match: true`).
+
 Prior: 
 **Public GEE app redesigned + the 0.65 contour built as a product (branch `gee-app-redesign`,
 2026-08-03).** The app had three layers and two problems: the 95 m likelihood surface was invisible

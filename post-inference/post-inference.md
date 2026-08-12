@@ -100,8 +100,13 @@ Polygonize `mask == 1` and attach the `inference.md §9.3` attribute schema.
   - **Decision to make:** simplify `tolerance`. Start at **~1 pixel (≈4.77 m)** and
     tune against QC (§8) — too high erodes small/narrow slumps, too low keeps the
     stair-steps. Record the chosen value in the run manifest.
-- **Filter:** drop blobs smaller than `min_blob_size_px` (= 10 px, shared with
-  `configs/baseline.yaml metrics.min_blob_size_px`) before writing.
+- **Filter:** the SHIPPED rule is the **geodesic MMU** — `vectorize_region.py
+  --min-area-m2` in **m²** (default `0` = no MMU, leaving only a 2-px technical
+  floor), latitude-constant. The alternative `--legacy-min-blob-px` uses the
+  package's `vectorize_min_blob_px` (2000 px), which produced the **superseded**
+  `south_rts.gpkg` only. Neither is `metrics.min_blob_size_px` (= 10 px), which
+  is an **eval-stage** filter and never touches a product. Full disambiguation:
+  `post-inference/south_products.md` §"Size parameters — which number is which".
 
 ## 7. Geometric Measurement (geodesic — mandatory)
 
@@ -139,7 +144,8 @@ The deployment map cannot be scored directly. Quantitative evaluation uses the
 pipeline scored on labelled tiles:
 
 - **Object-level:** match predicted blobs to label blobs at IoU ≥
-  `object_iou_threshold` (= 0.3), with `min_blob_size_px` (= 10) filtering; report
+  `object_iou_threshold` (= 0.3), with **eval-stage** `metrics.min_blob_size_px`
+  (= 10 px) filtering *predictions* — not the product's MMU; report
   precision/recall/F1.
 - **Pixel/region-level:** PR-AUC at the realistic neg:pos ratios `[5, 10, 20]`
   (`metrics.pr_auc_ratios`) — the same `val_realistic_pr_auc_geomean` vocabulary as
