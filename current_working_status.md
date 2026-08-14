@@ -167,7 +167,35 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Collaborative review campaign built — a 2–3 person team can now traverse all 60,167 candidates
+**Interannual acquisition proposed to Heidi — 2019–2024 q3 (branch `interannual-planet-acquisition`,
+2026-08-14).** One epoch (2025) cannot answer a change question, so the next programme is running the
+frozen deployed model over six more years. The blocker is imagery, not compute: this repo has never
+held Planet acquisition code, and the key belongs to Heidi Rodenhizer. Deliverable is a review
+document, `docs/interannual_planet_download_plan.md` — no code changes here.
+
+- **Nothing in this repo needs to change if the delivery layout matches 2025.** `quad_index.py`
+  matches the literal `_quad_file_format.tif` suffix and derives bounds arithmetically from the
+  `<col>-<row>` id, so per-year indexes need only a new `--prefix`. That is why the doc asks for the
+  COG `file_format` tool rather than treating it as a detail.
+- **Download and inference overlap for free.** Planet delivers server-side into GCS — no imagery
+  transits a VM, and the order loop is one single-threaded API caller. Our ~2.3 d/year inference hides
+  entirely behind the ~5.5 d/year ordering, so ordering throughput sets the wall clock: ~35 days
+  pipelined vs ~47 sequential. Each year is an independent run under its own `shard_tiles.py --output`
+  prefix, so year-level concurrency needs no scheduling. Intra-year pipelining was rejected — tiles
+  straddle quad boundaries and a not-yet-delivered quad reads as NoData rather than erroring.
+- **A column-count proxy nearly cost a wasted decision.** `gs://abrupt_thaw` 2024 has 1,655 column
+  dirs against 2025's 1,951, which looks like ~85% coverage; actual quad counts inside the shared
+  columns are **8.8%** of 2025's (20-column sample: 321 vs 3,636), with 296 columns empty. It is an
+  ARTS-site subset, not a mapping layer — so 2024 is ordered fresh like every other year, and the
+  reuse/gap-fill design was dropped. Same applies to 2019/2021/2023.
+- **Open on Heidi's side:** whether the subscription can absorb ~1.85M quad downloads (blocking);
+  whether the 39 grids/min ceiling is a Planet rate limit or just the serial `requests.post` loop
+  (highest-leverage unknown — our inference can absorb double); and 309,100 vs her notebook's 259,783
+  as the per-year grid count. Three defects flagged in her notebooks, the significant one being
+  `rename_data_files()` hardcoding 2025 in its regex — it fails **silently** on other years.
+- Pilot is **2022 alone**, serial, gating quota + rename + drift before anything else is ordered.
+
+**Also live: collaborative review campaign — a 2–3 person team can now traverse all 60,167 candidates
 (branch `review-campaign`, 2026-08-03).** The South inventory has no human verification; everything
 in `south_products.md` traces back to one 280-polygon stratified sample. This builds the machinery to
 replace that extrapolation with a census. Protocol SSoT: `post-inference/review_campaign.md`.
