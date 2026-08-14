@@ -188,6 +188,13 @@ document, `docs/interannual_planet_download_plan.md` — no code changes here.
   columns are **8.8%** of 2025's (20-column sample: 321 vs 3,636), with 296 columns empty. It is an
   ARTS-site subset, not a mapping layer — so 2024 is ordered fresh like every other year, and the
   reuse/gap-fill design was dropped. Same applies to 2019/2021/2023.
+- **Imagery is not retained — delete on approval.** Each year's ~14.7 TB of quads is dropped once
+  its map is human-approved (~2 months' residency incl. ordering + inference + review), which puts
+  the whole programme at **~$4.1k of storage** against ~$20k/yr if six years were simply held.
+  Peak is still ~88 TB for about a month. Two constraints on the gate: it must be *approved*, not
+  *produced* (re-ordering a deleted year spends quota twice), and the quads must stay on Standard
+  through review because the QC tooling streams RGB crops from them. What we keep is the prob COGs
+  — ~0.3 TB/year, ~1.8 TB for the series.
 - **Open on Heidi's side:** whether the subscription can absorb ~1.85M quad downloads (blocking);
   whether the 39 grids/min ceiling is a Planet rate limit or just the serial `requests.post` loop
   (highest-leverage unknown — our inference can absorb double); and 309,100 vs her notebook's 259,783
