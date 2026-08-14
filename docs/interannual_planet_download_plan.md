@@ -7,11 +7,12 @@ year for 2019–2024 q3. You own the Planet key and the account; we are specifyi
 shape because our inference pipeline consumes it. That split is the awkward part of this
 request, so this document tries to be precise about exactly what to run and to keep our own
 implementation out of your way — everything about what happens on our side is in
-[§6–§8](#6-storage-and-the-delete-on-approval-policy), after the parts you need.
+[§7–§9](#7-storage-and-the-delete-on-approval-policy), after the parts you need.
 
-**Five questions for you in [§5](#5-questions-for-you).** The first one blocks everything past
-the pilot year. If it would help, we are happy to run the loops ourselves on our VM under
-credentials you control — see 5.5.
+**Five questions for you in [§6](#6-questions-for-you).** The first one blocks everything past
+the pilot year. Per our thread, the plan is that we build the workflow on the VM and you SSH in
+and run it with your key — [§2](#2-running-this-on-the-vm--access-keys-and-long-sessions) answers
+the key-handling questions you raised, including the two where the answer is "no".
 
 ---
 
@@ -27,19 +28,103 @@ exactly the same shape as your existing 2025 delivery:
 | Destination | `gs://pdg-planet-data/global_quarterly/<year>/q3/<col>/<row>/` |
 | Order tool | `tools: [{"file_format": {"format": "COG"}}]`, exactly as 2025 |
 | Resulting filename | `global_quarterly_<year>q3_mosaic_<col>-<row>_quad_file_format.tif` |
-| Quads per year | **~309,100** — see [5.3](#5-questions-for-you), this needs your confirmation |
+| Quads per year | **~309,100** — see [6.3](#6-questions-for-you), this needs your confirmation |
 
 The filename shape is the one thing worth not improvising on. Our index matches the literal
 suffix `_quad_file_format.tif` and derives each quad's bounds from the `<col>-<row>` id, so if
 the new years land in that shape, we change nothing on our side at all. If they land in the
 legacy `_quad.tif` shape, every downstream step needs a compatibility branch.
 
-## 2. Before you run: edits the notebooks need
+## 2. Running this on the VM — access, keys, and long sessions
+
+Answering the questions from our thread directly, including the ones where the answer is "no".
+
+### 2.1 Can the VM use a key that stays on your laptop? No.
+
+There is no forwarding mechanism for API keys — SSH agent forwarding carries SSH keys only, and
+nothing equivalent exists for a bearer token like `PL_BM_API_KEY`. The process that calls
+`api.planet.com` runs on the VM for ~5.5 days, so the key has to be in *that process's*
+environment, on the VM. Any design that avoids this would mean the ordering loop runs on your
+laptop, which is the thing we are trying to get away from.
+
+Same for `PDG_PL_ORDERS_KEY`. Worth noting that one is transmitted to Planet by design — it is
+embedded in the order JSON at `order_info["delivery"]["google_cloud_storage"]["credentials"]`
+so their servers can write into the bucket.
+
+### 2.2 Is there a managed secret store we can use? Not on this project.
+
+Google Secret Manager would be the textbook answer, and we checked: it does not work here.
+The Secret Manager API is not enabled on `pdg-project-406720`; this VM's service account holds
+only `devstorage.read_only` scope, so it could not call the API even if it were; changing
+instance scopes requires stopping and restarting the VM, which we will not do (it is an 8×A100
+instance we won a stockout for and cannot re-acquire); and PDG project IAM is org-managed, so we
+cannot grant a secret-accessor binding ourselves regardless.
+
+So there is no managed vault in play. The two workable options are below.
+
+### 2.3 Two ways to supply the key, and what each actually protects
+
+**Option A — typed per session, never written to disk (our recommendation).** You SSH in, start
+a `tmux` session, and run a wrapper that prompts for both keys with `read -s` and exports them
+into that shell only. Nothing touches disk, nothing enters shell history, and the values vanish
+when the process exits. The loop runs inside `tmux`, so it survives you disconnecting — which
+is the whole point of moving to the VM (see 2.5).
+
+**Option B — a `.env` file in your home directory, mode `600`, deleted when the year finishes.**
+Identical to what you do locally; `%load_ext dotenv` / `%dotenv` reads `.env` from the working
+directory and behaves no differently on a VM. Simpler, and it survives a process restart without
+retyping. The cost is that it exists on disk, so it would be captured by any disk snapshot taken
+during that window.
+
+**What both actually guarantee.** This VM has other users on it (OS Login is enabled
+project-wide, so you would get your own POSIX account and home directory automatically on first
+login). We verified that `/proc/<pid>/environ` is mode `0400` owned by the process user, and a
+`600` file is likewise unreadable by others — so **neither option is visible to other ordinary
+users on the box**.
+
+**What neither guarantees, stated plainly:** anyone with sudo on this VM can read your key —
+out of process memory under Option A, out of the file under Option B. That includes me. No
+arrangement on a machine we administer changes that, and it would be wrong to imply otherwise.
+What the setup does prevent is the key reaching git, logs, a shared image, or other users; and
+it can be removed when the run ends. Beyond that, this is a trust arrangement of the same kind
+as handing a collaborator the key directly — the VM does not make it more than that.
+
+### 2.4 Rotation — worth solving before it matters, not after
+
+You found that Planet has no self-service key rotation and it needs a support ticket. That
+removes the "just regenerate it afterwards" backstop and makes the choice above weightier than
+it would otherwise be.
+
+The cleaner fix is to sidestep it: **ask Planet support for a separate key for this project**,
+rather than putting your primary key on a shared VM. Then the key on the VM is one that only
+ever existed for this work, retiring it afterwards is a routine ticket, and your day-to-day key
+never leaves your laptop. Worth asking them the turnaround time in the same message, so the
+recovery path is known before anyone needs it.
+
+### 2.5 What we will have ready before you log in
+
+The point of the VM is that the ordering loop keeps running while your laptop is off, or on
+Windows in ArcGIS. So we will set up, ahead of your first session:
+
+- Your OS Login access to `a100-8x-train` (`us-central1-a`, `pdg-project-406720`). This needs a
+  `roles/compute.osLogin` binding for your account — PDG IAM is org-managed, so if we cannot
+  grant it ourselves we will get it requested. **This is the one thing that could block a
+  start date, so it is worth confirming early.** You do not need sudo.
+- The R/Quarto and Python environments the three notebooks need, so nothing has to be installed
+  interactively.
+- A `tmux`-wrapped runner, so a year's loop is one command, detaches cleanly, and can be
+  reattached from any later session to check progress.
+- Progress monitoring you can look at without holding the SSH session open.
+
+Net effect: your involvement per year should be supplying the key, starting the run, and
+checking on it — not babysitting a five-day process.
+
+## 3. Before you run: edits the notebooks need
 
 Read against `HRodenhizer/circumpolar_planet_basemaps` @ `initial-download`, line numbers as of
-2026-08-14. Items 2.1–2.3 must be done or the run breaks; 2.4 is context.
+2026-08-14. Items 3.1–3.3 must be done or the run breaks; 3.4 is context.
 
-### 2.1 Un-hardcode the year (all three notebooks)
+### 3.1 Un-hardcode the year (all three notebooks)
 
 | File | Line | Currently |
 |---|---|---|
@@ -52,7 +137,7 @@ Notebooks 1 and 3 already isolate this in one variable and interpolate downstrea
 `3` L60/L82). Notebook 2 has the year written into two literal paths and needs the same
 treatment.
 
-### 2.2 `rename_data_files()` hardcodes 2025 in its regex — **this one fails silently**
+### 3.2 `rename_data_files()` hardcodes 2025 in its regex — **this one fails silently**
 
 `3_order_basemaps.qmd` L67-74:
 
@@ -75,7 +160,7 @@ Interpolating `imagery_year` into both patterns fixes it. The same literal also 
 in the count-reconciliation cell. Your own note at L64 already flags this function as needing
 rework.
 
-### 2.3 `NameError` in the batch-delete cell
+### 3.3 `NameError` in the batch-delete cell
 
 `3_order_basemaps.qmd` L362-365 iterates `range(0, len(remaining_original_files), batch_size)`,
 but that name is only bound inside the commented-out re-run block below (L367, L374-375). First
@@ -83,7 +168,7 @@ execution raises. `len(original_files)` is what L363 already slices.
 
 It fails closed — nothing gets deleted — but it stops you at the very end of a multi-day run.
 
-### 2.4 Two things that are fine as-is
+### 3.4 Two things that are fine as-is
 
 **The domain path is correct.** L22's `"../RTSmapping_v2/domain/circumpolar_south_domain.geojson"`
 resolves against a sibling clone of our repo. (Our local working directory happens to be named
@@ -93,12 +178,12 @@ will be compared against — worth not "improving" mid-programme.
 
 **The dedupe makes runs resumable.** L122-127 skips quads already present under the prefix, so a
 five-day loop can be interrupted and restarted freely. One caveat: it keys on what is physically
-under the prefix, so it is only correct once 2.2 is fixed — a silently-failed rename would make
+under the prefix, so it is only correct once 3.2 is fixed — a silently-failed rename would make
 a resumed run re-order quads that are already there.
 
 Also uncomment `st_write` in notebook 2 (L99-104); it produces the file notebook 3 reads at L82.
 
-## 3. Step by step, for one year
+## 4. Step by step, for one year
 
 **0.** Set the year; confirm `.env` has `PL_BM_API_KEY` and `PDG_PL_ORDERS_KEY`.
 
@@ -121,12 +206,12 @@ glancing at the delivered-quad count once a day rather than trusting silence.
 *Check:* no paths left matching the 36-char UUID directory pattern, and total object count ≈
 quad count × 6.
 
-**5.** Tell us the year is ready. Everything after this is ours ([§8](#8-what-happens-on-our-side)).
+**5.** Tell us the year is ready. Everything after this is ours ([§9](#9-what-happens-on-our-side)).
 
-## 4. Which years, in what order
+## 5. Which years, in what order
 
 **2022 runs alone, first, end to end** — including our inference and a look at the result —
-before anything else is ordered. It is the gate on quota, on the 2.2 rename fix, and on
+before anything else is ordered. It is the gate on quota, on the 3.2 rename fix, and on
 radiometric drift. 2022 rather than 2019 because it is mid-range: far enough from 2025 to
 exercise real drift, but not at the archive's early edge where genuine Planet coverage gaps
 could be misread as pipeline bugs.
@@ -140,36 +225,38 @@ substantial by directory count, but it holds only ~8.8% of 2025's quad density i
 columns it covers, and 296 of 2025's columns are missing from it entirely — it is an ARTS-site
 subset, not a mapping layer. Same for the 2019/2021/2023 trees there.
 
-## 5. Questions for you
+## 6. Questions for you
 
-**5.1 Quota — blocking.** Six full years is **~1.85M quad downloads**. Does the basemap
+**6.1 Quota — blocking.** Six full years is **~1.85M quad downloads**. Does the basemap
 subscription have a quad, bandwidth, or cost cap that this would exhaust? We would rather know
 now than 60% of the way through. Nothing past the 2022 pilot proceeds without this.
 
-**5.2 Is 39 grids/min a Planet-side rate limit, or just the serial `requests.post` loop?** This
+**6.2 Is 39 grids/min a Planet-side rate limit, or just the serial `requests.post` loop?** This
 is the highest-leverage unknown in the whole plan — it sets the entire wall clock, and our
 inference can already absorb roughly double it. If the ceiling is the loop rather than the API,
 threading it would shorten everything proportionally.
 
-**5.3 309,100 or 259,783 quads per year?** Your note at `3_order_basemaps.qmd` L88 says the
+**6.3 309,100 or 259,783 quads per year?** Your note at `3_order_basemaps.qmd` L88 says the
 orders "will cover 259783 grids", but the 2025 delivery actually indexed **309,100** unique
 quads across 1,951 column directories — ~19% more. We do not know which is the right planning
 figure; every estimate here uses the larger one. Step 2 of the pilot settles it.
 
-**5.4 Notebook edits — your repo or ours?** Would you like §2 as a PR against `initial-download`
+**6.4 Notebook edits — your repo or ours?** Would you like §3 as a PR against `initial-download`
 (we would fork; we have read-only access), would you rather apply them yourself, or is editing
 the year by hand for each of six runs simplest?
 
-**5.5 Who runs the loops?** The key is yours. But six runs at ~5.5 days each is a real
-imposition, and if it helps we can host the loops on our VM under credentials you control and
-hand you monitoring — you would keep the account and the key, and we would absorb the babysitting.
+**6.5 Key handling — three small decisions.** Option A or Option B from §2.3? Would you like to
+open a Planet support ticket for a **project-specific key** (§2.4) before we start, so your
+primary key never goes on the VM? And shall we go ahead and request the `roles/compute.osLogin`
+binding for your account — that is the item most likely to hold up a start date, since PDG IAM
+is org-managed and not ours to grant.
 
 ---
 
 *Everything below is our side of the pipeline, recorded so the plan is auditable. None of it
 needs action from you.*
 
-## 6. Storage and the delete-on-approval policy
+## 7. Storage and the delete-on-approval policy
 
 Measured average delivery size: three columns (500, 900, 1300) sum to 19,413,767,687 bytes over
 409 quads → **47.5 MB per quad** across all six delivered objects. (A single hand-picked quad
@@ -202,7 +289,7 @@ This draws on the budget already reserved in `computing/infrastructure.md` §3 �
 *"pan-arctic inference + EXTRA-channel generation + multi-year/ensemble runs, ~$40–55k"*. The
 $70k credit expires Sep 2026, which is a further argument for not letting years accumulate.
 
-## 7. Schedule — your ordering and our inference overlap
+## 8. Schedule — your ordering and our inference overlap
 
 You do not need to wait for us, and we do not need to wait for you. The two halves share no
 resource:
@@ -235,7 +322,7 @@ disappears entirely behind it. **Your ordering throughput sets the programme's w
 | 8–9 | — | 2024 |
 
 Review windows then run ~2 months behind each inference, and each year's quads are deleted as it
-clears (§6).
+clears (§7).
 
 **What we are deliberately not doing:** your grid list is `arrange(year, grid_column, grid_row)`,
 so delivery sweeps west→east and completed column bands are contiguous — tempting to start
@@ -246,7 +333,7 @@ needs a held-back one-quad buffer column plus appending to `shards/index.json`, 
 `shard_tiles.py:104` writes once. That saves ~2 days out of 35 for a silent-corruption failure
 mode.
 
-## 8. What happens on our side
+## 9. What happens on our side
 
 After your step 4, per year:
 
@@ -257,7 +344,7 @@ python scripts/build_quad_index.py --bucket pdg-planet-data \
     --output /mnt/outputs/inference/quad_index_<year>q3.csv
 ```
 Row count is reconciled against your step-2 grid count. A large shortfall is the signature of a
-silently-failed rename (§2.2) — this is the step that catches it.
+silently-failed rename (§3.2) — this is the step that catches it.
 
 **6.** `scripts/check_inference_normalization.py` against the training `normalization_stats.json`,
 using the thresholds fixed in `inference/inference.md` §5.4 (|Δmean| > 0.5σ_training, or
@@ -271,7 +358,7 @@ discuss, not a reason to quietly widen the threshold.
 gs://rts-mapping-v2-usw1/inference/<year>q3_south/`, then run the fleet. Shard count should be
 in line with 2025's 2,079; `done/` markers reconcile against `index.json`.
 
-**8.** Review the map, then delete that year's quads (§6).
+**8.** Review the map, then delete that year's quads (§7).
 
 ### The VM, stated plainly
 
@@ -281,7 +368,7 @@ straight into GCS — no imagery transits any machine we own, and the order loop
 single-threaded API caller that would run just as fast on a laptop. The host earns its place
 because it can hold a month-long order loop and the GCS-API-bound rename passes at zero marginal
 cost (it is already never stopped), and because its otherwise-idle GPUs run the concurrent
-per-year inference that makes §7's schedule work.
+per-year inference that makes §8's schedule work.
 
 **Environment:** notebook 2 is R/Quarto (`sf`, `tidyverse`, `viridis`); notebooks 1 and 3 are
 Python (`planet`, `geopandas`, `google-cloud-storage`, `google-cloud-storage-control`, `gcsfs`,
