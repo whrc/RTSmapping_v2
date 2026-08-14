@@ -191,7 +191,8 @@ document, `docs/interannual_planet_download_plan.md` — no code changes here.
 - **Open on Heidi's side:** whether the subscription can absorb ~1.85M quad downloads (blocking);
   whether the 39 grids/min ceiling is a Planet rate limit or just the serial `requests.post` loop
   (highest-leverage unknown — our inference can absorb double); and 309,100 vs her notebook's 259,783
-  as the per-year grid count. Three defects flagged in her notebooks, the significant one being
+  as the per-year grid count. Notebook issues flagged (hardcoded year in all three, a commented-out
+  `st_write`, a `NameError` in the batch-delete cell), the significant one being
   `rename_data_files()` hardcoding 2025 in its regex — it fails **silently** on other years.
 - Pilot is **2022 alone**, serial, gating quota + rename + drift before anything else is ordered.
 

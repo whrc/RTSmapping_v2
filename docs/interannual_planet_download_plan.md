@@ -112,15 +112,19 @@ already iterates over.
 Benign in effect (it fails closed — nothing is deleted), but it stops the run at the very end of
 a multi-day loop, which is the worst place to stop.
 
-### 3.4 Notebook 2's domain path points at the old repo name
+### 3.4 Notebook 2's domain path — correct as written
 
-`2_circumpolar_south_basemap_grids.qmd` L22: `"../RTSmapping_v2/domain/circumpolar_south_domain.geojson"`.
-The repo is now `RTSmappingDL`; the file lives at
-[`domain/circumpolar_south_domain.geojson`](../domain/circumpolar_south_domain.geojson).
+`2_circumpolar_south_basemap_grids.qmd` L22 reads
+`"../RTSmapping_v2/domain/circumpolar_south_domain.geojson"`. That resolves correctly against a
+sibling clone of `whrc/RTSmapping_v2`, which is this repo — no change needed. (Flagging it only
+because our local working directory happens to be named `RTSmappingDL`, which makes the path
+look stale when it isn't.)
 
-Worth stating explicitly that this file is **unchanged since the 2025 run**, so all six new
-years get filtered against exactly the same domain polygon as the epoch they will be compared
-against. That is what we want, and it is worth not "improving" the domain mid-programme.
+The point worth stating is that
+[`domain/circumpolar_south_domain.geojson`](../domain/circumpolar_south_domain.geojson) is
+**unchanged since the 2025 run**, so all six new years get filtered against exactly the same
+domain polygon as the epoch they will be compared against. That is what we want, and it is worth
+not "improving" the domain mid-programme.
 
 ### 3.5 `st_write` in notebook 2 is commented out
 
@@ -339,7 +343,7 @@ circumpolar_planet_basemaps  (Heidi)
         gs://pdg-planet-data/global_quarterly/<year>/q3/<col>/<row>/
                                 │  nb3 rename pass strips the order-UUID directory
                                 ▼
-RTSmappingDL
+whrc/RTSmapping_v2
   scripts/build_quad_index.py   →  quad_index_<year>q3.csv
   scripts/generate_tile_grid.py →  stride-344 tile grid
   scripts/mask_tiles_to_domain.py, scripts/shard_tiles.py
