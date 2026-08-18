@@ -785,6 +785,12 @@ policy is exercised without waiting on real back-off (`time.sleep` is patched ou
 | `test_live_run_is_flagged_neither` | a progressing run is unflagged | real — no false positives |
 | `test_runtime_outputs_default_outside_the_repo` | `DEFAULT_WORK` / `DEFAULT_STATUS_DIR` are not under the checkout | real — regression; the shared checkout is read-only to collaborators, which broke Heidi's first run |
 | `test_psd_work_env_var_overrides_the_default` | `PSD_WORK` relocates runtime output | real — the documented escape hatch |
+| `test_silent_while_the_run_is_healthy` | no alert while ordering is progressing | real — a checker that chatters trains you to ignore it |
+| `test_silent_when_stale_but_process_still_alive` | a live process suppresses the alarm during the slow startup listing | real — otherwise it cries wolf on every restart |
+| `test_alerts_when_stale_and_no_process` | both signals together do fire, with the resume command | real — the case the cron exists for |
+| `test_alert_is_not_repeated_every_tick` | one alert per incident, not one per 10 min | real — dedupe |
+| `test_recovery_rearms_the_alert` | a resumed run clears the marker so the next stop alerts again | real — the failure mode of naive dedupe |
+| `test_completion_alerts_once` | a finished year alerts once, carrying `--expect-quads` | real — hands off to the next step |
 
 
 ### [test_assemble_region.py](test_assemble_region.py)

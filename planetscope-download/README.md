@@ -89,6 +89,34 @@ supervisor restarting it — check `/mnt/outputs/planetscope-download/logs/`.
 delivery layout and radiometric drift before we commit five more years. After
 it's checked: 2019 → 2020 → 2021 → 2023 → 2024.
 
+## Alerts
+
+A cron job checks every 10 minutes and posts to Slack when a year **stops and
+needs a human**, and once more when a year finishes. The supervisor already
+restarts crashes and stalls by itself, so this only fires for the three things
+it cannot fix: an expired Planet key, a crash loop, or a VM reboot.
+
+**One-time setup** — paste your Slack incoming-webhook URL into the file below.
+It is deliberately not in git:
+
+```bash
+umask 077
+echo 'https://hooks.slack.com/services/XXX/YYY/ZZZ' > /mnt/outputs/planetscope-download/slack_webhook
+```
+
+Until that exists the checker stays silent and simply logs to
+`/mnt/outputs/planetscope-download/logs/alerts.log` when something needs
+attention. Test it any time with:
+
+```bash
+/mnt/outputs/planetscope-venv/bin/python planetscope-download/alert_if_stopped.py --dry-run
+```
+
+A year is only counted as stopped when its heartbeat is stale **and** no
+ordering process is running — on resume the loop lists the delivery prefix
+before its first heartbeat, which can take a while, and alerting on that would
+cry wolf on every restart.
+
 ## Stopping
 
 ```bash
@@ -156,6 +184,7 @@ planetscope-download/
 ├── order_basemaps.py        ← step 3: place the orders (the multi-day one)
 ├── check_status.py          ← progress for every year
 ├── tidy_rename.py           ← optional cosmetic flattening; not needed by the pipeline
+├── alert_if_stopped.py      ← cron: Slack alert when a year stops or finishes
 └── requirements.txt
 
 /mnt/outputs/planetscope-download/     ← runtime outputs (outside the repo)
