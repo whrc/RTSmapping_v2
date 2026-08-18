@@ -783,6 +783,8 @@ policy is exercised without waiting on real back-off (`time.sleep` is patched ou
 | `test_finished_year_is_not_reported_stale` | a 100%-done year reads `complete`, not `STALE` | real — regression; a finished run stops heartbeating by design, and the false alarm sends the operator chasing a process that succeeded |
 | `test_incomplete_and_quiet_is_reported_stale` | an unfinished year gone quiet is flagged | real — the alarm that matters |
 | `test_live_run_is_flagged_neither` | a progressing run is unflagged | real — no false positives |
+| `test_runtime_outputs_default_outside_the_repo` | `DEFAULT_WORK` / `DEFAULT_STATUS_DIR` are not under the checkout | real — regression; the shared checkout is read-only to collaborators, which broke Heidi's first run |
+| `test_psd_work_env_var_overrides_the_default` | `PSD_WORK` relocates runtime output | real — the documented escape hatch |
 
 
 ### [test_assemble_region.py](test_assemble_region.py)

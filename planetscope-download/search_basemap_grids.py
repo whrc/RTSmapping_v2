@@ -123,7 +123,23 @@ def main() -> int:
     session = requests.Session()
     session.auth = (api_key, "")
 
-    grids = fetch_quads(session, find_mosaic(session, args.year))
+    try:
+        grids = fetch_quads(session, find_mosaic(session, args.year))
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else None
+        if code in (401, 403):
+            logger.error("Planet rejected the API key (HTTP %s). Check PL_BM_API_KEY "
+                         "and start the run again.", code)
+            return 2
+        logger.error("Planet API error (HTTP %s) while searching for %d q3: %s",
+                     code, args.year, e)
+        return 1
+    except requests.RequestException as e:
+        logger.error("Could not reach the Planet API: %s", e)
+        return 1
+    except RuntimeError as e:      # no series / no unique q3 mosaic for the year
+        logger.error("%s", e)
+        return 1
     if grids.empty:
         logger.error("No quads returned for %d — refusing to write an empty grid file.", args.year)
         return 1

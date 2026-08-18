@@ -197,7 +197,9 @@ runs/
 # Stray local test fixtures — conftest.py generates synthetic data at runtime
 tests/fixtures/
 
-# planetscope-download runtime outputs (grid geojsons, progress, logs)
+# planetscope-download runtime outputs now live outside the repo
+# ($PSD_WORK, default /mnt/outputs/planetscope-download). Kept as a guard in
+# case anyone points PSD_WORK back into the checkout.
 planetscope-download/data/
 planetscope-download/status/
 planetscope-download/logs/
