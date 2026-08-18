@@ -81,6 +81,13 @@ def _make_loader(dataset, batch_size: int, num_workers: int, collate_fn) -> Data
 
 # Stall watchdog lives in utils/watchdog.py — shared with the acquisition order
 # loop (planetscope-download/), which has the same silent-hang failure mode.
+#
+# Here it is defence-in-depth behind the ``forkserver`` fix in _make_loader: if a
+# DataLoader worker still wedges (any cause), the main thread blocks inside
+# ``for batch in loader`` while the claim's heartbeat thread keeps the shard alive
+# forever — the exact way Banks stranded a shard. Exiting 3 lets the claim go
+# stale so the launch script's per-GPU loop restarts the worker, and the stalled
+# shard is later reclaimed and resumed from its manifest.
 
 
 def _crop_center_upsample(arr: np.ndarray, out_size: int, frac: float) -> np.ndarray:
