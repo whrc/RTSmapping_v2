@@ -12,13 +12,14 @@
 #
 #   tmux new -s planet
 #   ./planetscope-download/run_year.sh 2022
+#   ./planetscope-download/run_year.sh 2022 --workers 8 --limit 200   # threading test
 #   Ctrl-b d                                   # detach; it keeps running
 #   tmux attach -t planet                      # come back any time
 #   touch planetscope-download/status/STOP     # stop after the current step
 #
 set -uo pipefail
 
-YEAR="${1:?usage: run_year.sh <year> [--steps 1,2,3]}"; shift || true
+YEAR="${1:?usage: run_year.sh <year> [extra args passed to order_basemaps.py]}"; shift || true
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 DATA="$HERE/data"; STATUS="$HERE/status"; LOGS="$HERE/logs"
