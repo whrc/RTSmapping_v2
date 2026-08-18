@@ -67,11 +67,13 @@ python3 planetscope-download/check_status.py
 
 ```
   year               done     pct   ordered   skipped  failed  ord/min   eta_h  heartbeat
-  2022    41,203/309,100   13.3%    41,203         0       0     39.1   114.2  1 min ago
+  2019  309,100/309,100    100.0%   309,100         0       0     38.4     0.0  120 min ago  complete
+  2022   41,203/309,100     13.3%    41,203         0       7     39.1   114.2  1 min ago
 ```
 
-A heartbeat older than ~5 minutes on a run you believe is live prints `STALE`
-and means the process died without the supervisor restarting it.
+A finished year is marked `complete`. An **incomplete** year whose heartbeat is
+older than ~5 minutes prints `STALE`, which means the process died without the
+supervisor restarting it — check `planetscope-download/logs/`.
 
 **2022 first, alone.** It's the pilot — it settles the retry behaviour, the
 delivery layout and radiometric drift before we commit five more years. After

@@ -39,7 +39,15 @@ def main() -> int:
     for f in files:
         s = json.loads(f.read_text())
         age = _age(s["heartbeat_at"])
-        flag = "  STALE" if age > STALE_AFTER_S else ""
+        done = s["n_done"] >= s["n_total"]
+        # A finished year stops heartbeating by design — only an *incomplete* run
+        # going quiet means the process died without the supervisor restarting it.
+        if done:
+            flag = "  complete"
+        elif age > STALE_AFTER_S:
+            flag = "  STALE — process died? check logs/"
+        else:
+            flag = ""
         print(f"{s['year']:>6} {s['n_done']:>8,}/{s['n_total']:<9,} {s['pct_done']:>6.1f}% "
               f"{s['n_ordered']:>9,} {s['n_skipped']:>9,} {s['n_failed']:>7,} "
               f"{s['orders_per_min']:>8.1f} {s['eta_hours']:>7.1f}  {age / 60:.0f} min ago{flag}")
@@ -48,7 +56,7 @@ def main() -> int:
     for f in failed:
         n = max(sum(1 for _ in f.open()) - 1, 0)
         if n:
-            print(f"\n{n} failed quads recorded in {f} — sweep up with:\n"
+            print(f"\n{n} failed quad{'s' if n != 1 else ''} recorded in {f} — sweep up with:\n"
                   f"  python planetscope-download/order_basemaps.py --year {f.stem[-4:]} \\\n"
                   f"      --grids planetscope-download/data/"
                   f"circumpolar_south_planet_basemap_grids_{f.stem[-4:]}.geojson \\\n"

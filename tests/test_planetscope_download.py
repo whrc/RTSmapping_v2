@@ -32,6 +32,7 @@ def _load(stem: str):
 order_basemaps = _load("order_basemaps")
 filter_to_domain = _load("filter_to_domain")
 tidy_rename = _load("tidy_rename")
+check_status = _load("check_status")
 
 
 # ---------------------------------------------------------------------------
@@ -228,3 +229,43 @@ def test_flattened_names_still_index():
     for name in (raw, tidy_rename.flatten_name(raw)):
         m = _QUAD_NAME_RE.search(name.rsplit("/", 1)[-1])
         assert m and (m.group(1), m.group(2)) == ("338", "1474")
+
+
+# ---------------------------------------------------------------------------
+# check_status rendering
+# ---------------------------------------------------------------------------
+
+def _status(tmp_path, year, done, total, heartbeat_age_s):
+    import json
+    from datetime import datetime, timedelta, timezone
+    hb = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_age_s)
+    (tmp_path / f"{year}.json").write_text(json.dumps({
+        "year": year, "started_at": hb.isoformat(), "heartbeat_at": hb.isoformat(),
+        "n_total": total, "n_done": done, "n_ordered": done, "n_skipped": 0,
+        "n_failed": 0, "pct_done": 100 * done / total, "last_quad_id": "1-1",
+        "orders_per_min": 39.0, "eta_hours": 0.0}))
+
+
+def test_finished_year_is_not_reported_stale(tmp_path, capsys, monkeypatch):
+    """A completed run stops heartbeating by design. Flagging it STALE would send
+    the operator chasing a process that actually succeeded."""
+    _status(tmp_path, 2019, done=100, total=100, heartbeat_age_s=7200)
+    monkeypatch.setattr("sys.argv", ["check_status.py", "--status-dir", str(tmp_path)])
+    check_status.main()
+    out = capsys.readouterr().out
+    assert "complete" in out and "STALE" not in out
+
+
+def test_incomplete_and_quiet_is_reported_stale(tmp_path, capsys, monkeypatch):
+    _status(tmp_path, 2022, done=10, total=100, heartbeat_age_s=7200)
+    monkeypatch.setattr("sys.argv", ["check_status.py", "--status-dir", str(tmp_path)])
+    check_status.main()
+    assert "STALE" in capsys.readouterr().out
+
+
+def test_live_run_is_flagged_neither(tmp_path, capsys, monkeypatch):
+    _status(tmp_path, 2022, done=10, total=100, heartbeat_age_s=30)
+    monkeypatch.setattr("sys.argv", ["check_status.py", "--status-dir", str(tmp_path)])
+    check_status.main()
+    out = capsys.readouterr().out
+    assert "STALE" not in out and "complete" not in out
