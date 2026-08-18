@@ -109,6 +109,7 @@ This repo follows a single-source-of-truth standard. Where each kind of fact liv
 ## Todos
 1. ~~training in multi-scale~~ **DONE** (ledger family M, 2026-07-02): 0.5× re-stage + joint dual-scale training, 3 seeds — gates 1+2 pass, gate 3 (fusion recall) fail; inference multiscale path implemented, deploy stays `scales:[1.0]`.
 2. ~~pan-Arctic South inference + products~~ **DONE** (2026-07): full run + tiered QC-calibrated products shipped (see [Deployed products](#deployed-products)).
-3. **v2.1** — DINOv3-L MAE self-supervised pretraining on the 295k-tile South corpus (in progress, branch `v2.1-pretraining`); v3 hard-negative mining seeded from `qc_false_hard_negatives.gpkg` (152 QC-verified FPs).
-4. explore GEE satellite embedding as input feature
-5. 2025 micro set to test temporal domain shift
+3. ~~**v2.1** — DINOv3-L MAE self-supervised pretraining on the 295k-tile South corpus (in progress, branch `v2.1-pretraining`); v3 hard-negative mining seeded from `qc_false_hard_negatives.gpkg` (152 QC-verified FPs).~~DONE
+4. ~~explore GEE satellite embedding as input feature~~DONE
+5. ~~2025 micro set to test temporal domain shift~~
+6. interannual inference
