@@ -108,14 +108,43 @@ def test_grid_constants_consistent():
     assert QUAD_SIZE_M / 4096 == pytest.approx(RESOLUTION_M)
 
 
-def test_quad_name_regex_handles_both_delivery_layouts():
+# Planet's quad filename varies by delivery: the "_file_format" infix comes from
+# the order's COG `file_format` tool (not the year), and pre-rename deliveries put
+# the bare "<x>-<y>_..." name under an order-UUID directory. All four observed
+# regimes must index identically (Heidi Rodenhizer, PR #61 review 2026-08-17).
+@pytest.mark.parametrize("name,expect", [
+    # raw delivery (pre-rename), COG tool applied
+    ("338-1622_quad_file_format.tif", ("338", "1622")),
+    # raw delivery (pre-rename), no COG tool
+    ("10-1547_quad.tif", ("10", "1547")),
+    # 2025 post-rename: mosaic name flattened into the filename
+    ("global_quarterly_2025q3_mosaic_338-1474_quad_file_format.tif", ("338", "1474")),
+    # 2019/2021 legacy archive
+    ("global_quarterly_2019q3_mosaic_10-1547_quad.tif", ("10", "1547")),
+    # 2023/2024 legacy archive
+    ("global_quarterly_2024q3_mosaic_0-1515_quad.tif", ("0", "1515")),
+])
+def test_quad_name_regex_matches_every_delivery_regime(name, expect):
     from inference.quad_index import _QUAD_NAME_RE
-    m = _QUAD_NAME_RE.search("338-1622_quad_file_format.tif")
-    assert m and (m.group(1), m.group(2)) == ("338", "1622")
-    # Flat layout with mosaic name embedded (observed in 2025-Q3 column 338).
-    m = _QUAD_NAME_RE.search("global_quarterly_2025q3_mosaic_338-1474_quad_file_format.tif")
-    assert m and (m.group(1), m.group(2)) == ("338", "1474")
-    assert _QUAD_NAME_RE.search("338-1622_ortho_udm2_file_format.tif") is None
+    m = _QUAD_NAME_RE.search(name)
+    assert m and (m.group(1), m.group(2)) == expect
+
+
+# Every sidecar Planet delivers alongside the quad, across all regimes. None
+# carries a "quad" token, so none may be mistaken for imagery.
+@pytest.mark.parametrize("name", [
+    "338-1622_ortho_udm2_file_format.tif",
+    "global_quarterly_2019q3_mosaic_10-1547_ortho_udm.tif",
+    "global_quarterly_2023q3_mosaic_1639-1613_ortho_udm2.tif",
+    "global_quarterly_2019q3_mosaic_10-1547_provenance_raster.tif",
+    "global_quarterly_2025q3_mosaic_338-1474_provenance_raster_file_format.tif",
+    "global_quarterly_2019q3_mosaic_10-1547_provenance_vector.zip",
+    "global_quarterly_2019q3_mosaic_10-1547_metadata.json",
+    "manifest.json",
+])
+def test_quad_name_regex_rejects_sidecars(name):
+    from inference.quad_index import _QUAD_NAME_RE
+    assert _QUAD_NAME_RE.search(name) is None
 
 
 def test_load_quad_index_validates_columns(tmp_path):

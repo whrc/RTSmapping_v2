@@ -167,41 +167,44 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Interannual acquisition proposed to Heidi — 2019–2024 q3 (branch `interannual-planet-acquisition`,
-2026-08-14).** One epoch (2025) cannot answer a change question, so the next programme is running the
-frozen deployed model over six more years. The blocker is imagery, not compute: this repo has never
-held Planet acquisition code, and the key belongs to Heidi Rodenhizer. Deliverable is a review
-document, `docs/interannual_planet_download_plan.md` — no code changes here.
+**Interannual acquisition built and approved — `planetscope-download/` (branch
+`interannual-planet-acquisition`, 2026-08-18).** Heidi approved PR #61 on 2026-08-17 with four
+changes and answers to all five open questions; her three notebooks are now ported into this repo
+with those changes applied, and the plan doc records the decisions. Runbook:
+`planetscope-download/README.md`. Rationale: `docs/interannual_planet_download_plan.md`.
 
-- **Nothing in this repo needs to change if the delivery layout matches 2025.** `quad_index.py`
-  matches the literal `_quad_file_format.tif` suffix and derives bounds arithmetically from the
-  `<col>-<row>` id, so per-year indexes need only a new `--prefix`. That is why the doc asks for the
-  COG `file_format` tool rather than treating it as a detail.
-- **Download and inference overlap for free.** Planet delivers server-side into GCS — no imagery
-  transits a VM, and the order loop is one single-threaded API caller. Our ~2.3 d/year inference hides
-  entirely behind the ~5.5 d/year ordering, so ordering throughput sets the wall clock: ~35 days
-  pipelined vs ~47 sequential. Each year is an independent run under its own `shard_tiles.py --output`
-  prefix, so year-level concurrency needs no scheduling. Intra-year pipelining was rejected — tiles
-  straddle quad boundaries and a not-yet-delivered quad reads as NoData rather than erroring.
-- **A column-count proxy nearly cost a wasted decision.** `gs://abrupt_thaw` 2024 has 1,655 column
-  dirs against 2025's 1,951, which looks like ~85% coverage; actual quad counts inside the shared
-  columns are **8.8%** of 2025's (20-column sample: 321 vs 3,636), with 296 columns empty. It is an
-  ARTS-site subset, not a mapping layer — so 2024 is ordered fresh like every other year, and the
-  reuse/gap-fill design was dropped. Same applies to 2019/2021/2023.
-- **Imagery is not retained — delete on approval.** Each year's ~14.7 TB of quads is dropped once
-  its map is human-approved (~2 months' residency incl. ordering + inference + review), which puts
-  the whole programme at **~$4.1k of storage** against ~$20k/yr if six years were simply held.
-  Peak is still ~88 TB for about a month. Two constraints on the gate: it must be *approved*, not
-  *produced* (re-ordering a deleted year spends quota twice), and the quads must stay on Standard
-  through review because the QC tooling streams RGB crops from them. What we keep is the prob COGs
-  — ~0.3 TB/year, ~1.8 TB for the series.
-- **Open on Heidi's side:** whether the subscription can absorb ~1.85M quad downloads (blocking);
-  whether the 39 grids/min ceiling is a Planet rate limit or just the serial `requests.post` loop
-  (highest-leverage unknown — our inference can absorb double); and 309,100 vs her notebook's 259,783
-  as the per-year grid count. Notebook issues flagged (hardcoded year in all three, a commented-out
-  `st_write`, a `NameError` in the batch-delete cell), the significant one being
-  `rename_data_files()` hardcoding 2025 in its regex — it fails **silently** on other years.
-- Pilot is **2022 alone**, serial, gating quota + rename + drift before anything else is ordered.
+- **Quota is not a constraint** — *"We have unlimited basemap tiles… I don't even think they
+  track basemap downloads."* The blocking question turned out to have the best available answer,
+  so the programme is unblocked. **309,100 quads/year confirmed**; her notebook's 259,783 predated
+  dropping the ArcticDEM domain limit.
+- **Two of her four changes landed on our code, not hers.** `inference/quad_index.py` now matches
+  `(\d+)-(\d+)_quad[^/]*\.tif` instead of one literal suffix — Planet's naming varies by year and
+  by whether the COG `file_format` tool was applied, and pinning our matcher pushed that cost onto
+  her. Verified on live objects: identical match set on 2025 (220/220 in column 500), and the 2019
+  legacy archive now indexes where it previously returned **nothing**. The dead `udm2_path` column
+  went with it (written into every index, read by nothing).
+- **Dropping the rename removed two of her four problems instead of solving them.** The rename
+  existed for bucket tidiness; `build_quad_index` lists recursively and matches on the basename,
+  so the raw delivery indexes identically. That deletes both the crash-recovery redesign she was
+  dreading and one of the two slow listings. `tidy_rename.py` keeps it optional, rewritten to
+  derive work from bucket state (idempotent, no checkpoint) with per-object 404-tolerant deletes
+  instead of the batch delete that aborted on one missing object. **Verified by code reading, not
+  observation** — 2025 is fully renamed, so no raw object survives to test against; it is the
+  first check of the 2022 pilot.
+- **Retry policy goes further than the flat cap of 3 she suggested**, because a cap still aborts a
+  five-day run over one quad: 401 fails fast (auth cannot be retried into working), transient
+  statuses back off 30s→8min over 5 attempts, then the quad is recorded and the loop *continues*;
+  `run_year.sh` sweeps the failures up from the CSV, skipping the listing.
+- **Supervision reuses what the inference fleet already proved.** `_start_stall_watchdog` lifted
+  from `inference/runner.py` into `utils/watchdog.py` (two real callers); `run_year.sh` mirrors
+  `launch_south_inference.sh` — restart on non-zero, crash-loop guard, STOP sentinel. Root cause
+  fixed first: her `requests.post` calls had **no timeout**, so a hung socket stalled forever.
+- **Storage: Archive, not delete.** She pushed back that re-ordering assumes the licence is kept.
+  Archive is **$98/mo for all six years** ($1,181/yr) vs ~$4.1k for the delete plan's interim
+  holding — cheaper *and* it removes the licence dependency. Quads stay Standard through review
+  (the QC tooling streams crops from them), then transition on map approval.
+- Notebook 2 ported R→geopandas, so the VM needs one language; the `planet` SDK dependency went
+  with it. Pilot is **2022 alone**. Next: merge, request Heidi's `osLogin` binding, run the pilot.
 
 **Also live: collaborative review campaign — a 2–3 person team can now traverse all 60,167 candidates
 (branch `review-campaign`, 2026-08-03).** The South inventory has no human verification; everything

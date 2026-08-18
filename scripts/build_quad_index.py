@@ -6,7 +6,8 @@ inference) reads the CSV.
 Usage:
     python scripts/build_quad_index.py \
         --bucket pdg-planet-data --prefix global_quarterly/2025/q3/ \
-        --output /mnt/outputs/inference/quad_index_2025q3.csv
+        --output /mnt/outputs/inference/quad_index_2025q3.csv \
+        --expect-quads 309100
 
 Needs GOOGLE_CLOUD_PROJECT set when running on bare ADC (the storage client
 requires a quota project, e.g. abruptthawmapping).
@@ -32,10 +33,32 @@ def main() -> int:
     p.add_argument("--bucket", default="pdg-planet-data")
     p.add_argument("--prefix", default="global_quarterly/2025/q3/")
     p.add_argument("--output", required=True, type=Path)
+    p.add_argument("--expect-quads", type=int, default=None,
+                   help="Grid count from the acquisition step 2 geojson. If given, the "
+                        "index must land within --tolerance of it or the build fails: a "
+                        "short index is the signature of a filename regime the matcher "
+                        "does not cover (see inference/quad_index._QUAD_NAME_RE).")
+    p.add_argument("--tolerance", type=float, default=0.01,
+                   help="Allowed fractional deviation from --expect-quads (default 1%%).")
     args = p.parse_args()
     setup_logging()
 
     index = build_quad_index(args.bucket, args.prefix)
+
+    if args.expect_quads is not None:
+        drift = abs(len(index) - args.expect_quads) / args.expect_quads
+        if drift > args.tolerance:
+            logger.error(
+                "Quad index has %d quads but %d were ordered (%.1f%% off, tolerance "
+                "%.1f%%). A short index usually means the quad filenames in this "
+                "delivery do not match inference/quad_index._QUAD_NAME_RE; check one "
+                "object under gs://%s/%s before trusting this index.",
+                len(index), args.expect_quads, 100 * drift, 100 * args.tolerance,
+                args.bucket, args.prefix)
+            return 1
+        logger.info("Reconciled: %d quads vs %d ordered (%.2f%% off)",
+                    len(index), args.expect_quads, 100 * drift)
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     index.to_csv(args.output, index=False)
     logger.info("Wrote %d quads to %s", len(index), args.output)

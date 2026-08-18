@@ -1,0 +1,8 @@
+# Acquisition-only deps. Deliberately small: the notebooks' R/Quarto half was
+# ported to geopandas (filter_to_domain.py), so the VM needs one language.
+# Versions match the repo's requirements.txt where they overlap.
+geopandas>=0.14
+shapely>=2.0
+pandas>=2.0
+requests>=2.31
+google-cloud-storage>=2.14   # match_glob needs >=2.14

@@ -6,6 +6,11 @@ the zoom-15 Web Mercator mosaic grid, laid out as:
     gs://<bucket>/global_quarterly/<year>/<quarter>/<x>/<y>/<order_uuid>/
         global_quarterly_<year><quarter>_mosaic/<x>-<y>_quad_file_format.tif
 
+The listing is recursive and matches on the basename alone, so the optional
+order-UUID directory is transparent: a raw delivery indexes exactly like one
+that has been through the tidy-up rename. See ``_QUAD_NAME_RE`` for the
+filename variants this covers.
+
 A quad can appear under several order UUIDs (overlapping delivery orders); the
 index keeps one path per quad id, preferring the most recently updated object.
 
@@ -33,14 +38,21 @@ QUAD_SIZE_M = (WORLD_MAX - WORLD_MIN) / GRID_N
 QUAD_SIZE_PX = 4096
 RESOLUTION_M = QUAD_SIZE_M / QUAD_SIZE_PX  # 4.7773142...
 
-QUAD_SUFFIX = "_quad_file_format.tif"
-UDM2_SUFFIX = "_ortho_udm2_file_format.tif"
-
-# Matches "<x>-<y>_quad_file_format.tif" at the end of a filename. The id is
-# anchored on a non-digit boundary because some deliveries embed the mosaic
-# name in the filename instead of using an order-UUID subdirectory (observed:
-# ".../338/1474/global_quarterly_2025q3_mosaic_338-1474_quad_file_format.tif").
-_QUAD_NAME_RE = re.compile(r"(?:^|[^0-9])(\d+)-(\d+)" + re.escape(QUAD_SUFFIX) + r"$")
+# Matches the quad image in any delivery Planet has produced for us. The name
+# varies along two independent axes, so the tail after "_quad" is left open:
+#
+#   * the "_file_format" infix is added by the order's COG ``file_format`` tool,
+#     not by the year (2025 has it; the 2019-2024 archive does not);
+#   * pre-rename deliveries carry the bare "<x>-<y>_quad*.tif" under an
+#     order-UUID directory, post-rename ones flatten the mosaic name into the
+#     filename ("global_quarterly_2025q3_mosaic_338-1474_quad_file_format.tif").
+#
+# The id is anchored on a non-digit boundary so the mosaic name's own digits
+# (e.g. "2025q3") cannot be mistaken for the grid id. No sidecar Planet delivers
+# (metadata/manifest .json, provenance_raster/_vector, ortho_udm/ortho_udm2)
+# carries a "quad" token, so widening the tail cannot pull one in.
+# Widened after Heidi Rodenhizer's PR #61 review, 2026-08-17.
+_QUAD_NAME_RE = re.compile(r"(?:^|[^0-9])(\d+)-(\d+)_quad[^/]*\.tif$")
 
 
 def quad_bounds(x: int, y: int) -> tuple[float, float, float, float]:
@@ -57,7 +69,7 @@ def build_quad_index(
     """List the bucket and build the quad index (one row per quad id).
 
     Returns a DataFrame with columns:
-        quad_id, x, y, gcs_path, udm2_path, minx, miny, maxx, maxy
+        quad_id, x, y, gcs_path, minx, miny, maxx, maxy
 
     Duplicate quad ids (several order UUIDs) keep the most recently updated
     quad object.
@@ -83,8 +95,6 @@ def build_quad_index(
                 "x": int(x_str),
                 "y": int(y_str),
                 "gcs_path": f"gs://{bucket}/{name}",
-                # UDM2 sits in the same order dir with the same stem.
-                "udm2_path": f"gs://{bucket}/{name[: -len(QUAD_SUFFIX)]}{UDM2_SUFFIX}",
                 "minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy,
                 "_updated": blob.updated,
             }

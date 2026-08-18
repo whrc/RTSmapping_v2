@@ -1,18 +1,17 @@
 # Interannual PlanetScope acquisition, 2019–2024 — run instructions
 
-**For:** Heidi Rodenhizer · **Status:** proposal, awaiting your review · **Written:** 2026-08-14
+**For:** Heidi Rodenhizer · **Status:** approved 2026-08-17 (PR #61) · **Written:** 2026-08-14
 
-We are asking you to run your `circumpolar_planet_basemaps` notebooks six more times, once per
-year for 2019–2024 q3. You own the Planet key and the account; we are specifying the delivery
-shape because our inference pipeline consumes it. That split is the awkward part of this
-request, so this document tries to be precise about exactly what to run and to keep our own
-implementation out of your way — everything about what happens on our side is in
-[§7–§9](#7-storage-and-the-delete-on-approval-policy), after the parts you need.
+Acquire six more years of PlanetScope q3 basemaps — 2019–2024 — so the deployed model can be run
+interannually rather than on the single 2025 epoch. Heidi owns the Planet key and account; we
+specify the delivery shape because our inference pipeline consumes it, and we build and operate
+the workflow on the VM so her involvement per year is supplying the key and starting the run.
 
-**Five questions for you in [§6](#6-questions-for-you).** The first one blocks everything past
-the pilot year. Per our thread, the plan is that we build the workflow on the VM and you SSH in
-and run it with your key — [§2](#2-running-this-on-the-vm--access-keys-and-long-sessions) answers
-the key-handling questions you raised, including the two where the answer is "no".
+**The runnable article is [`planetscope-download/`](../planetscope-download/README.md)** — her
+three notebooks ported into this repo with the changes from her review applied. This document is
+the reasoning behind it: what we asked for and why, the decisions taken, and the cost and
+schedule. §6 records the decisions; [§7–§9](#7-storage-and-archiving) are our side of the
+pipeline.
 
 ---
 
@@ -28,12 +27,24 @@ exactly the same shape as your existing 2025 delivery:
 | Destination | `gs://pdg-planet-data/global_quarterly/<year>/q3/<col>/<row>/` |
 | Order tool | `tools: [{"file_format": {"format": "COG"}}]`, exactly as 2025 |
 | Resulting filename | `global_quarterly_<year>q3_mosaic_<col>-<row>_quad_file_format.tif` |
-| Quads per year | **~309,100** — see [6.3](#6-questions-for-you), this needs your confirmation |
+| Quads per year | **309,100** (confirmed by Heidi, [6.3](#6-decisions)) |
 
-The filename shape is the one thing worth not improvising on. Our index matches the literal
-suffix `_quad_file_format.tif` and derives each quad's bounds from the `<col>-<row>` id, so if
-the new years land in that shape, we change nothing on our side at all. If they land in the
-legacy `_quad.tif` shape, every downstream step needs a compatibility branch.
+An earlier draft of this document claimed that matching the 2025 shape meant "we change nothing
+on our side at all". Heidi's review made that false, and rightly: Planet's filenames differ by
+year, so pinning our matcher to one literal suffix pushed the cost of that onto her. Three
+changes went into `inference/quad_index.py` instead —
+
+* the quad matcher is now `(\d+)-(\d+)_quad[^/]*\.tif`, covering `_quad.tif`,
+  `_quad_file_format.tif`, the bare `<col>-<row>_` raw-delivery form and whatever Planet adds
+  next. Verified against live 2019 and 2025 objects: identical match set on 2025 (220/220 in
+  column 500), and the 2019 legacy archive now indexes where it previously returned nothing;
+* the dead `udm2_path` column is gone — it was written into every index and read by nothing;
+* `build_quad_index.py --expect-quads` reconciles the index against the ordered count and fails
+  loudly, so a filename regime we do not cover surfaces as an error rather than a short index.
+
+The delivery shape is therefore no longer a constraint on the acquisition side. We still ask for
+the COG `file_format` tool so the six years match 2025 byte-for-byte, but nothing breaks if a
+year arrives differently.
 
 ## 2. Running this on the VM — access, keys, and long sessions
 
@@ -89,17 +100,17 @@ What the setup does prevent is the key reaching git, logs, a shared image, or ot
 it can be removed when the run ends. Beyond that, this is a trust arrangement of the same kind
 as handing a collaborator the key directly — the VM does not make it more than that.
 
-### 2.4 Rotation — worth solving before it matters, not after
+### 2.4 Rotation — one key, rotated at the end
 
-You found that Planet has no self-service key rotation and it needs a support ticket. That
-removes the "just regenerate it afterwards" backstop and makes the choice above weightier than
-it would otherwise be.
+Planet has no self-service key rotation, and Heidi confirmed it will not issue a second key
+while the first is live: **one key at a time, full stop.** So the separate project-scoped key an
+earlier draft suggested is not available, and the mitigation is the one she proposed — the
+existing key is used for the duration and replaced as soon as the runs finish.
 
-The cleaner fix is to sidestep it: **ask Planet support for a separate key for this project**,
-rather than putting your primary key on a shared VM. Then the key on the VM is one that only
-ever existed for this work, retiring it afterwards is a routine ticket, and your day-to-day key
-never leaves your laptop. Worth asking them the turnaround time in the same message, so the
-recovery path is known before anyone needs it.
+That makes the ~35-day schedule in §8 load-bearing rather than merely convenient: the exposure
+window is exactly as long as the programme takes, so finishing promptly *is* the security
+control. It also raises the stakes on the sudo caveat in 2.3, which is why that paragraph stays
+in this document rather than being softened.
 
 ### 2.5 What we will have ready before you log in
 
@@ -108,21 +119,24 @@ Windows in ArcGIS. So we will set up, ahead of your first session:
 
 - Your OS Login access to `a100-8x-train` (`us-central1-a`, `pdg-project-406720`). This needs a
   `roles/compute.osLogin` binding for your account — PDG IAM is org-managed, so if we cannot
-  grant it ourselves we will get it requested. **This is the one thing that could block a
-  start date, so it is worth confirming early.** You do not need sudo.
-- The R/Quarto and Python environments the three notebooks need, so nothing has to be installed
-  interactively.
-- A `tmux`-wrapped runner, so a year's loop is one command, detaches cleanly, and can be
-  reattached from any later session to check progress.
-- Progress monitoring you can look at without holding the SSH session open.
+  grant it ourselves we will get it requested. You do not need sudo.
+- A single Python environment. Notebook 2 was R/Quarto; porting it to geopandas
+  (`filter_to_domain.py`) means the VM needs one language rather than two.
+- `run_year.sh`, a `tmux`-friendly supervisor: one command per year, detaches cleanly, restarts
+  the order loop on any crash or stall, and stops rather than spinning on a crash loop.
+- `check_status.py`, so progress is a command rather than an attached session.
 
-Net effect: your involvement per year should be supplying the key, starting the run, and
-checking on it — not babysitting a five-day process.
+Net effect: involvement per year is supplying the key, starting the run, and checking on it —
+not babysitting a five-day process. Heidi approved requesting the `osLogin` binding
+(2026-08-17); that request is the one thing that could still hold up a start date.
 
-## 3. Before you run: edits the notebooks need
+## 3. What changed from the notebooks — and why
 
 Read against `HRodenhizer/circumpolar_planet_basemaps` @ `initial-download`, line numbers as of
-2026-08-14. Items 3.1–3.3 must be done or the run breaks; 3.4 is context.
+2026-08-14. **All of this is already applied** in
+[`planetscope-download/`](../planetscope-download/README.md); it is recorded here as the audit
+trail for why the ported scripts differ from the originals. Heidi's review (2026-08-17) added
+two changes of her own, in 3.5 and 3.6.
 
 ### 3.1 Un-hardcode the year (all three notebooks)
 
@@ -183,80 +197,121 @@ a resumed run re-order quads that are already there.
 
 Also uncomment `st_write` in notebook 2 (L99-104); it produces the file notebook 3 reads at L82.
 
+### 3.5 Bounded retries, and never abandoning the run *(her change 4)*
+
+Her original loop `sys.exit`s on a 400/401 only at `index == 0`; from index 1 on, a 400/409/500
+enters an unbounded 30-second retry with no ceiling, so a mid-run credential expiry is
+indistinguishable from slow progress. She asked for a cap — "perhaps no more than x times? 3?"
+
+We went further, because a flat cap still aborts a five-day run over one quad:
+
+* **401 fails fast.** Auth is the one error retrying cannot fix, and under the typed-per-session
+  key model the fix is a restart with a fresh key — which resumes where it stopped, since
+  delivered quads are skipped.
+* **400/409/429/5xx back off exponentially**, five attempts, 30s→8min. This covers the transient
+  Planet↔Google failures she has actually seen, where retrying always worked.
+* **On exhaustion the quad is recorded and the loop continues.** `run_year.sh` then sweeps the
+  recorded failures up automatically, reading the CSV so the sweep skips the bucket listing.
+
+### 3.6 Dropping the rename — which removes two of her four problems *(her changes 2 and 3)*
+
+The rename existed so the bucket reads tidily by hand. Our pipeline never needed it:
+`build_quad_index` lists recursively (no delimiter) and matches on the **basename**, so Planet's
+raw delivery — order-UUID directories and all — indexes identically to the flattened layout, and
+repeat orders dedupe by newest object.
+
+Dropping it takes out the crash-recovery redesign she was dreading *and* one of the two slow
+listings she flagged, rather than solving either. `tidy_rename.py` keeps it available as
+cosmetic clean-up, rewritten to derive its work from bucket state on every run (so re-running
+after a failure recomputes what is left, with no checkpoint file) and to delete per-object with
+404 tolerated instead of the batch delete that aborted on one missing file.
+
+The surviving listing — the prior-delivery scan — now requests object names only rather than full
+metadata. It runs once per invocation, so its cost is a slow resume rather than a slow loop.
+
+**Verification status.** This was confirmed by reading `inference/quad_index.py` and by the test
+suite, not by observing a live raw delivery: the 2025 bucket has already been fully renamed, so
+no un-renamed object survives to check against. It is therefore the **first check of the 2022
+pilot** — after ~20 orders land, index the raw prefix and confirm the count matches the orders
+placed. If the raw form differs from what the original rename regex implies, 3.1's widened
+matcher already absorbs it.
+
 ## 4. Step by step, for one year
 
-**0.** Set the year; confirm `.env` has `PL_BM_API_KEY` and `PDG_PL_ORDERS_KEY`.
+The operational runbook lives in
+[`planetscope-download/README.md`](../planetscope-download/README.md) and is the one to follow.
+In outline, one command supervises all three steps:
 
-**1.** Run `1_basemap_grid_search.qmd` → `circumpolar_basemap_grids_<year>.geojson`.
-*Check:* the mosaic resolves to `global_quarterly_<year>q3_mosaic`; the quad count is in range;
-`percent_covered` has no unexpected mass at 0.
+```bash
+tmux new -s planet
+./planetscope-download/run_year.sh 2022      # prompts for both keys, then runs steps 1-3
+```
 
-**2.** Run `2_circumpolar_south_basemap_grids.qmd` → `circumpolar_south_planet_basemap_grids_<year>.geojson`.
-*Check:* row count against 2025's; the per-column summary at L84-95; the plotted footprint is
-circumpolar and not obviously holed. **Tell us this row count** — it is the number we reconcile
-against in step 5.
+| Step | Script | Check before moving on |
+|---|---|---|
+| 1 | `search_basemap_grids.py` | mosaic resolves to `global_quarterly_<year>q3_mosaic`; quad count in range; no unexpected mass of `percent_covered == 0` |
+| 2 | `filter_to_domain.py` | row count against 2025's; per-column min/median/max; **record the printed count** — step 5 reconciles against it |
+| 3 | `order_basemaps.py` | first order returns `202`; then `check_status.py` rather than watching the log |
+| 4 | *(dropped — the rename is no longer required, see §3.2)* | |
+| 5 | ours: `build_quad_index.py --expect-quads <step 2 count>` | a short index means a filename regime the matcher misses; the build fails loudly rather than silently under-indexing |
 
-**3.** Run the order loop in `3_order_basemaps.qmd`. Expect ~5.5 days.
-*Check:* confirm the first order returns `202` before walking away. L173-174 `sys.exit`s on a
-400/401 **only at `index == 0`**; from L175 on, a 400/409/500 enters an unbounded 30-second retry
-with no attempt ceiling — so a mid-run credential expiry looks exactly like slow progress. Worth
-glancing at the delivered-quad count once a day rather than trusting silence.
-
-**4.** Run the rename + delete passes in the same notebook.
-*Check:* no paths left matching the 36-char UUID directory pattern, and total object count ≈
-quad count × 6.
-
-**5.** Tell us the year is ready. Everything after this is ours ([§9](#9-what-happens-on-our-side)).
+Steps 1 and 2 skip if their output exists and step 3 skips already-delivered quads, so
+interrupting and resuming is always safe.
 
 ## 5. Which years, in what order
 
 **2022 runs alone, first, end to end** — including our inference and a look at the result —
-before anything else is ordered. It is the gate on quota, on the 3.2 rename fix, and on
-radiometric drift. 2022 rather than 2019 because it is mid-range: far enough from 2025 to
+before anything else is ordered. It is the gate on the raw-delivery check (3.6), on the retry
+policy (3.5), and on radiometric drift. 2022 rather than 2019 because it is mid-range: far enough from 2025 to
 exercise real drift, but not at the archive's early edge where genuine Planet coverage gaps
 could be misread as pipeline bugs.
 
 If the pilot is clean: **2019 → 2020 → 2021 → 2023 → 2024**, back to back. 2019 goes first
-because it gives the longest lever arm against 2025 if quota turns out to cut the programme
-short.
+because it gives the longest lever arm against 2025 if anything cuts the programme short. (Quota
+turned out not to be a constraint — §6.1 — but sequencing by scientific value costs nothing.)
 
 Note that 2024 is a full order like the rest. `gs://abrupt_thaw` has a 2024 q3 tree that looks
 substantial by directory count, but it holds only ~8.8% of 2025's quad density inside the
 columns it covers, and 296 of 2025's columns are missing from it entirely — it is an ARTS-site
 subset, not a mapping layer. Same for the 2019/2021/2023 trees there.
 
-## 6. Questions for you
+## 6. Decisions
 
-**6.1 Quota — blocking.** Six full years is **~1.85M quad downloads**. Does the basemap
-subscription have a quad, bandwidth, or cost cap that this would exhaust? We would rather know
-now than 60% of the way through. Nothing past the 2022 pilot proceeds without this.
+Answered by Heidi in the PR #61 review, 2026-08-17.
 
-**6.2 Is 39 grids/min a Planet-side rate limit, or just the serial `requests.post` loop?** This
-is the highest-leverage unknown in the whole plan — it sets the entire wall clock, and our
-inference can already absorb roughly double it. If the ceiling is the loop rather than the API,
-threading it would shorten everything proportionally.
+**6.1 Quota — no cap.** *"We have unlimited basemap tiles… I don't even think they track basemap
+downloads."* The ~1.85M quad orders are not a constraint, and the programme is unblocked. An
+earlier draft treated this as the blocking question; it was the right thing to ask and the
+answer is the best available one.
 
-**6.3 309,100 or 259,783 quads per year?** Your note at `3_order_basemaps.qmd` L88 says the
-orders "will cover 259783 grids", but the 2025 delivery actually indexed **309,100** unique
-quads across 1,951 column directories — ~19% more. We do not know which is the right planning
-figure; every estimate here uses the larger one. Step 2 of the pilot settles it.
+**6.2 Threading — unknown, worth a bounded test.** *"I'm not sure which part is the slow part…
+if you wanted, we could try threading and see if it speeds up."* `order_basemaps.py --workers N`
+exists for exactly this. Pilot experiment: 200 quads serial, then 200 at `--workers 8`, compare
+wall time. **Decision rule fixed up front so it is not a judgement call later:** keep threading
+only if it beats serial by more than 1.5×; cap concurrency at 8, since her 409 handling already
+anticipates concurrent orders. If Planet is the ceiling, as she suspects, we stay serial and the
+~35-day schedule stands.
 
-**6.4 Notebook edits — your repo or ours?** Would you like §3 as a PR against `initial-download`
-(we would fork; we have read-only access), would you rather apply them yourself, or is editing
-the year by hand for each of six runs simplest?
+**6.3 309,100 quads per year.** *"The note probably never got updated when we switched the domain
+to include areas outside of the ArcticDEM. We can take the length of the file as the truth."* The
+259,783 figure in her notebook predates dropping the ArcticDEM restriction. Locked at 309,100;
+`filter_to_domain.py` prints the real count per year and `build_quad_index.py --expect-quads`
+reconciles against it.
 
-**6.5 Key handling — three small decisions.** Option A or Option B from §2.3? Would you like to
-open a Planet support ticket for a **project-specific key** (§2.4) before we start, so your
-primary key never goes on the VM? And shall we go ahead and request the `roles/compute.osLogin`
-binding for your account — that is the item most likely to hold up a start date, since PDG IAM
-is org-managed and not ours to grant.
+**6.4 Code lives here.** *"Perhaps it is better to put it in this one so that any future runs will
+have everything from start to finish in one place… I would rather not apply the changes myself."*
+Ported into [`planetscope-download/`](../planetscope-download/README.md), edits applied by us.
+
+**6.5 Option A, with the key rotated at the end.** *"Planet does not allow multiple API keys at
+one time, so I will plan to use the current key for the download process and then replace it as
+soon as the process is done."* See §2.4. She also approved requesting the `osLogin` binding now.
 
 ---
 
 *Everything below is our side of the pipeline, recorded so the plan is auditable. None of it
 needs action from you.*
 
-## 7. Storage and the delete-on-approval policy
+## 7. Storage and archiving
 
 Measured average delivery size: three columns (500, 900, 1300) sum to 19,413,767,687 bytes over
 409 quads → **47.5 MB per quad** across all six delivered objects. (A single hand-picked quad
@@ -265,29 +320,37 @@ reads 52 MiB; that one is above average, which is why we sampled.)
 | | |
 |---|---|
 | Per year | 309,100 × 47.5 MB ≈ **14.7 TB** |
-| Six years, all resident | ≈ **88 TB** |
+| Six years | ≈ **88 TB** (~82,000 GiB) |
 
-**The imagery is not kept.** Once a year's inference map is produced and checked, the source
-quads are deleted. Assuming ~2 months of review per year plus ordering and inference time —
-call it 2.5 months' residency — the whole programme costs about **$4,100 in storage**, against
-roughly **$20k/year** if all six years were simply held. Peak concurrent footprint is still
-~88 TB for about a month, when the last year has been delivered and the first has not yet
-cleared review.
+An earlier draft proposed deleting each year's quads once its map was approved, on the reasoning
+that Planet is the archive of record. Heidi pushed back: *"Assuming we maintain the Planet
+license, it is re-orderable. I still think some sort of long-term storage plan makes sense."*
+That conditional is the whole argument — deletion silently bets the series on a licence renewal
+nobody has committed to.
 
-What we actually keep is the probability COGs — ~0.3 TB per year at `scaled_uint8`, so ~1.8 TB
-for the whole series. The bulky part is the source imagery, and it is re-orderable from Planet
-if we ever need it again.
+Pricing the alternatives out settles it:
 
-Two caveats on the deletion gate. It should be **map approved**, not map produced — re-ordering
-a deleted year costs quota a second time, so deleting on anything weaker than a human sign-off
-trades a cheap disk bill for an expensive re-download. And the imagery is needed *during* review,
-not just during inference: the QC tooling streams RGB crops built from these quads, so the
-quads must stay on Standard storage through the review window rather than being demoted to
-Nearline to save the difference.
+| Tier | Six years | Retrieval |
+|---|---|---|
+| Standard | $1,640/mo · $19,677/yr | — |
+| Coldline | $328/mo · $3,935/yr | $0.02/GB |
+| **Archive** | **$98/mo · $1,181/yr** | $0.05/GB |
 
-This draws on the budget already reserved in `computing/infrastructure.md` §3 —
-*"pan-arctic inference + EXTRA-channel generation + multi-year/ensemble runs, ~$40–55k"*. The
-$70k credit expires Sep 2026, which is a further argument for not letting years accumulate.
+**Each year lifecycle-transitions to Archive once its map is approved**, and stays there.
+$1,181/yr for the whole series removes the licence dependency for roughly a quarter of what the
+delete plan would have cost in the interim, and about a sixteenth of holding it on Standard.
+Two caveats worth recording: Archive has a 365-day minimum storage duration, so a year deleted
+early still bills the remainder; and re-reading a full year costs ~$700 in retrieval, which
+makes it a rare recovery operation rather than a workflow step.
+
+The quads stay on **Standard through inference and review** — the QC tooling streams RGB crops
+from them, so they are live until the map is signed off. Only then does the transition fire.
+
+What we keep regardless is the probability COGs: ~0.3 TB per year at `scaled_uint8`, ~1.8 TB for
+the series. The bulky half is the re-orderable half.
+
+This draws on the budget reserved in `computing/infrastructure.md` §3 — *"pan-arctic inference +
+EXTRA-channel generation + multi-year/ensemble runs, ~$40–55k"*.
 
 ## 8. Schedule — your ordering and our inference overlap
 
@@ -321,8 +384,8 @@ disappears entirely behind it. **Your ordering throughput sets the programme's w
 | 7–8 | 2024 | 2023 |
 | 8–9 | — | 2024 |
 
-Review windows then run ~2 months behind each inference, and each year's quads are deleted as it
-clears (§7).
+Review windows then run ~2 months behind each inference, and each year's quads transition to
+Archive as it clears (§7).
 
 **What we are deliberately not doing:** your grid list is `arrange(year, grid_column, grid_row)`,
 so delivery sweeps west→east and completed column bands are contiguous — tempting to start
@@ -358,7 +421,7 @@ discuss, not a reason to quietly widen the threshold.
 gs://rts-mapping-v2-usw1/inference/<year>q3_south/`, then run the fleet. Shard count should be
 in line with 2025's 2,079; `done/` markers reconcile against `index.json`.
 
-**8.** Review the map, then delete that year's quads (§7).
+**8.** Review the map, then transition that year's quads to Archive storage (§7).
 
 ### The VM, stated plainly
 
@@ -366,14 +429,15 @@ We are dedicating our 8×A100 host (`a100-8x-train`, 96 vCPU) to this programme,
 accurate about why: **the GPUs contribute nothing to the download.** Planet delivers server-side
 straight into GCS — no imagery transits any machine we own, and the order loop is a
 single-threaded API caller that would run just as fast on a laptop. The host earns its place
-because it can hold a month-long order loop and the GCS-API-bound rename passes at zero marginal
-cost (it is already never stopped), and because its otherwise-idle GPUs run the concurrent
-per-year inference that makes §8's schedule work.
+because it can hold a month-long order loop at zero marginal cost (it is already never stopped),
+and because its otherwise-idle GPUs run the concurrent per-year inference that makes §8's
+schedule work.
 
-**Environment:** notebook 2 is R/Quarto (`sf`, `tidyverse`, `viridis`); notebooks 1 and 3 are
-Python (`planet`, `geopandas`, `google-cloud-storage`, `google-cloud-storage-control`, `gcsfs`,
-`python-dotenv`). None are in our `rts-train:v2` image, so the notebooks need an environment
-separate from the inference container — relevant to question 5.5.
+**Environment:** the acquisition scripts need only
+`planetscope-download/requirements.txt` — geopandas, shapely, pandas, requests and
+google-cloud-storage. Porting notebook 2 off R (§3, `filter_to_domain.py`) removed the R/Quarto
+half, so the VM needs one language rather than two, and the `planet` SDK dependency went with it
+(order state is read over the same HTTP session that places the orders).
 
 ---
 
@@ -395,7 +459,7 @@ whrc/RTSmapping_v2  (ours)
   scripts/mask_tiles_to_domain.py, scripts/shard_tiles.py
                                 ▼  512² windowed reads across quad boundaries
         gs://rts-mapping-v2-usw1/inference/<year>q3_south/probs/
-                                ▼  review, then delete that year's quads
+                                ▼  review, then Archive that year's quads
 ```
 
 All figures re-derived against live buckets on 2026-08-14; sampling method stated inline so they

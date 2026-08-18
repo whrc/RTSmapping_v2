@@ -729,8 +729,10 @@ the GCS client was cached). GPU-free.
 | `test_backpressure_caps_inflight` | pending writes never exceed `max_inflight` on any submit | real — bounded-memory backpressure |
 | `test_write_error_propagates_and_tile_not_marked_done` | a failed write re-raises on the owning thread; the tile is NOT marked done (crash-safe resume) | real — the done-only-after-success invariant |
 
-Also covers the South-readiness fork-safety fixes in `inference/runner.py` (2026-07-07):
-`_make_loader` (forkserver worker start, avoiding the fork+gRPC deadlock that stranded Banks GPU-0) and `_start_stall_watchdog` (os._exit a wedged worker so its shard is reclaimed).
+Also covers the South-readiness fork-safety fix in `inference/runner.py` (2026-07-07):
+`_make_loader` (forkserver worker start, avoiding the fork+gRPC deadlock that stranded Banks GPU-0).
+The stall-watchdog tests moved to [test_watchdog.py](test_watchdog.py) when the watchdog was
+lifted into `utils/` for the acquisition loop (2026-08-18).
 
 | Test | Checks | Strictness |
 |---|---|---|
@@ -738,6 +740,47 @@ Also covers the South-readiness fork-safety fixes in `inference/runner.py` (2026
 | `test_stall_watchdog_disabled_is_noop` | `stall_timeout_s<=0` returns a no-op stop fn, starts no thread | shallow — off-switch |
 | `test_stall_watchdog_does_not_kill_while_progressing` | a live `last_active` never triggers os._exit | real — no false positives |
 | `test_stall_watchdog_exits_process_on_hard_stall` | a stale `last_active` os._exit(3)s (asserted in a subprocess) | real — the self-heal trigger |
+
+### [test_watchdog.py](test_watchdog.py)
+
+`utils/watchdog.py::start_stall_watchdog` — the shared process-level stall guard. Lifted out of
+`inference/runner.py` (2026-08-18) so the acquisition order loop can use it: both have the same
+failure mode, where a wedged call holds its claim and reports no error rather than crashing.
+GPU-free; the hard-stall cases run in a subprocess so `os._exit` cannot kill pytest.
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_disabled_is_noop` | `timeout_s <= 0` returns a no-op stop fn (tests / single-shot CLI) | real — opt-out path |
+| `test_does_not_kill_while_progressing` | a 0.5 s timeout does not fire while `last_active` keeps moving | real — no false positives |
+| `test_exits_process_on_hard_stall` | a stale `last_active` exits 3, the code the inference supervisor restarts on | real — the whole point of the module |
+| `test_exit_code_is_configurable` | `exit_code=` is honoured, so callers can distinguish stall from crash | real — supervisor contract |
+
+### [test_planetscope_download.py](test_planetscope_download.py)
+
+`planetscope-download/` — the acquisition scripts ported from Heidi Rodenhizer's
+`circumpolar_planet_basemaps` notebooks, carrying the four changes from her PR #61 review
+(2026-08-17). Network-free and GCS-free: the Planet API is a scripted fake session, so the retry
+policy is exercised without waiting on real back-off (`time.sleep` is patched out).
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_202_succeeds_first_try` | the happy path places exactly one request | real |
+| `test_401_fails_fast_without_retrying` | auth failure raises immediately instead of burning 5 attempts | real — retrying a dead key only delays the fix |
+| `test_transient_status_retries_then_succeeds` | 500 → 409 → 202 recovers within the attempt budget | real — the failures Heidi actually sees |
+| `test_retries_are_bounded_then_recorded_as_failed` | exhaustion returns `failed` after `MAX_ATTEMPTS`, so the loop continues | real — a 5-day run is never abandoned over one quad |
+| `test_non_retryable_status_gives_up_immediately` | a 404 is not retried | real |
+| `test_connection_errors_are_retried` | transport exceptions are retried like transient statuses | real |
+| `test_order_payload_matches_the_2025_delivery_shape` | quad id, COG `file_format` tool, delivery bucket/prefix, and a non-None timeout on every call | real — payload drift would change delivered filenames |
+| `test_progress_counts_and_writes_status` | counters and `pct_done` are right; the status file lands | real |
+| `test_status_write_failure_does_not_kill_the_run` | an unwritable status path is warned, not raised | real — monitoring must not take down the job |
+| `test_watchdog_timestamp_advances_on_progress` | `last_active` is bumped per completed quad | real — wires the loop to the watchdog |
+| `test_filter_to_domain_clips_and_derives_columns` | the R→geopandas port drops out-of-domain quads and derives `delivery_location` | real — a wrong prefix mis-delivers the imagery |
+| `test_filter_to_domain_sorts_by_column_then_row` | column-major order preserved (the original `arrange`) | real — delivery order is spatially contiguous |
+| `test_filter_to_domain_survives_an_empty_clip` | an all-miss grid returns an empty frame with the schema intact | real — regression, this KeyError'd in the first end-to-end smoke |
+| `test_flatten_name_strips_uuid_and_folds_mosaic_dir` | the optional tidy-up's path mapping | real |
+| `test_flatten_name_is_idempotent` | re-running the tidy-up is a no-op, not a second mangling | real — it is resumed by re-running |
+| `test_flattened_names_still_index` | both raw and flattened names match `_QUAD_NAME_RE` | real — the claim that the rename is optional |
+
 
 ### [test_assemble_region.py](test_assemble_region.py)
 

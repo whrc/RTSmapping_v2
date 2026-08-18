@@ -196,3 +196,8 @@ runs/
 
 # Stray local test fixtures — conftest.py generates synthetic data at runtime
 tests/fixtures/
+
+# planetscope-download runtime outputs (grid geojsons, progress, logs)
+planetscope-download/data/
+planetscope-download/status/
+planetscope-download/logs/
