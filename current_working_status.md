@@ -203,6 +203,15 @@ with those changes applied, and the plan doc records the decisions. Runbook:
   Archive is **$98/mo for all six years** ($1,181/yr) vs ~$4.1k for the delete plan's interim
   holding — cheaper *and* it removes the licence dependency. Quads stay Standard through review
   (the QC tooling streams crops from them), then transition on map approval.
+- **Live verification, full 2025 prefix:** rebuilt the quad index end to end — **309,102 quads from
+  1,854,623 objects**, reconciling against the ordered 309,100 at 0.00% off. The rebuild differs
+  from the stored June index by 5 added / 3 removed, and **none of it is the regex**: all 5 match
+  the old pattern too (delivered after 2026-06-17), and the 3 removed are objects `gsutil stat`
+  now reports GONE. Incidental finding worth knowing — **the deployed
+  `quad_index_2025q3.csv` references 3 objects that no longer exist** (`1153-1566`, `1189-1531`,
+  `1459-1437`). Inference already tolerates missing objects via `_note_missing_object`, and
+  `1459-1437` is the very example in `tests/test_inference_pipeline.py:173`, so this is known
+  behaviour rather than a new fault.
 - Notebook 2 ported R→geopandas, so the VM needs one language; the `planet` SDK dependency went
   with it. Pilot is **2022 alone**. Next: merge, request Heidi's `osLogin` binding, run the pilot.
 
