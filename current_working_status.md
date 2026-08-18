@@ -167,7 +167,55 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Collaborative review campaign built — a 2–3 person team can now traverse all 60,167 candidates
+**Interannual acquisition built and approved — `planetscope-download/` (branch
+`interannual-planet-acquisition`, 2026-08-18).** Heidi approved PR #61 on 2026-08-17 with four
+changes and answers to all five open questions; her three notebooks are now ported into this repo
+with those changes applied, and the plan doc records the decisions. Runbook:
+`planetscope-download/README.md`. Rationale: `docs/interannual_planet_download_plan.md`.
+
+- **Quota is not a constraint** — *"We have unlimited basemap tiles… I don't even think they
+  track basemap downloads."* The blocking question turned out to have the best available answer,
+  so the programme is unblocked. **309,100 quads/year confirmed**; her notebook's 259,783 predated
+  dropping the ArcticDEM domain limit.
+- **Two of her four changes landed on our code, not hers.** `inference/quad_index.py` now matches
+  `(\d+)-(\d+)_quad[^/]*\.tif` instead of one literal suffix — Planet's naming varies by year and
+  by whether the COG `file_format` tool was applied, and pinning our matcher pushed that cost onto
+  her. Verified on live objects: identical match set on 2025 (220/220 in column 500), and the 2019
+  legacy archive now indexes where it previously returned **nothing**. The dead `udm2_path` column
+  went with it (written into every index, read by nothing).
+- **Dropping the rename removed two of her four problems instead of solving them.** The rename
+  existed for bucket tidiness; `build_quad_index` lists recursively and matches on the basename,
+  so the raw delivery indexes identically. That deletes both the crash-recovery redesign she was
+  dreading and one of the two slow listings. `tidy_rename.py` keeps it optional, rewritten to
+  derive work from bucket state (idempotent, no checkpoint) with per-object 404-tolerant deletes
+  instead of the batch delete that aborted on one missing object. **Verified by code reading, not
+  observation** — 2025 is fully renamed, so no raw object survives to test against; it is the
+  first check of the 2022 pilot.
+- **Retry policy goes further than the flat cap of 3 she suggested**, because a cap still aborts a
+  five-day run over one quad: 401 fails fast (auth cannot be retried into working), transient
+  statuses back off 30s→8min over 5 attempts, then the quad is recorded and the loop *continues*;
+  `run_year.sh` sweeps the failures up from the CSV, skipping the listing.
+- **Supervision reuses what the inference fleet already proved.** `_start_stall_watchdog` lifted
+  from `inference/runner.py` into `utils/watchdog.py` (two real callers); `run_year.sh` mirrors
+  `launch_south_inference.sh` — restart on non-zero, crash-loop guard, STOP sentinel. Root cause
+  fixed first: her `requests.post` calls had **no timeout**, so a hung socket stalled forever.
+- **Storage: Archive, not delete.** She pushed back that re-ordering assumes the licence is kept.
+  Archive is **$98/mo for all six years** ($1,181/yr) vs ~$4.1k for the delete plan's interim
+  holding — cheaper *and* it removes the licence dependency. Quads stay Standard through review
+  (the QC tooling streams crops from them), then transition on map approval.
+- **Live verification, full 2025 prefix:** rebuilt the quad index end to end — **309,102 quads from
+  1,854,623 objects**, reconciling against the ordered 309,100 at 0.00% off. The rebuild differs
+  from the stored June index by 5 added / 3 removed, and **none of it is the regex**: all 5 match
+  the old pattern too (delivered after 2026-06-17), and the 3 removed are objects `gsutil stat`
+  now reports GONE. Incidental finding worth knowing — **the deployed
+  `quad_index_2025q3.csv` references 3 objects that no longer exist** (`1153-1566`, `1189-1531`,
+  `1459-1437`). Inference already tolerates missing objects via `_note_missing_object`, and
+  `1459-1437` is the very example in `tests/test_inference_pipeline.py:173`, so this is known
+  behaviour rather than a new fault.
+- Notebook 2 ported R→geopandas, so the VM needs one language; the `planet` SDK dependency went
+  with it. Pilot is **2022 alone**. Next: merge, request Heidi's `osLogin` binding, run the pilot.
+
+**Also live: collaborative review campaign — a 2–3 person team can now traverse all 60,167 candidates
 (branch `review-campaign`, 2026-08-03).** The South inventory has no human verification; everything
 in `south_products.md` traces back to one 280-polygon stratified sample. This builds the machinery to
 replace that extrapolation with a census. Protocol SSoT: `post-inference/review_campaign.md`.

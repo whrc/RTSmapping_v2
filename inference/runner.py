@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
-import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -34,6 +32,7 @@ from inference.quad_index import load_quad_index
 from inference.s2_index import load_s2_index
 from inference.tiles import InferenceTileDataset
 from inference.writer import NODATA_PROB, Manifest, write_probability_tile
+from utils.watchdog import start_stall_watchdog
 
 logger = logging.getLogger(__name__)
 
@@ -80,34 +79,15 @@ def _make_loader(dataset, batch_size: int, num_workers: int, collate_fn) -> Data
     return DataLoader(dataset, **kwargs)
 
 
-def _start_stall_watchdog(last_active: list[float], timeout_s: float, label: str):
-    """Kill the worker process if the batch loop makes no progress for ``timeout_s``.
-
-    Defence-in-depth behind the ``forkserver`` fix: if a DataLoader worker still
-    wedges (any cause), the main thread blocks inside ``for batch in loader`` and
-    the claim's heartbeat thread keeps the shard alive forever — the exact way
-    Banks stranded a shard. This daemon watches a timestamp the loop bumps each
-    batch and, on a hard stall, ``os._exit``s so the claim goes stale and a
-    supervised restart (launch script's per-GPU ``until`` loop) picks up fresh
-    work; the stalled shard is later reclaimed and resumed from its manifest.
-    ``timeout_s <= 0`` disables it (tests / single-shot CLI). Returns a stop fn.
-    """
-    if not timeout_s or timeout_s <= 0:
-        return lambda: None
-    stop = threading.Event()
-
-    def _watch() -> None:
-        while not stop.wait(min(30.0, timeout_s / 4)):
-            idle = time.time() - last_active[0]
-            if idle > timeout_s:
-                logger.critical(
-                    "STALL: no tile progress for %.0fs (%s) — exiting worker for "
-                    "supervised restart; the shard will be reclaimed and resumed",
-                    idle, label)
-                os._exit(3)
-
-    threading.Thread(target=_watch, daemon=True).start()
-    return stop.set
+# Stall watchdog lives in utils/watchdog.py — shared with the acquisition order
+# loop (planetscope-download/), which has the same silent-hang failure mode.
+#
+# Here it is defence-in-depth behind the ``forkserver`` fix in _make_loader: if a
+# DataLoader worker still wedges (any cause), the main thread blocks inside
+# ``for batch in loader`` while the claim's heartbeat thread keeps the shard alive
+# forever — the exact way Banks stranded a shard. Exiting 3 lets the claim go
+# stale so the launch script's per-GPU loop restarts the worker, and the stalled
+# shard is later reclaimed and resumed from its manifest.
 
 
 def _crop_center_upsample(arr: np.ndarray, out_size: int, frac: float) -> np.ndarray:
@@ -329,7 +309,7 @@ def _run_inference_multiscale(ctx: InferenceContext, todo: pd.DataFrame, out: st
                          max_workers=ctx.run_cfg["inference"].get("write_threads", 16))
     t0, n_done = time.time(), 0
     last_active = [time.time()]
-    stop_watchdog = _start_stall_watchdog(
+    stop_watchdog = start_stall_watchdog(
         last_active, ctx.run_cfg["inference"].get("stall_timeout_s", 900.0), out)
     for batch in loader:
         last_active[0] = time.time()
@@ -398,7 +378,7 @@ def run_inference(ctx: InferenceContext, tiles: pd.DataFrame, output: str,
                          max_workers=ctx.run_cfg["inference"].get("write_threads", 16))
     t0, n_done = time.time(), 0
     last_active = [time.time()]
-    stop_watchdog = _start_stall_watchdog(
+    stop_watchdog = start_stall_watchdog(
         last_active, ctx.run_cfg["inference"].get("stall_timeout_s", 900.0), out)
     for batch in loader:
         last_active[0] = time.time()
