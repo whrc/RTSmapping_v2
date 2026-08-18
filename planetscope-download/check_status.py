@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_STATUS_DIR = Path(__file__).resolve().parent / "status"
+# Mirrors order_basemaps.DEFAULT_WORK — runtime outputs live outside the repo.
+DEFAULT_STATUS_DIR = Path(
+    os.environ.get("PSD_WORK", "/mnt/outputs/planetscope-download")) / "status"
 STALE_AFTER_S = 300
 
 

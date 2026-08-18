@@ -22,7 +22,13 @@ set -uo pipefail
 YEAR="${1:?usage: run_year.sh <year> [extra args passed to order_basemaps.py]}"; shift || true
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
-DATA="$HERE/data"; STATUS="$HERE/status"; LOGS="$HERE/logs"
+
+# Runtime outputs go OUTSIDE the repo. The checkout belongs to whoever cloned it
+# and collaborators sign in as their own OS Login user with no write access to
+# it, so writing here would fail for everyone but the owner. /mnt/outputs is
+# world-writable on the VM.
+PSD_WORK="${PSD_WORK:-/mnt/outputs/planetscope-download}"
+DATA="$PSD_WORK/data"; STATUS="$PSD_WORK/status"; LOGS="$PSD_WORK/logs"
 STOP_FILE="$STATUS/STOP"
 GRIDS="$DATA/circumpolar_basemap_grids_${YEAR}.geojson"
 SOUTH="$DATA/circumpolar_south_planet_basemap_grids_${YEAR}.geojson"
@@ -30,9 +36,43 @@ SOUTH="$DATA/circumpolar_south_planet_basemap_grids_${YEAR}.geojson"
 RESTART_DELAY_S="${RESTART_DELAY_S:-30}"
 MIN_HEALTHY_S="${MIN_HEALTHY_S:-300}"   # a non-zero exit sooner than this is a fast failure
 MAX_FAST_FAILS="${MAX_FAST_FAILS:-5}"
-PYTHON="${PYTHON:-python3}"
 
-mkdir -p "$DATA" "$STATUS" "$LOGS"
+# The acquisition deps (geopandas, google-cloud-storage, ...) are not on the
+# system python. Prefer the shared venv; PSD_PYTHON overrides.
+PYTHON="${PSD_PYTHON:-/mnt/outputs/planetscope-venv/bin/python}"
+[ -x "$PYTHON" ] || PYTHON="python3"
+export PYTHONDONTWRITEBYTECODE=1   # the repo's __pycache__ is not ours to write
+
+# --- preflight: fail BEFORE asking for keys ----------------------------------
+# Typing a Planet key and only then discovering a missing directory or import is
+# a bad trade for everyone involved.
+preflight_fail=0
+# umask 0 so a run started by one OS Login user leaves directories the next one
+# can write: this is shared scratch under a 777 /mnt/outputs, and the alternative
+# is the second person silently failing to log.
+if ! (umask 000 && mkdir -p "$DATA" "$STATUS" "$LOGS") 2>/dev/null; then
+  echo "[run] ERROR: cannot create $PSD_WORK"
+  echo "[run]        set PSD_WORK to a directory you can write, e.g."
+  echo "[run]        PSD_WORK=\$HOME/planetscope-download ./planetscope-download/run_year.sh $YEAR"
+  preflight_fail=1
+fi
+if ! "$PYTHON" -c 'import geopandas, shapely, pandas, requests; from google.cloud import storage' 2>/dev/null; then
+  echo "[run] ERROR: '$PYTHON' is missing the acquisition dependencies."
+  echo "[run]        Expected the shared venv at /mnt/outputs/planetscope-venv."
+  echo "[run]        Rebuild it with:"
+  echo "[run]          python3 -m venv /mnt/outputs/planetscope-venv"
+  echo "[run]          /mnt/outputs/planetscope-venv/bin/pip install -r $HERE/requirements.txt"
+  echo "[run]        or point PSD_PYTHON at an interpreter that has them."
+  preflight_fail=1
+fi
+if [ ! -r "$REPO/domain/circumpolar_south_domain.geojson" ]; then
+  echo "[run] ERROR: cannot read $REPO/domain/circumpolar_south_domain.geojson"
+  preflight_fail=1
+fi
+[ "$preflight_fail" -eq 0 ] || { echo "[run] preflight failed — nothing was started, no keys were asked for."; exit 2; }
+
+chmod 777 "$PSD_WORK" "$DATA" "$STATUS" "$LOGS" 2>/dev/null || true   # best effort; only the creator can
+echo "[run] preflight OK — python=$PYTHON  work=$PSD_WORK"
 rm -f "$STOP_FILE"
 
 # --- keys: prompted once, exported, never written to disk --------------------
@@ -77,7 +117,7 @@ while true; do
   echo "[run] $(date -Is) step 3: ordering, attempt #$n"
   t0=$(date +%s)
   "$PYTHON" planetscope-download/order_basemaps.py \
-      --year "$YEAR" --grids "$SOUTH" "$@" \
+      --year "$YEAR" --grids "$SOUTH" --status-dir "$STATUS" "$@" \
       >> "$LOGS/orders_${YEAR}.log" 2>&1
   rc=$?
   dt=$(( $(date +%s) - t0 ))
@@ -92,7 +132,7 @@ while true; do
   if [ "$rc" -eq 1 ]; then
     echo "[run] $(date -Is) finished with failed quads — sweeping them up once"
     "$PYTHON" planetscope-download/order_basemaps.py --year "$YEAR" --grids "$SOUTH" \
-        --retry-failed "$STATUS/failed_orders_${YEAR}.csv" \
+        --status-dir "$STATUS" --retry-failed "$STATUS/failed_orders_${YEAR}.csv" \
         >> "$LOGS/orders_${YEAR}.log" 2>&1
     echo "[run] $(date -Is) sweep-up exited $?"; break
   fi
@@ -112,4 +152,4 @@ while true; do
 done
 
 echo "[run] $(date -Is) done. Status: $STATUS/${YEAR}.json"
-"$PYTHON" planetscope-download/check_status.py || true
+"$PYTHON" planetscope-download/check_status.py --status-dir "$STATUS" || true

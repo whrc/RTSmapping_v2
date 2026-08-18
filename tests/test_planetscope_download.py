@@ -269,3 +269,23 @@ def test_live_run_is_flagged_neither(tmp_path, capsys, monkeypatch):
     check_status.main()
     out = capsys.readouterr().out
     assert "STALE" not in out and "complete" not in out
+
+
+# ---------------------------------------------------------------------------
+# runtime output location
+# ---------------------------------------------------------------------------
+
+def test_runtime_outputs_default_outside_the_repo():
+    """The checkout is shared and read-only to collaborators: writing runtime
+    output into it fails for everyone but its owner (Heidi hit exactly this on
+    her first run, 2026-08-18)."""
+    repo = str(REPO)
+    for default in (order_basemaps.DEFAULT_WORK, check_status.DEFAULT_STATUS_DIR):
+        assert not str(default).startswith(repo), f"{default} is inside the repo"
+
+
+def test_psd_work_env_var_overrides_the_default(monkeypatch):
+    """PSD_WORK is the documented escape hatch when /mnt/outputs is unavailable."""
+    monkeypatch.setenv("PSD_WORK", "/tmp/psd-elsewhere")
+    reloaded = _load("order_basemaps")
+    assert str(reloaded.DEFAULT_WORK) == "/tmp/psd-elsewhere"

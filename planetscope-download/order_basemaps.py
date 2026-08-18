@@ -52,6 +52,11 @@ from utils.watchdog import start_stall_watchdog  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+# Runtime outputs live OUTSIDE the repo: the checkout is owned by whoever cloned
+# it, and collaborators get their own OS Login accounts with no write access to
+# it. /mnt/outputs is world-writable on the VM. Override with PSD_WORK.
+DEFAULT_WORK = Path(os.environ.get("PSD_WORK", "/mnt/outputs/planetscope-download"))
+
 ORDERS_URL = "https://api.planet.com/compute/ops/orders/v2"
 TIMEOUT = (10, 120)          # (connect, read) — never leave a socket unbounded
 OK_STATUS = 202
@@ -218,8 +223,7 @@ def main() -> int:
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--grids", type=Path, required=True, help="step 2 output")
     p.add_argument("--bucket", default="pdg-planet-data")
-    p.add_argument("--status-dir", type=Path,
-                   default=Path(__file__).resolve().parent / "status")
+    p.add_argument("--status-dir", type=Path, default=DEFAULT_WORK / "status")
     p.add_argument("--workers", type=int, default=1,
                    help="Concurrent order placements. 1 = serial (default). Raise only "
                         "for the threading experiment; Planet may be the ceiling.")

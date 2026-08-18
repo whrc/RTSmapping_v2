@@ -52,12 +52,22 @@ for object names only instead of full metadata. And the retry policy is
 ## Quick start
 
 ```bash
-tmux new -s planet                      # so the run survives you disconnecting
-cd ~/RTSmappingDL
+tmux new -s planet                              # so the run survives you disconnecting
+cd /home/ext_yyang_woodwellclimate_org/RTSmappingDL   # the shared checkout, not your home dir
 ./planetscope-download/run_year.sh 2022
-# prompts for PL_BM_API_KEY and PDG_PL_ORDERS_KEY, then runs all three steps
+# checks its environment, then prompts for PL_BM_API_KEY and PDG_PL_ORDERS_KEY
 # Ctrl-b then d  -> detach; the run keeps going
 ```
+
+The repo is a **shared checkout you can read but not write**, so nothing is
+written into it. Outputs go to `/mnt/outputs/planetscope-download/`
+(`data/`, `status/`, `logs/`), and the scripts run under a shared virtualenv at
+`/mnt/outputs/planetscope-venv` because the system python has no geopandas.
+Both are found automatically; override with `PSD_WORK` and `PSD_PYTHON` if you
+ever need to.
+
+`run_year.sh` checks all of that **before** asking for your keys, so a setup
+problem costs you nothing but a re-run.
 
 Come back any time with `tmux attach -t planet`, or just:
 
@@ -73,7 +83,7 @@ python3 planetscope-download/check_status.py
 
 A finished year is marked `complete`. An **incomplete** year whose heartbeat is
 older than ~5 minutes prints `STALE`, which means the process died without the
-supervisor restarting it — check `planetscope-download/logs/`.
+supervisor restarting it — check `/mnt/outputs/planetscope-download/logs/`.
 
 **2022 first, alone.** It's the pilot — it settles the retry behaviour, the
 delivery layout and radiometric drift before we commit five more years. After
@@ -82,8 +92,8 @@ it's checked: 2019 → 2020 → 2021 → 2023 → 2024.
 ## Stopping
 
 ```bash
-touch planetscope-download/status/STOP     # stops after the current step
-rm planetscope-download/status/STOP        # then re-run run_year.sh to resume
+touch /mnt/outputs/planetscope-download/status/STOP   # stops after the current step
+rm /mnt/outputs/planetscope-download/status/STOP      # then re-run run_year.sh to resume
 ```
 
 Resuming is always safe. Steps 1 and 2 skip if their output exists, and step 3
@@ -99,11 +109,14 @@ crash-loop guard so it stops rather than spinning. What you might see:
 | `FATAL rc=2 (bad or expired credentials)` | 401 from Planet. We fail fast rather than retrying — auth can't be retried into working | Re-run `run_year.sh` with a fresh key. Delivered quads are skipped, so it picks up where it stopped |
 | `exited 3 ... (stall watchdog)` | No order completed for 15 min — a hung socket | Nothing; it restarts itself. Recurring stalls are worth telling us about |
 | `N quads failed after 5 attempts` | Transient errors that outlasted the backoff | Nothing; `run_year.sh` sweeps them up automatically at the end. `check_status.py` prints the manual command if you want it |
-| `5 consecutive fast failures — stopping` | Something is systematically broken | Check `planetscope-download/logs/orders_<year>.log` and send it to us |
+| `5 consecutive fast failures — stopping` | Something is systematically broken | Check `/mnt/outputs/planetscope-download/logs/orders_<year>.log` and send it to us |
+| `preflight failed` | Missing deps, or `PSD_WORK` not writable | The message says which and how to fix it. No keys were asked for, so just re-run |
+| `Planet rejected the API key (HTTP 401)` | Bad or expired `PL_BM_API_KEY` | Re-run with the right key |
 
 Retries are bounded: **5 attempts with 30s→8min backoff** on transient statuses
 (400/409/429/5xx), then the quad is recorded in
-`status/failed_orders_<year>.csv` and the loop **carries on**. A five-day run is
+`/mnt/outputs/planetscope-download/status/failed_orders_<year>.csv` and the loop
+**carries on**. A five-day run is
 never abandoned over one quad. 401 is the exception — it stops immediately.
 
 ## Note on the keys
@@ -143,8 +156,12 @@ planetscope-download/
 ├── order_basemaps.py        ← step 3: place the orders (the multi-day one)
 ├── check_status.py          ← progress for every year
 ├── tidy_rename.py           ← optional cosmetic flattening; not needed by the pipeline
-├── requirements.txt
+└── requirements.txt
+
+/mnt/outputs/planetscope-download/     ← runtime outputs (outside the repo)
 ├── data/                    ← step 1 and 2 geojson outputs
 ├── status/                  ← <year>.json progress, failed_orders_<year>.csv, STOP
 └── logs/                    ← per-step logs
+
+/mnt/outputs/planetscope-venv/         ← the interpreter the scripts run under
 ```
