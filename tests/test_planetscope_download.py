@@ -33,6 +33,7 @@ order_basemaps = _load("order_basemaps")
 filter_to_domain = _load("filter_to_domain")
 tidy_rename = _load("tidy_rename")
 check_status = _load("check_status")
+alert_if_stopped = _load("alert_if_stopped")
 
 
 # ---------------------------------------------------------------------------
@@ -289,3 +290,73 @@ def test_psd_work_env_var_overrides_the_default(monkeypatch):
     monkeypatch.setenv("PSD_WORK", "/tmp/psd-elsewhere")
     reloaded = _load("order_basemaps")
     assert str(reloaded.DEFAULT_WORK) == "/tmp/psd-elsewhere"
+
+
+# ---------------------------------------------------------------------------
+# stopped-run alerting
+# ---------------------------------------------------------------------------
+
+def _status_file(tmp_path, year, done, total, heartbeat_age_s):
+    import json
+    from datetime import datetime, timedelta, timezone
+    hb = (datetime.now(timezone.utc) - timedelta(seconds=heartbeat_age_s)).isoformat()
+    (tmp_path / f"{year}.json").write_text(json.dumps({
+        "year": year, "started_at": hb, "heartbeat_at": hb, "n_total": total,
+        "n_done": done, "n_ordered": done, "n_skipped": 0, "n_failed": 0,
+        "pct_done": 100 * done / total, "last_quad_id": "1-1",
+        "orders_per_min": 39.0, "eta_hours": 1.0}))
+
+
+def _run_alert(tmp_path, monkeypatch, alive: bool):
+    posted = []
+    monkeypatch.setattr(alert_if_stopped, "ordering_process_alive", lambda y: alive)
+    monkeypatch.setattr(alert_if_stopped, "webhook_url", lambda: "https://hook.test")
+    monkeypatch.setattr(alert_if_stopped, "post",
+                        lambda url, text, dry: posted.append(text))
+    monkeypatch.setattr("sys.argv",
+                        ["alert_if_stopped.py", "--status-dir", str(tmp_path)])
+    alert_if_stopped.main()
+    return posted
+
+
+def test_silent_while_the_run_is_healthy(tmp_path, monkeypatch):
+    _status_file(tmp_path, 2022, done=10, total=100, heartbeat_age_s=30)
+    assert _run_alert(tmp_path, monkeypatch, alive=True) == []
+
+
+def test_silent_when_stale_but_process_still_alive(tmp_path, monkeypatch):
+    """On resume the loop lists the delivery prefix before its first heartbeat,
+    which can take the best part of an hour. Alerting on that would cry wolf on
+    every restart, so a live process suppresses the alarm."""
+    _status_file(tmp_path, 2022, done=10, total=100, heartbeat_age_s=7200)
+    assert _run_alert(tmp_path, monkeypatch, alive=True) == []
+
+
+def test_alerts_when_stale_and_no_process(tmp_path, monkeypatch):
+    _status_file(tmp_path, 2022, done=10, total=100, heartbeat_age_s=7200)
+    posted = _run_alert(tmp_path, monkeypatch, alive=False)
+    assert len(posted) == 1
+    assert "has stopped" in posted[0] and "run_year.sh 2022" in posted[0]
+
+
+def test_alert_is_not_repeated_every_tick(tmp_path, monkeypatch):
+    _status_file(tmp_path, 2022, done=10, total=100, heartbeat_age_s=7200)
+    assert len(_run_alert(tmp_path, monkeypatch, alive=False)) == 1
+    assert _run_alert(tmp_path, monkeypatch, alive=False) == []
+
+
+def test_recovery_rearms_the_alert(tmp_path, monkeypatch):
+    _status_file(tmp_path, 2022, done=10, total=100, heartbeat_age_s=7200)
+    assert len(_run_alert(tmp_path, monkeypatch, alive=False)) == 1
+    _status_file(tmp_path, 2022, done=20, total=100, heartbeat_age_s=10)   # resumed
+    assert _run_alert(tmp_path, monkeypatch, alive=True) == []
+    _status_file(tmp_path, 2022, done=20, total=100, heartbeat_age_s=7200)  # died again
+    assert len(_run_alert(tmp_path, monkeypatch, alive=False)) == 1
+
+
+def test_completion_alerts_once(tmp_path, monkeypatch):
+    _status_file(tmp_path, 2022, done=100, total=100, heartbeat_age_s=7200)
+    posted = _run_alert(tmp_path, monkeypatch, alive=False)
+    assert len(posted) == 1 and "complete" in posted[0]
+    assert "--expect-quads 100" in posted[0]
+    assert _run_alert(tmp_path, monkeypatch, alive=False) == []

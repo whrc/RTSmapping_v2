@@ -203,3 +203,6 @@ tests/fixtures/
 planetscope-download/data/
 planetscope-download/status/
 planetscope-download/logs/
+
+# Slack webhook for acquisition alerts — a secret, never commit it
+planetscope-download/slack_webhook
