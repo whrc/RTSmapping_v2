@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Semantic segmentation of Retrogressive Thaw Slumps (RTS) in Arctic satellite imagery for pan-arctic mapping (60–74°N). Trains on 2024 PlanetScope basemap imagery, deploys inference on 2025 data.
+Semantic segmentation of Retrogressive Thaw Slumps (RTS) in Arctic satellite imagery for pan-arctic mapping (60–74°N). Trains on 2024 PlanetScope basemap imagery. The 2025 map is delivered; the **frozen** deployed model is now being run over **2019–2024** as well, to turn that single epoch into an interannual series — see `interannual-inference/`.
 
 This is a **solo research project**. Prioritise simplicity, maintainability, and reproducibility. Do not over-engineer with unnecessary abstractions, factory patterns, or deep class hierarchies. Flat is better than nested. A solo researcher needs to read and debug this code quickly.
 
@@ -20,6 +20,8 @@ RTSmappingDL/
 │   └── inference.md           ← inference pipeline and deployment
 ├── post-inference/
 │   └── post-inference.md      ← post-processing, evaluation (spec TBD)
+├── planetscope-download/      ← Planet basemap acquisition (Heidi runs these; see its README)
+├── interannual-inference/     ← multi-year run coordinator: year × stage state, driver, alerts
 ├── computing/
 │   ├── docker_training.md     ← Docker environment
 │   └── vm_instruction.md      ← GCP VM setup
@@ -37,6 +39,8 @@ RTSmappingDL/
 ├── notebooks/                 ← exploration only, not production code
 └── docs/                      ← living documentation of results and decisions
 ```
+Not every directory is listed — `domain/`, `review/`, `deliverables/`, `plots/` and
+`outputs/` also exist; see [README.md](README.md) for the full document map.
 
 ## How to Work in This Repo
 
@@ -52,6 +56,8 @@ Every component has a detailed markdown spec. **Always read the relevant spec be
 | Vectorization, QC, evaluation | `post-inference/post-inference.md` |
 | Docker setup | `computing/docker_training.md` |
 | VM provisioning | `computing/vm_instruction.md` |
+| Multi-year run: stages, gates, state, alerts | `interannual-inference/README.md` |
+| Planet basemap acquisition (Heidi's side) | `planetscope-download/README.md` |
 | Progress Log | `current_working_status.md` |
 
 If a spec is unclear or incomplete, **ask — do not assume**.

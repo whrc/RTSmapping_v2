@@ -1,4 +1,4 @@
-"""The campaign stage table: what runs, in what order, and how we know it finished.
+"""The interannual-inference stage table: what runs, in what order, and how we know it finished.
 
 Every stage wraps a command we already run by hand. Nothing here reimplements
 pipeline logic — `cmd` builds an invocation of an existing script, `evidence`

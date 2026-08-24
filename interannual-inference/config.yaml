@@ -1,8 +1,8 @@
-# Interannual RTS mapping campaign — declarative configuration.
+# Interannual RTS mapping — declarative configuration for the multi-year inference run.
 #
 # Six years of PlanetScope q3 basemaps run through the FROZEN deployed model
 # (configs/deployment.yaml, 3-seed EffB5 ensemble). This file holds the values;
-# campaign/stages.py holds the order and the commands.
+# interannual-inference/stages.py holds the order and the commands.
 #
 # Numbers that are measured, not guessed, carry the year they were measured in.
 
@@ -14,8 +14,8 @@ quarter: q3
 years: [2022, 2019, 2020, 2021, 2023, 2024]
 
 paths:
-  work: /mnt/outputs/campaign
-  state_mirror: gs://rts-mapping-v2-usw1/campaign/state
+  work: /mnt/outputs/interannual-inference
+  state_mirror: gs://rts-mapping-v2-usw1/interannual-inference/state
   local_inference: /mnt/outputs/inference
 
   # Planet basemap quads, as delivered by the Orders API (raw, un-renamed layout).

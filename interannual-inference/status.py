@@ -6,9 +6,9 @@ so `s2_export` and `infer` show real progress rather than just "running".
     ✓ done   ▶ running   ⏸ gate awaiting sign-off   ✗ failed   · pending
 
 Usage:
-    python campaign/status.py                 # the matrix
-    python campaign/status.py --year 2022     # drill down into one year
-    python campaign/status.py --json out.json # machine-readable snapshot
+    python interannual-inference/status.py                 # the matrix
+    python interannual-inference/status.py --year 2022     # drill down into one year
+    python interannual-inference/status.py --json out.json # machine-readable snapshot
 """
 
 from __future__ import annotations
@@ -19,11 +19,12 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root: utils.*, inference.*
+sys.path.insert(0, str(Path(__file__).resolve().parent))          # this folder: sibling modules
 
-from campaign import stages as S  # noqa: E402
-from campaign import state as ST  # noqa: E402
-from campaign.run_stage import CONFIG, load_config  # noqa: E402
+import stages as S  # noqa: E402
+import state as ST  # noqa: E402
+from run_stage import CONFIG, load_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)

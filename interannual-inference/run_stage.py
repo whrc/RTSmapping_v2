@@ -1,15 +1,15 @@
 """Run ONE stage of ONE year, with prerequisite checks, logging and evidence capture.
 
-This is the only place a campaign command is actually executed. It refuses to run a
+This is the only place a stage command is actually executed. It refuses to run a
 stage whose prerequisites are not done, refuses to re-run a finished stage without
 ``--force``, streams output to a per-stage log, and records what the stage produced
 by reading its artifact afterwards.
 
 Usage:
-    python campaign/run_stage.py --year 2022 --stage tile_grid
-    python campaign/run_stage.py --year 2022 --stage drift_check --force
-    python campaign/run_stage.py --year 2022 --stage acquire --mark-done   # external
-    python campaign/run_stage.py --year 2022 --stage drift_check --sign-off
+    python interannual-inference/run_stage.py --year 2022 --stage tile_grid
+    python interannual-inference/run_stage.py --year 2022 --stage drift_check --force
+    python interannual-inference/run_stage.py --year 2022 --stage acquire --mark-done   # external
+    python interannual-inference/run_stage.py --year 2022 --stage drift_check --sign-off
 """
 
 from __future__ import annotations
@@ -20,21 +20,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root: utils.*, inference.*
+sys.path.insert(0, str(Path(__file__).resolve().parent))          # this folder: sibling modules
 
 import yaml  # noqa: E402
 
-from campaign import stages as S  # noqa: E402
-from campaign import state as ST  # noqa: E402
+import stages as S  # noqa: E402
+import state as ST  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-CONFIG = Path(__file__).resolve().parent / "campaign.yaml"
+CONFIG = Path(__file__).resolve().parent / "config.yaml"
 
 
 def load_config(path: Path = CONFIG) -> dict:
-    """Read campaign.yaml."""
+    """Read the campaign config (config.yaml)."""
     return yaml.safe_load(path.read_text())
 
 

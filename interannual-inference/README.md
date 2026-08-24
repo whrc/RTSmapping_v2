@@ -1,4 +1,4 @@
-# Campaign coordinator
+# Interannual inference
 
 Six years of PlanetScope q3 basemaps (2019–2024) run through the **frozen** deployed
 model, to turn the single-epoch 2025 RTS map into an interannual series.
@@ -7,12 +7,16 @@ That is ~6 years × 12 stages, spread over months, split between two people
 (Heidi holds the Planet key and runs acquisition; we run everything downstream).
 This directory is the thing that remembers where it all is.
 
+Named to match its sibling `planetscope-download/` (Heidi's acquisition side); the
+hyphen means it is not an importable Python package, so the modules import each
+other flat off `sys.path` rather than as `from <pkg> import ...`.
+
 ## The one-minute version
 
 ```bash
-python campaign/status.py                        # where is everything?
-python campaign/status.py --year 2022            # drill into one year
-python campaign/drive.py --year 2022             # run that year until a human is needed
+python interannual-inference/status.py                        # where is everything?
+python interannual-inference/status.py --year 2022            # drill into one year
+python interannual-inference/drive.py --year 2022             # run that year until a human is needed
 ```
 
 `drive.py` never walks past a human gate, a failure, or a stage someone else owns.
@@ -56,7 +60,7 @@ Two stages stop and wait for a person, and the driver will not pass them:
 
 - **`drift_check`** — is this year's imagery radiometrically like what the model was
   deployed on? Sign off with
-  `python campaign/run_stage.py --year YYYY --stage drift_check --sign-off`.
+  `python interannual-inference/run_stage.py --year YYYY --stage drift_check --sign-off`.
 - **`qc`** — is the resulting map good enough to call delivered?
 
 ### The drift baseline is the 2025 *quad* sample, not the training stats
@@ -75,8 +79,8 @@ So `drift_check` compares against `paths.quad_baseline`
 ## Marking work we did not do
 
 ```bash
-python campaign/run_stage.py --year 2019 --stage acquire --mark-done   # Heidi finished
-python campaign/run_stage.py --year 2022 --stage merge  --mark-done
+python interannual-inference/run_stage.py --year 2019 --stage acquire --mark-done   # Heidi finished
+python interannual-inference/run_stage.py --year 2022 --stage merge  --mark-done
 ```
 
 Evidence is re-read from the artifact when you mark, so the ledger stays truthful
@@ -84,7 +88,7 @@ even for stages the driver never ran.
 
 ## Alerting
 
-`campaign/alert.py` runs from cron and posts to the same Slack webhook the
+`interannual-inference/alert.py` runs from cron and posts to the same Slack webhook the
 acquisition alerter uses. It announces four things, **once each**: a failed stage, a
 gate reached, a stage gone quiet, and a year completed.
 
@@ -93,7 +97,7 @@ advanced. A stale heartbeat alone is not enough: the GEE queue legitimately idle
 the inference run lists its shards for a long time at startup. This is the same rule,
 and the same reasoning, as `planetscope-download/alert_if_stopped.py`.
 
-`campaign/notify.py` is a deliberate ~20-line copy of that script's Slack helper
+`interannual-inference/notify.py` is a deliberate ~20-line copy of that script's Slack helper
 rather than a shared import. `alert_if_stopped.py` is **live in cron right now**
 watching Heidi's acquisition, and refactoring a running alert path to save ten lines
 is a bad trade. The webhook file is shared, so there is still only one secret.
@@ -102,7 +106,7 @@ is a bad trade. The webhook file is shared, so there is still only one secret.
 
 | file | role |
 |---|---|
-| `campaign.yaml` | the values — years, buckets, paths, expected counts, thresholds |
+| `config.yaml` | the values — years, buckets, paths, expected counts, thresholds |
 | `stages.py` | the stage table: order, prerequisites, commands, evidence, probes |
 | `state.py` | per-year state JSON — atomic writes, GCS mirror, heartbeats |
 | `run_stage.py` | run exactly one stage, with all the checks |
@@ -110,6 +114,6 @@ is a bad trade. The webhook file is shared, so there is still only one secret.
 | `status.py` | the year × stage matrix |
 | `alert.py` / `notify.py` | cron alerting |
 
-State lives at `/mnt/outputs/campaign/state/<year>.json` (mirrored to
-`gs://rts-mapping-v2-usw1/campaign/state/`), logs at
-`/mnt/outputs/campaign/logs/<year>/<stage>.log`. Neither is in the repo.
+State lives at `/mnt/outputs/interannual-inference/state/<year>.json` (mirrored to
+`gs://rts-mapping-v2-usw1/interannual-inference/state/`), logs at
+`/mnt/outputs/interannual-inference/logs/<year>/<stage>.log`. Neither is in the repo.

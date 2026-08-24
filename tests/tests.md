@@ -754,9 +754,9 @@ exists only as 4096x4096 RGBA quads. GPU-free and GCS-free: synthetic RGBA quads
 | `test_unreadable_quad_is_skipped_not_fatal` | one bad object does not abort a 300-quad pass | real |
 | `test_drift_flags_a_real_shift` | a >0.5σ mean shift trips `concerning`, and only on the shifted channel | real — the gate itself |
 
-### [test_campaign.py](test_campaign.py)
+### [test_interannual_inference.py](test_interannual_inference.py)
 
-`campaign/` — the interannual campaign coordinator (6 years x 12 stages, two people, months of
+`interannual-inference/` — the multi-year inference coordinator (6 years x 12 stages, two people, months of
 wall clock). Its only job is to be trustworthy about what has and has not run, so the tests
 concentrate on the ways it could *lie*: losing state on a crashed write, re-running finished work,
 starting a stage whose inputs are not ready, walking past a human gate, or alerting either never
@@ -793,6 +793,7 @@ or every ten minutes forever. No Docker, no GCS, no network — stage commands a
 | `test_cell_shows_percentage_when_a_probe_reported` | live progress reaches the cell | shallow |
 | `test_detached_stage_making_progress_shows_no_heartbeat_warning` | a GEE launcher exiting is normal, not a fault | real — otherwise every export run looks broken |
 | `test_detached_stage_with_no_progress_still_warns` | the warning survives where it matters | real |
+| `test_dry_run_does_not_block_on_a_running_detached_stage` | `--dry-run` always returns | real — a running detached stage used to fall into the polling loop and hang |
 | `test_shard_does_not_wait_on_the_s2_export` | sharding reads no imagery | real — would idle ~11 days for nothing |
 | `test_infer_still_requires_the_s2_index` | NDVI prerequisite moved, did not vanish | real |
 | `test_year_detail_names_the_gate` | a blocked year says what is wanted | real |

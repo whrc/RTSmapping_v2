@@ -1,4 +1,4 @@
-"""Slack posting for campaign alerts.
+"""Slack posting for interannual-inference alerts.
 
 Deliberately a private copy of the few lines in
 ``planetscope-download/alert_if_stopped.py`` rather than a shared import. That

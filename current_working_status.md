@@ -167,10 +167,10 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**2022 pilot passed; interannual campaign under way — `campaign/` (branch `interannual-campaign`,
+**2022 pilot passed; interannual run under way — `interannual-inference/` (branch `interannual-campaign`,
 2026-08-24).** The acquisition machinery built in August works: 2022 is downloaded, indexed and
 drift-checked, and the coordinator that will carry the remaining five years is built and tested.
-Runbooks: `campaign/README.md` (us) · `planetscope-download/README.md` (Heidi).
+Runbooks: `interannual-inference/README.md` (us) · `planetscope-download/README.md` (Heidi).
 
 - **2022 acquisition complete, 0 escalations.** 309,109 quads ordered in 131.6 h at 39.1 orders/min,
   **0 failed**, 0 supervisor restarts, **92 transient failures absorbed** by the retry policy — 84 of
@@ -197,13 +197,13 @@ Runbooks: `campaign/README.md` (us) · `planetscope-download/README.md` (Heidi).
   download** — and since it depends only on the fixed domain, it runs alongside acquisition rather
   than after it. Decisions: export each year (reusing 2025 NDVI would bake 2025 vegetation into a
   2022 map, destroying the signal we are measuring); keep all six years on Standard (~90 TiB).
-- **`campaign/` coordinates the remaining work.** A per-year state file plus a driver that shells out
+- **`interannual-inference/` coordinates the remaining work.** A per-year state file plus a driver that shells out
   to the scripts we already run by hand; 12 stages from `acquire` to `qc`, with **human gates** at
   `drift_check` and `qc` that the driver will not pass. Finished work is never repeated (re-running
   `infer` is 2.5 A100-days), a stage with unready inputs refuses and names what is missing, and a
   detached launcher exiting 0 is not treated as the work finishing. Alerting is announce-once on two
   signals (stale heartbeat AND no progress), so a queuing GEE export cannot cry wolf.
-  30 tests, GPU/Docker/network-free. Cron: `/etc/cron.d/rts-campaign`.
+  30 tests, GPU/Docker/network-free. Cron: `/etc/cron.d/rts-interannual-inference`.
 - **Open risk being watched:** the pdg EE project has warned *"exceeded the compute quota of its
   noncommercial tier … restricted mode"* since 2026-08-03. A 2-cell smoke export launched 2026-08-24
   sat **PENDING with an empty project queue and zero EECU consumed** — batch export is exactly the

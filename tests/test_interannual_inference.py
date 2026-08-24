@@ -1,4 +1,4 @@
-"""Tests for the interannual campaign coordinator (campaign/).
+"""Tests for the interannual-inference coordinator (interannual-inference/).
 
 The coordinator's whole job is to be trustworthy about what has and has not run
 across a months-long, two-person campaign. So these tests concentrate on the ways
@@ -17,9 +17,15 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "interannual-inference"))
 
-from campaign import alert, stages as S, state as ST  # noqa: E402
-from campaign import run_stage, status  # noqa: E402
+# The folder is hyphenated to match its sibling planetscope-download/, so it is not an
+# importable package name; the modules are imported flat off sys.path instead.
+import alert  # noqa: E402
+import run_stage  # noqa: E402
+import stages as S  # noqa: E402
+import state as ST  # noqa: E402
+import status  # noqa: E402
 
 
 @pytest.fixture
@@ -33,6 +39,11 @@ def cfg(tmp_path: Path) -> dict:
                   "quad_baseline": str(tmp_path / "inf" / "baseline.csv"),
                   "s2_bucket": "test-bucket",
                   "s2_prefix": "S2_RGB/{year}_south",
+                  "planet_bucket": "planet-bucket",
+                  "planet_prefix": "global_quarterly/{year}/q3/",
+                  "inference_base": "gs://test-bucket/inference/{year}q3_south",
+                  "packages": "gs://test-bucket/packages",
+                  "drift_package": "/outputs/inference/pkg_seed42",
                   "state_mirror": None},
         "expect": {"n_quads": 309100, "quad_tolerance": 0.01, "n_s2_cells": 1799,
                    "n_tiles": 41567572, "shard_size": 20000, "drift_sample_quads": 300},
@@ -176,6 +187,20 @@ def test_infer_still_requires_the_s2_index(cfg, work, stub_table):
     for n in ("acquire", "quad_index", "tile_grid", "shard", "drift_check"):
         ST.set_stage(work, 2022, n, S.NAMES, "done")
     assert run_stage.run(2022, "infer", cfg) == 2
+
+
+def test_dry_run_does_not_block_on_a_running_detached_stage(cfg, work, monkeypatch):
+    """--dry-run must always return. A detached stage already `running` used to fall
+    straight into the progress-polling loop and hang until killed."""
+    import drive
+    ST.set_stage(work, 2022, "acquire", S.NAMES, "done")
+    ST.set_stage(work, 2022, "s2_export", S.NAMES, "running")
+
+    def _never(*a, **k):
+        raise AssertionError("dry-run must not poll a detached stage")
+
+    monkeypatch.setattr(drive, "wait_for_detached", _never)
+    assert drive.drive(2022, cfg, dry_run=True) == 0
 
 
 def test_gate_stage_ends_blocked_not_done(cfg, work, stub_table):

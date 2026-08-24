@@ -1,4 +1,4 @@
-"""Per-year campaign state: which stages have run, and what they produced.
+"""Per-year run state: which stages have run, and what they produced.
 
 One JSON file per year under ``<work>/state/<year>.json``, mirrored best-effort to
 GCS so the record survives the VM. The file is the campaign's single source of
@@ -133,7 +133,7 @@ def start_heartbeat(work: Path, year: int, stage: str, stage_names: list[str],
     """Run a daemon thread refreshing the stage heartbeat; returns a stop callable.
 
     Mirrors the acquisition loop's heartbeat (planetscope-download/order_basemaps.py)
-    so `campaign/alert.py` can apply the same two-signal liveness rule.
+    so `interannual-inference/alert.py` can apply the same two-signal liveness rule.
     """
     stop = threading.Event()
 
