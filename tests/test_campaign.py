@@ -232,6 +232,27 @@ def test_s2_export_passes_the_EE_project_not_the_gcs_one(cfg):
     assert "ee-compute-proj" != cfg["docker"]["project"]
 
 
+def test_unset_ee_project_refuses_loudly(cfg):
+    """No authorised EE project must fail fast, never silently borrow another team's.
+
+    Our IAM happens to permit pdg-wg-* working-group projects, but those belong to
+    other teams and a year of exports is >=54M EECU-seconds of their quota. Failing
+    here is correct; stalling or substituting is not.
+    """
+    cfg["docker"]["ee_project"] = None
+    with pytest.raises(ValueError, match="no Earth Engine project"):
+        S._s2_cmd(2022, cfg)
+
+
+def test_ee_project_guard_names_both_real_options(cfg):
+    cfg["docker"]["ee_project"] = None
+    with pytest.raises(ValueError) as e:
+        S._s2_cmd(2022, cfg)
+    msg = str(e.value)
+    assert "abruptthawmapping" in msg and "serviceUsageConsumer" in msg
+    assert "pdg-wg-" in msg  # explicitly warns them off
+
+
 def test_docker_wrapper_sets_the_gcs_billing_project(cfg):
     """Omitting it fails with 'Project was not passed and could not be determined'."""
     argv = S.docker("img", ["x.py"], cfg)

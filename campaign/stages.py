@@ -125,6 +125,17 @@ def _acquire_probe(year: int, cfg: dict) -> Optional[dict]:
 # s2_export — launches GEE tasks and exits; progress is objects landing in GCS
 # --------------------------------------------------------------------------
 def _s2_cmd(year: int, cfg: dict) -> list[str]:
+    ee_project = cfg["docker"].get("ee_project")
+    if not ee_project:
+        raise ValueError(
+            "docker.ee_project is not set, so there is no Earth Engine project "
+            "authorised to run this export.\n"
+            "  pdg-project-406720 is ours but cannot run batch exports (noncommercial "
+            "restricted mode — tasks sit PENDING indefinitely).\n"
+            "  abruptthawmapping is ours and unrestricted, but needs "
+            "roles/serviceusage.serviceUsageConsumer granted to the ADC identity by a "
+            "project owner.\n"
+            "  Do NOT substitute a pdg-wg-* project: those belong to other teams.")
     return docker(cfg["docker"]["dataprep_image"], [
         "scripts/export_s2_composites.py", "--year", str(year),
         "--domain", "domain/circumpolar_south_domain.geojson",

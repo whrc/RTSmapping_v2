@@ -786,6 +786,8 @@ or every ten minutes forever. No Docker, no GCS, no network — stage commands a
 | `test_drift_evidence_compares_against_the_quad_baseline` | drift is measured vs the 2025 *quad* sample | real — vs training-tile stats even 2025 trips the gate |
 | `test_s2_export_passes_the_EE_project_not_the_gcs_one` | `--project` (EE quota) is not `GOOGLE_CLOUD_PROJECT` (GCS billing) | real — pdg cannot run batch exports at all; conflating these broke the first launch |
 | `test_docker_wrapper_sets_the_gcs_billing_project` | the GCS billing project reaches the container | real — omitting it fails with "Project was not passed" |
+| `test_unset_ee_project_refuses_loudly` | no authorised EE project fails fast | real — must never silently borrow another team's pdg-wg-* quota |
+| `test_ee_project_guard_names_both_real_options` | the error names the two legitimate fixes and warns off pdg-wg-* | real |
 | `test_evidence_failure_is_recorded_not_raised` | a missing artifact is data, not a crash | real |
 | `test_matrix_shows_one_row_per_year_and_marks_each_stage` | the status grid renders | shallow |
 | `test_cell_shows_percentage_when_a_probe_reported` | live progress reaches the cell | shallow |
