@@ -741,6 +741,19 @@ lifted into `utils/` for the acquisition loop (2026-08-18).
 | `test_stall_watchdog_does_not_kill_while_progressing` | a live `last_active` never triggers os._exit | real — no false positives |
 | `test_stall_watchdog_exits_process_on_hard_stall` | a stale `last_active` os._exit(3)s (asserted in a subprocess) | real — the self-heal trigger |
 
+### [test_quad_drift.py](test_quad_drift.py)
+
+`scripts/check_inference_normalization.py` quad mode — the interannual drift check. The original
+script only read pre-cut training-layout tiles, so there was no way to drift-check a year that
+exists only as 4096x4096 RGBA quads. GPU-free and GCS-free: synthetic RGBA quads on disk.
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_nodata_is_excluded_from_stats` | a half-NoData quad still reports the true mean | real — including alpha-0 zeros would halve the mean and fake radiometric drift on every coastal quad |
+| `test_fully_nodata_quad_contributes_nothing` | an empty quad does not skew the sample | real |
+| `test_unreadable_quad_is_skipped_not_fatal` | one bad object does not abort a 300-quad pass | real |
+| `test_drift_flags_a_real_shift` | a >0.5σ mean shift trips `concerning`, and only on the shifted channel | real — the gate itself |
+
 ### [test_watchdog.py](test_watchdog.py)
 
 `utils/watchdog.py::start_stall_watchdog` — the shared process-level stall guard. Lifted out of
