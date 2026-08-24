@@ -1,0 +1,68 @@
+# Interannual RTS mapping campaign — declarative configuration.
+#
+# Six years of PlanetScope q3 basemaps run through the FROZEN deployed model
+# (configs/deployment.yaml, 3-seed EffB5 ensemble). This file holds the values;
+# campaign/stages.py holds the order and the commands.
+#
+# Numbers that are measured, not guessed, carry the year they were measured in.
+
+region: south
+quarter: q3
+
+# Ordered by campaign priority, not chronology: 2022 is the pilot, then the
+# earliest year (widest interannual baseline), then the rest.
+years: [2022, 2019, 2020, 2021, 2023, 2024]
+
+paths:
+  work: /mnt/outputs/campaign
+  state_mirror: gs://rts-mapping-v2-usw1/campaign/state
+  local_inference: /mnt/outputs/inference
+
+  # Planet basemap quads, as delivered by the Orders API (raw, un-renamed layout).
+  planet_bucket: pdg-planet-data
+  planet_prefix: global_quarterly/{year}/q3/
+
+  # Sentinel-2 composites — the NDVI source read on the fly at inference.
+  s2_bucket: rts-mapping-v2-usw1
+  s2_prefix: S2_RGB/{year}_south
+
+  inference_base: gs://rts-mapping-v2-usw1/inference/{year}q3_south
+
+  # The model is frozen, so every year runs the SAME weights the delivered 2025
+  # map was made with. Shared, not copied per year — that is the point.
+  packages: gs://rts-mapping-v2-usw1/inference/2025q3_south/packages
+
+  # Written by Heidi's order loop on the acquisition VM.
+  acquisition_status: /mnt/outputs/planetscope-download/status/{year}.json
+
+  # Drift check. The baseline is the 2025 QUAD sample, NOT normalization_stats.json:
+  # the training stats come from 17,951 curated RTS-centric tiles, so a random-quad
+  # sample of ANY year reads as wider (2025 itself trips the blue channel at +0.256).
+  # See inference/inference.md 5.4.
+  quad_baseline: inference/quad_baseline_2025q3.csv
+  drift_package: /outputs/inference/pkg_seed42
+
+expect:
+  n_quads: 309100          # 2025 measured; 2022 came in at 309,107
+  quad_tolerance: 0.01
+  n_s2_cells: 1799         # cells intersecting circumpolar_south_domain at 1x3 deg
+  n_tiles: 41567572        # 2025 measured, full domain, stride 344
+  tile_tolerance: 0.001
+  shard_size: 20000        # -> ~2,079 shards
+  drift_sample_quads: 300
+
+docker:
+  project: pdg-project-406720
+  train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
+  dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
+
+alerts:
+  # Comfortably past the inference stall watchdog (900s) plus the supervisor's
+  # restart delay, so self-healing never trips an alert. Mirrors the acquisition
+  # alerter's reasoning (planetscope-download/alert_if_stopped.py).
+  stale_after_s: 1800
+  # A detached stage whose probe has not advanced in this long is stuck, even if
+  # something is still nominally running. GEE queues can idle legitimately, so
+  # this is deliberately generous.
+  no_progress_after_s: 21600
+  webhook_file: /mnt/outputs/planetscope-download/slack_webhook

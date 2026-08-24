@@ -255,6 +255,24 @@ Before running full inference on a new region, run `scripts/check_inference_norm
 - Reports drift as `|Δmean| / σ_training` and `|σ_sample / σ_training − 1|` per channel.
 - **Concern thresholds**: |Δmean| > 0.5σ_training OR |σ_sample / σ_training − 1| > 0.25. If tripped, pause deployment and investigate — likely distribution shift from 2024 to 2025 imagery, a region-specific radiometric issue, or a basemap-API change.
 
+**Which baseline — tiles vs whole quads (added 2026-08-24, interannual campaign).** The thresholds
+above are calibrated for a sample of **pre-cut tiles**. `--quad-index` mode samples **random whole
+quads** instead, which is the only option for a year that exists before any tiles are cut. Those two
+samples are not comparable against the same baseline: `normalization_stats.json` was computed on
+17,951 curated **RTS-centric** training tiles, whereas random quads also cover open water, snow and
+bare rock. A random-quad sample of *any* year therefore reads as wider —
+
+| sample vs `normalization_stats.json` | worst σ-ratio | verdict |
+|---|---|---|
+| 2025 quads (the imagery the delivered map was made from) | **+0.256** (B) | trips |
+| 2022 quads | **+0.295** (B) | trips |
+
+so the gate as written does not discriminate. **For a whole-quad sample, compare against the 2025
+quad baseline** (`/mnt/outputs/inference/drift_report_2025q3_control.csv`), same sampling method and
+`--sample-seed`. On that baseline 2022's worst mean drift is 0.095σ and worst σ-ratio +0.047 — i.e.
+2022 is radiometrically consistent with the deployed-on imagery. `campaign/stages.py::_drift_evidence`
+implements this comparison; the baseline path is `campaign.yaml:paths.quad_baseline`.
+
 ---
 
 ## 6. Multi-Resolution Inference
