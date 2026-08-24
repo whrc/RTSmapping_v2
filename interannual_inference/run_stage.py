@@ -6,10 +6,10 @@ stage whose prerequisites are not done, refuses to re-run a finished stage witho
 by reading its artifact afterwards.
 
 Usage:
-    python interannual-inference/run_stage.py --year 2022 --stage tile_grid
-    python interannual-inference/run_stage.py --year 2022 --stage drift_check --force
-    python interannual-inference/run_stage.py --year 2022 --stage acquire --mark-done   # external
-    python interannual-inference/run_stage.py --year 2022 --stage drift_check --sign-off
+    python interannual_inference/run_stage.py --year 2022 --stage tile_grid
+    python interannual_inference/run_stage.py --year 2022 --stage drift_check --force
+    python interannual_inference/run_stage.py --year 2022 --stage acquire --mark-done   # external
+    python interannual_inference/run_stage.py --year 2022 --stage drift_check --sign-off
 """
 
 from __future__ import annotations
@@ -20,13 +20,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root: utils.*, inference.*
-sys.path.insert(0, str(Path(__file__).resolve().parent))          # this folder: sibling modules
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import yaml  # noqa: E402
 
-import stages as S  # noqa: E402
-import state as ST  # noqa: E402
+from interannual_inference import stages as S  # noqa: E402
+from interannual_inference import state as ST  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)

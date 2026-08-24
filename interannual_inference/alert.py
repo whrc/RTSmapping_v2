@@ -18,8 +18,8 @@ State is kept in <work>/alerts_seen.json so each incident is announced once, not
 every ten minutes.
 
 Usage:
-    python interannual-inference/alert.py             # post what is new
-    python interannual-inference/alert.py --dry-run   # print instead
+    python interannual_inference/alert.py             # post what is new
+    python interannual_inference/alert.py --dry-run   # print instead
 """
 
 from __future__ import annotations
@@ -31,14 +31,11 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root: utils.*, inference.*
-sys.path.insert(0, str(Path(__file__).resolve().parent))          # this folder: sibling modules
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import notify  # noqa: E402
-import stages as S  # noqa: E402
-import state as ST  # noqa: E402
-from run_stage import CONFIG, load_config  # noqa: E402
-from status import probe_stage  # noqa: E402
+from interannual_inference import notify, stages as S, state as ST  # noqa: E402
+from interannual_inference.run_stage import CONFIG, load_config  # noqa: E402
+from interannual_inference.status import probe_stage  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)

@@ -167,10 +167,10 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**2022 pilot passed; interannual run under way — `interannual-inference/` (branch `interannual-campaign`,
+**2022 pilot passed; interannual run under way — `interannual_inference/` (branch `interannual-campaign`,
 2026-08-24).** The acquisition machinery built in August works: 2022 is downloaded, indexed and
 drift-checked, and the coordinator that will carry the remaining five years is built and tested.
-Runbooks: `interannual-inference/README.md` (us) · `planetscope-download/README.md` (Heidi).
+Runbooks: `interannual_inference/README.md` (us) · `planetscope-download/README.md` (Heidi).
 
 - **2022 acquisition complete, 0 escalations.** 309,109 quads ordered in 131.6 h at 39.1 orders/min,
   **0 failed**, 0 supervisor restarts, **92 transient failures absorbed** by the retry policy — 84 of
@@ -197,7 +197,7 @@ Runbooks: `interannual-inference/README.md` (us) · `planetscope-download/README
   download** — and since it depends only on the fixed domain, it runs alongside acquisition rather
   than after it. Decisions: export each year (reusing 2025 NDVI would bake 2025 vegetation into a
   2022 map, destroying the signal we are measuring); keep all six years on Standard (~90 TiB).
-- **`interannual-inference/` coordinates the remaining work.** A per-year state file plus a driver that shells out
+- **`interannual_inference/` coordinates the remaining work.** A per-year state file plus a driver that shells out
   to the scripts we already run by hand; 12 stages from `acquire` to `qc`, with **human gates** at
   `drift_check` and `qc` that the driver will not pass. Finished work is never repeated (re-running
   `infer` is 2.5 A100-days), a stage with unready inputs refuses and names what is missing, and a

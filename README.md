@@ -14,7 +14,7 @@ deployed (`docs/experiment_ledger_v21.md`).
 
 **In flight — the interannual run.** The same frozen model is being run over **2019–2024** to turn
 the single 2025 epoch into a multi-year series. Acquisition of the Planet basemaps is Heidi's
-(`planetscope-download/`); everything downstream is coordinated by `interannual-inference/`. 2022 is
+(`planetscope-download/`); everything downstream is coordinated by `interannual_inference/`. 2022 is
 the pilot: imagery acquired and reconciled, tile grid and shard queue built, Sentinel-2 NDVI export
 running.
 
@@ -76,7 +76,7 @@ The 2025 Q3 pan-Arctic South run produced a tiered product family in
 | [post-inference/south_products.md](post-inference/south_products.md) | **Product-catalog SSoT** — every shipped South product: provenance, decode, tier table, caveats |
 | [post-inference/arcgis_south_products.md](post-inference/arcgis_south_products.md) | How to download and open the South products in ArcGIS Pro |
 | [deliverables/README.md](deliverables/README.md) | ADC/PDG handover doc — submission manifest, WMTS tiling convention, methods, attribute dictionary |
-| [interannual-inference/README.md](interannual-inference/README.md) | **Multi-year run runbook** — the year × stage table, human gates, state/logs, alerting |
+| [interannual_inference/README.md](interannual_inference/README.md) | **Multi-year run runbook** — the year × stage table, human gates, state/logs, alerting |
 | [planetscope-download/README.md](planetscope-download/README.md) | Planet basemap acquisition runbook (Heidi runs this; API key, supervisor, status) |
 | [docs/interannual_planet_download_plan.md](docs/interannual_planet_download_plan.md) | Why/how the 2019–2024 acquisition is done — decisions agreed with Heidi |
 
@@ -115,7 +115,7 @@ This repo follows a single-source-of-truth standard. Where each kind of fact liv
 | Infra facts — projects, buckets, VMs, regions, budget | [computing/infrastructure.md](computing/infrastructure.md) |
 | Shipped South products — files, numbers, caveats | [post-inference/south_products.md](post-inference/south_products.md) |
 | Artifact locations — what lives in which bucket | [computing/artifact_inventory.md](computing/artifact_inventory.md) |
-| Multi-year run progress — which year is at which stage | `interannual-inference/` state files (`/mnt/outputs/interannual-inference/state/<year>.json`), read with `status.py` |
+| Multi-year run progress — which year is at which stage | `interannual_inference/` state files (`/mnt/outputs/interannual_inference/state/<year>.json`), read with `status.py` |
 
 ## Todos
 1. ~~training in multi-scale~~ **DONE** (ledger family M, 2026-07-02): 0.5× re-stage + joint dual-scale training, 3 seeds — gates 1+2 pass, gate 3 (fusion recall) fail; inference multiscale path implemented, deploy stays `scales:[1.0]`.
@@ -123,4 +123,4 @@ This repo follows a single-source-of-truth standard. Where each kind of fact liv
 3. ~~**v2.1** — DINOv3-L MAE self-supervised pretraining on the 295k-tile South corpus (in progress, branch `v2.1-pretraining`); v3 hard-negative mining seeded from `qc_false_hard_negatives.gpkg` (152 QC-verified FPs).~~DONE
 4. ~~explore GEE satellite embedding as input feature~~DONE
 5. ~~2025 micro set to test temporal domain shift~~
-6. **interannual inference (IN PROGRESS)** — run the frozen v2 model over 2019–2024; coordinated by [interannual-inference/](interannual-inference/README.md). 2022 is the pilot; Planet acquisition for the remaining years runs in parallel.
+6. **interannual inference (IN PROGRESS)** — run the frozen v2 model over 2019–2024; coordinated by [interannual_inference/](interannual_inference/README.md). 2022 is the pilot; Planet acquisition for the remaining years runs in parallel.

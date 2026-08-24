@@ -133,7 +133,7 @@ def start_heartbeat(work: Path, year: int, stage: str, stage_names: list[str],
     """Run a daemon thread refreshing the stage heartbeat; returns a stop callable.
 
     Mirrors the acquisition loop's heartbeat (planetscope-download/order_basemaps.py)
-    so `interannual-inference/alert.py` can apply the same two-signal liveness rule.
+    so `interannual_inference/alert.py` can apply the same two-signal liveness rule.
     """
     stop = threading.Event()
 

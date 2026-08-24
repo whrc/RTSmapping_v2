@@ -1,4 +1,4 @@
-"""Tests for the interannual-inference coordinator (interannual-inference/).
+"""Tests for the interannual-inference coordinator (interannual_inference/).
 
 The coordinator's whole job is to be trustworthy about what has and has not run
 across a months-long, two-person campaign. So these tests concentrate on the ways
@@ -17,15 +17,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "interannual-inference"))
 
-# The folder is hyphenated to match its sibling planetscope-download/, so it is not an
-# importable package name; the modules are imported flat off sys.path instead.
-import alert  # noqa: E402
-import run_stage  # noqa: E402
-import stages as S  # noqa: E402
-import state as ST  # noqa: E402
-import status  # noqa: E402
+from interannual_inference import alert, stages as S, state as ST  # noqa: E402
+from interannual_inference import run_stage, status  # noqa: E402
 
 
 @pytest.fixture
@@ -192,7 +186,7 @@ def test_infer_still_requires_the_s2_index(cfg, work, stub_table):
 def test_dry_run_does_not_block_on_a_running_detached_stage(cfg, work, monkeypatch):
     """--dry-run must always return. A detached stage already `running` used to fall
     straight into the progress-polling loop and hang until killed."""
-    import drive
+    from interannual_inference import drive
     ST.set_stage(work, 2022, "acquire", S.NAMES, "done")
     ST.set_stage(work, 2022, "s2_export", S.NAMES, "running")
 

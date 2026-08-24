@@ -756,7 +756,7 @@ exists only as 4096x4096 RGBA quads. GPU-free and GCS-free: synthetic RGBA quads
 
 ### [test_interannual_inference.py](test_interannual_inference.py)
 
-`interannual-inference/` — the multi-year inference coordinator (6 years x 12 stages, two people, months of
+`interannual_inference/` — the multi-year inference coordinator (6 years x 12 stages, two people, months of
 wall clock). Its only job is to be trustworthy about what has and has not run, so the tests
 concentrate on the ways it could *lie*: losing state on a crashed write, re-running finished work,
 starting a stage whose inputs are not ready, walking past a human gate, or alerting either never

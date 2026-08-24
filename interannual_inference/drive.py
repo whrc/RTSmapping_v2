@@ -6,9 +6,9 @@ person — an unmet external prerequisite, a human gate, or a failure. It never
 decides that a year looks good enough to continue past a gate.
 
 Usage:
-    python interannual-inference/drive.py --year 2022                 # run until blocked
-    python interannual-inference/drive.py --year 2022 --until shard   # stop after a given stage
-    python interannual-inference/drive.py --year 2022 --dry-run       # show what it would do
+    python interannual_inference/drive.py --year 2022                 # run until blocked
+    python interannual_inference/drive.py --year 2022 --until shard   # stop after a given stage
+    python interannual_inference/drive.py --year 2022 --dry-run       # show what it would do
 """
 
 from __future__ import annotations
@@ -19,12 +19,12 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root: utils.*, inference.*
-sys.path.insert(0, str(Path(__file__).resolve().parent))          # this folder: sibling modules
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import stages as S  # noqa: E402
-import state as ST  # noqa: E402
-from run_stage import CONFIG, collect_evidence, load_config, run  # noqa: E402
+from interannual_inference import stages as S  # noqa: E402
+from interannual_inference import state as ST  # noqa: E402
+from interannual_inference.run_stage import (CONFIG, collect_evidence,  # noqa: E402
+                                             load_config, run)
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ def drive(year: int, cfg: dict, until: str | None = None, dry_run: bool = False,
 
         if status == "blocked":
             logger.warning("%s/%s is a HUMAN GATE awaiting sign-off. Evidence: %s\n"
-                           "  %s\n  sign off: python interannual-inference/run_stage.py --year %d "
+                           "  %s\n  sign off: python interannual_inference/run_stage.py --year %d "
                            "--stage %s --sign-off",
                            year, stage.name, entry.get("evidence", {}), stage.note,
                            year, stage.name)
@@ -100,7 +100,7 @@ def drive(year: int, cfg: dict, until: str | None = None, dry_run: bool = False,
 
         if stage.external:
             logger.info("%s/%s is run elsewhere (%s) — stopping here.\n"
-                        "  mark it: python interannual-inference/run_stage.py --year %d --stage %s "
+                        "  mark it: python interannual_inference/run_stage.py --year %d --stage %s "
                         "--mark-done", year, stage.name, stage.note, year, stage.name)
             return 0
 
