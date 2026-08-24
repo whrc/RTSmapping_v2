@@ -6,10 +6,22 @@ the deployment package's normalization_stats.json. Flags concerning drift:
     |delta_mean| > 0.5 * sigma_training  OR
     |sigma_sample / sigma_training - 1| > 0.25
 
+Two input modes:
+
+* ``--tile-list``  pre-cut training-layout tiles ({data_root}/PLANET-RGB/{id}.tif)
+* ``--quad-index`` a quad index CSV from scripts/build_quad_index.py — the
+  interannual case, where imagery is 4096x4096 RGBA quads and there are no
+  pre-cut tiles. NoData is excluded via the alpha band, without which the
+  large empty margins on coastal quads would drag every mean toward zero.
+
 Run:
     python scripts/check_inference_normalization.py \\
         --deployment-package gs://.../rts-v2-seed42 \\
         --tile-list sample_tiles.csv
+
+    python scripts/check_inference_normalization.py \\
+        --deployment-package pkg/ \\
+        --quad-index /mnt/outputs/inference/quad_index_2022q3.csv --n-quads 300
 """
 
 from __future__ import annotations
@@ -45,6 +57,41 @@ def _iter_tile_arrays(data_root: Path | str, rgb_dir: str, tile_ids: list[str]):
                 yield src.read(out_dtype="uint8")
         except Exception as e:  # noqa: BLE001
             logger.warning("Failed to read %s: %s", path, e)
+
+
+def _iter_quad_arrays(quad_paths: list[str], max_pixels_per_quad: int = 2_000_000):
+    """Yield (3, K) uint8 arrays of *valid* RGB pixels from each quad.
+
+    Quads are 4096x4096 RGBA on the mosaic grid. Band 4 is the alpha/NoData
+    mask; coastal and edge quads can be mostly empty, so the zeros must be
+    dropped rather than averaged in — otherwise the sample mean is pulled
+    toward zero and reads as spurious radiometric drift.
+
+    Args:
+        quad_paths: gs:// paths from the quad index.
+        max_pixels_per_quad: Cap on valid pixels taken per quad, evenly
+            subsampled. Keeps a 300-quad pass to a few GB of reads.
+    """
+    for path in quad_paths:
+        try:
+            with rasterio.open(path) as src:
+                arr = src.read(out_dtype="uint8")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to read %s: %s", path, e)
+            continue
+        if arr.shape[0] < 3:
+            logger.warning("%s has %d bands, expected >=3 — skipping", path, arr.shape[0])
+            continue
+        rgb = arr[:3].reshape(3, -1)
+        if arr.shape[0] >= 4:
+            valid = arr[3].reshape(-1) > 0
+            rgb = rgb[:, valid]
+        if rgb.shape[1] == 0:
+            continue                       # fully-NoData quad contributes nothing
+        if rgb.shape[1] > max_pixels_per_quad:
+            step = rgb.shape[1] // max_pixels_per_quad + 1
+            rgb = rgb[:, ::step]
+        yield rgb
 
 
 def compute_sample_stats(
@@ -136,9 +183,17 @@ def main() -> int:
     p.add_argument("--deployment-package", type=Path, required=True,
                    help="Path to the deployment-package directory (with "
                         "normalization_stats.json + model_config.yaml)")
-    p.add_argument("--tile-list", type=Path, required=True,
-                   help="CSV of sample tiles to evaluate; columns: Tile_ID, "
-                        "optionally data_root override")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--tile-list", type=Path,
+                     help="CSV of sample tiles to evaluate; columns: Tile_ID, "
+                          "optionally data_root override")
+    src.add_argument("--quad-index", type=Path,
+                     help="Quad index CSV from scripts/build_quad_index.py "
+                          "(interannual mode; samples quads, masks NoData by alpha)")
+    p.add_argument("--n-quads", type=int, default=300,
+                   help="Quads to sample in --quad-index mode (default 300)")
+    p.add_argument("--sample-seed", type=int, default=42,
+                   help="Seed for quad sampling, so a re-run is reproducible")
     p.add_argument("--data-root", default=None,
                    help="Override data root; otherwise taken from model_config.yaml")
     p.add_argument("--output", type=Path, default=None,
@@ -172,21 +227,28 @@ def main() -> int:
         extra_names = list(training_stats["extra"].get("channel_names", []))
         logger.info("Training stats include EXTRA channels: %s", extra_names)
 
-    data_root = args.data_root or model_cfg.get("data", {}).get("data_root", ".")
-    df = pd.read_csv(args.tile_list, dtype={"Tile_ID": str})
-    tile_ids = df["Tile_ID"].tolist()
-    logger.info("Computing sample stats across %d tiles", len(tile_ids))
-
     # RGB-only drift check. EXTRA channels live in separate GeoTIFFs and are
     # checked separately (TODO: extend when Phase 4 EXTRA stats land).
-    sample_stats = compute_sample_stats(
-        _iter_tile_arrays(data_root, "PLANET-RGB", tile_ids),
-        n_channels=3,
-        clip_percentiles=None,
-    )
+    if args.quad_index is not None:
+        quads = pd.read_csv(args.quad_index)
+        n = min(args.n_quads, len(quads))
+        sample = quads.sample(n=n, random_state=args.sample_seed)
+        logger.info("Computing sample stats across %d of %d quads from %s",
+                    n, len(quads), args.quad_index)
+        tile_iter = _iter_quad_arrays(sample["gcs_path"].tolist())
+        default_out = args.quad_index.parent / f"drift_report_{args.quad_index.stem}.csv"
+    else:
+        data_root = args.data_root or model_cfg.get("data", {}).get("data_root", ".")
+        df = pd.read_csv(args.tile_list, dtype={"Tile_ID": str})
+        tile_ids = df["Tile_ID"].tolist()
+        logger.info("Computing sample stats across %d tiles", len(tile_ids))
+        tile_iter = _iter_tile_arrays(data_root, "PLANET-RGB", tile_ids)
+        default_out = args.tile_list.parent / "drift_report.csv"
+
+    sample_stats = compute_sample_stats(tile_iter, n_channels=3, clip_percentiles=None)
 
     drift = compute_drift(sample_stats, rgb_block, rgb_names)
-    out_path = args.output or (args.tile_list.parent / "drift_report.csv")
+    out_path = args.output or default_out
     drift.to_csv(out_path, index=False)
 
     n_bad = int(drift["concerning"].sum())
