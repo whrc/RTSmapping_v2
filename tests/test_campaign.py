@@ -31,10 +31,13 @@ def cfg(tmp_path: Path) -> dict:
                   "local_inference": str(tmp_path / "inf"),
                   "acquisition_status": str(tmp_path / "status_{year}.json"),
                   "quad_baseline": str(tmp_path / "inf" / "baseline.csv"),
+                  "s2_bucket": "test-bucket",
+                  "s2_prefix": "S2_RGB/{year}_south",
                   "state_mirror": None},
         "expect": {"n_quads": 309100, "quad_tolerance": 0.01, "n_s2_cells": 1799,
                    "n_tiles": 41567572, "shard_size": 20000, "drift_sample_quads": 300},
-        "docker": {"project": "p", "train_image": "img", "dataprep_image": "dimg"},
+        "docker": {"project": "gcs-billing-proj", "ee_project": "ee-compute-proj",
+                   "train_image": "img", "dataprep_image": "dimg"},
         "alerts": {"stale_after_s": 1800, "no_progress_after_s": 21600,
                    "webhook_file": str(tmp_path / "hook")},
     }
@@ -214,6 +217,25 @@ def test_drift_evidence_compares_against_the_quad_baseline(cfg):
     assert ev["worst_mean_drift_sigma"] < 0.5
     assert ev["worst_std_ratio"] < 0.25
     assert ev["baseline"].endswith("baseline.csv")
+
+
+def test_s2_export_passes_the_EE_project_not_the_gcs_one(cfg):
+    """The two projects are different things and conflating them broke the first launch.
+
+    --project is Earth Engine batch-compute quota; GOOGLE_CLOUD_PROJECT is GCS billing
+    for the bucket listing. pdg-project-406720 cannot run batch exports at all
+    (restricted mode: PENDING 51 min, 0 EECU), so the EE project must be the override.
+    """
+    argv = S._s2_cmd(2022, cfg)
+    assert argv[argv.index("--project") + 1] == "ee-compute-proj"
+    assert "GOOGLE_CLOUD_PROJECT=gcs-billing-proj" in argv
+    assert "ee-compute-proj" != cfg["docker"]["project"]
+
+
+def test_docker_wrapper_sets_the_gcs_billing_project(cfg):
+    """Omitting it fails with 'Project was not passed and could not be determined'."""
+    argv = S.docker("img", ["x.py"], cfg)
+    assert "GOOGLE_CLOUD_PROJECT=gcs-billing-proj" in argv
 
 
 def test_evidence_failure_is_recorded_not_raised(cfg, work, stub_table):

@@ -52,7 +52,19 @@ expect:
   drift_sample_quads: 300
 
 docker:
+  # GCS billing for bucket listings/writes. NOT the Earth Engine project — see ee_project.
   project: pdg-project-406720
+
+  # Earth Engine BATCH-COMPUTE project. pdg-project-406720 is in noncommercial
+  # "restricted mode" and its batch exports NEVER START: measured 2026-08-24, two
+  # smoke tasks sat PENDING 51 min with zero EECU consumed and an otherwise empty
+  # project queue, while the identical export on pdg-wg-machlearn went RUNNING in
+  # 45 s. Interactive compute (getInfo/reduceRegion) works fine on pdg — do not
+  # read that as evidence that exports will run.
+  # NB pdg-wg-machlearn is a working-group project we do NOT own, and a year costs
+  # roughly 18M EECU-seconds (~10k per 1x3 deg cell), so their quota is a campaign
+  # dependency. pdg-wg-workflow and pdg-wg-forecast are equally usable alternates.
+  ee_project: pdg-wg-machlearn
   train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 

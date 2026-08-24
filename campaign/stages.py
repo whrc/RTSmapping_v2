@@ -130,6 +130,9 @@ def _s2_cmd(year: int, cfg: dict) -> list[str]:
         "--domain", "domain/circumpolar_south_domain.geojson",
         "--bucket", cfg["paths"]["s2_bucket"],
         "--prefix", fmt(cfg["paths"]["s2_prefix"], year),
+        # EE compute quota; distinct from GOOGLE_CLOUD_PROJECT (GCS billing), which
+        # docker() sets. Conflating the two fails with "Project was not passed".
+        "--project", cfg["docker"]["ee_project"],
     ], cfg)
 
 
