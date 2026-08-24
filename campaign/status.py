@@ -104,8 +104,14 @@ def render_year(year: int, row: dict) -> str:
         if e["status"] == "blocked":
             bits.append(f"GATE — {stage.note}")
         lines.append("  ".join(bits))
+        # A DETACHED stage's launcher exits by design (GEE tasks, nohup'd inference),
+        # taking its heartbeat thread with it — so a stale heartbeat there is normal,
+        # not a fault. Only flag it when progress has also stopped, which is the same
+        # two-signal rule alert.py uses to avoid crying wolf.
         hb = ST.age_s(e.get("heartbeat_at"))
-        if e["status"] == "running" and hb is not None and hb > 1800:
+        advancing = bool(p) and (p.get("done") or 0) > 0
+        if (e["status"] == "running" and hb is not None and hb > 1800
+                and not (stage.detached and advancing)):
             lines.append(f"      ⚠ heartbeat {hb / 60:.0f} min old")
     return "\n".join(lines)
 

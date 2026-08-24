@@ -791,6 +791,10 @@ or every ten minutes forever. No Docker, no GCS, no network — stage commands a
 | `test_evidence_failure_is_recorded_not_raised` | a missing artifact is data, not a crash | real |
 | `test_matrix_shows_one_row_per_year_and_marks_each_stage` | the status grid renders | shallow |
 | `test_cell_shows_percentage_when_a_probe_reported` | live progress reaches the cell | shallow |
+| `test_detached_stage_making_progress_shows_no_heartbeat_warning` | a GEE launcher exiting is normal, not a fault | real — otherwise every export run looks broken |
+| `test_detached_stage_with_no_progress_still_warns` | the warning survives where it matters | real |
+| `test_shard_does_not_wait_on_the_s2_export` | sharding reads no imagery | real — would idle ~11 days for nothing |
+| `test_infer_still_requires_the_s2_index` | NDVI prerequisite moved, did not vanish | real |
 | `test_year_detail_names_the_gate` | a blocked year says what is wanted | real |
 | `test_failure_alerts_once_not_every_tick` | announce-once, not every cron tick | real — the reason anyone keeps reading the channel |
 | `test_gate_alert_names_the_stage` | the alert is actionable | real |

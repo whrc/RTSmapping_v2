@@ -304,6 +304,25 @@ def test_cell_shows_percentage_when_a_probe_reported(cfg):
     assert status._cell({"status": "running", "progress": {"pct": 23.4}}) == "▶23%"
 
 
+def test_detached_stage_making_progress_shows_no_heartbeat_warning(cfg, work):
+    """A GEE launcher exits by design; a stale heartbeat there is normal, not a fault."""
+    ST.set_stage(work, 2022, "s2_export", S.NAMES, "running")
+    snap = status.snapshot(cfg, [2022], live=False)
+    e = snap["years"][2022]["s2_export"]
+    e["heartbeat_at"] = "2000-01-01T00:00:00+00:00"
+    e["progress"] = {"done": 6, "total": 1799, "pct": 0.3}
+    assert "heartbeat" not in status.render_year(2022, snap["years"][2022])
+
+
+def test_detached_stage_with_no_progress_still_warns(cfg, work):
+    ST.set_stage(work, 2022, "s2_export", S.NAMES, "running")
+    snap = status.snapshot(cfg, [2022], live=False)
+    e = snap["years"][2022]["s2_export"]
+    e["heartbeat_at"] = "2000-01-01T00:00:00+00:00"
+    e["progress"] = {"done": 0, "total": 1799, "pct": 0.0}
+    assert "heartbeat" in status.render_year(2022, snap["years"][2022])
+
+
 def test_year_detail_names_the_gate(cfg, work):
     ST.set_stage(work, 2022, "drift_check", S.NAMES, "blocked", evidence={"worst": 0.1})
     snap = status.snapshot(cfg, [2022], live=False)
