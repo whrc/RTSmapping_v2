@@ -160,6 +160,24 @@ def test_dry_run_executes_nothing(cfg, work, stub_table, tmp_path, capsys):
 # --------------------------------------------------------------------------
 # gates — the reason the driver exists rather than a shell script
 # --------------------------------------------------------------------------
+def test_shard_does_not_wait_on_the_s2_export(cfg, work, stub_table, tmp_path):
+    """Sharding reads no imagery, so it must not idle behind the ~7-11 day S2 export."""
+    marker = tmp_path / "sharded"
+    stub_table(shard=_stub("shard", ["touch", str(marker)]))
+    for n in ("acquire", "quad_index", "tile_grid"):
+        ST.set_stage(work, 2022, n, S.NAMES, "done")
+    assert run_stage.run(2022, "shard", cfg) == 0
+    assert marker.exists()
+
+
+def test_infer_still_requires_the_s2_index(cfg, work, stub_table):
+    """NDVI is a real input to inference — that prerequisite moved, it did not vanish."""
+    stub_table(infer=_stub("infer", ["true"]))
+    for n in ("acquire", "quad_index", "tile_grid", "shard", "drift_check"):
+        ST.set_stage(work, 2022, n, S.NAMES, "done")
+    assert run_stage.run(2022, "infer", cfg) == 2
+
+
 def test_gate_stage_ends_blocked_not_done(cfg, work, stub_table):
     stub_table(drift_check=_stub("drift_check", ["true"]))
     ST.set_stage(work, 2022, "acquire", S.NAMES, "done")

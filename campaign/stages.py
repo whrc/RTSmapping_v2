@@ -350,8 +350,11 @@ ORDER: list[Stage] = [
           evidence=_drift_evidence,
           note="compare against the 2025 QUAD baseline, not the training-tile stats"),
     Stage("tile_grid", prereqs=("quad_index",), cmd=_grid_cmd, evidence=_grid_evidence),
-    Stage("shard", prereqs=("tile_grid", "s2_index"), cmd=_shard_cmd, evidence=_shard_evidence),
-    Stage("infer", prereqs=("shard", "drift_check"), detached=True, cmd=_infer_cmd,
+    # shard needs only the tile list — it never reads imagery. Gating it on s2_index
+    # would idle it behind the ~7-11 day S2 export for no reason; it is *inference*
+    # that needs NDVI, so that is where the s2_index prerequisite belongs.
+    Stage("shard", prereqs=("tile_grid",), cmd=_shard_cmd, evidence=_shard_evidence),
+    Stage("infer", prereqs=("shard", "drift_check", "s2_index"), detached=True, cmd=_infer_cmd,
           evidence=_infer_evidence, probe=_infer_probe),
     Stage("reconcile", prereqs=("infer",), evidence=_reconcile_evidence,
           note="shards done must equal shards total, exactly"),

@@ -68,7 +68,12 @@ docker:
   #   pdg-wg-*            — DO NOT USE. Other teams' working-group projects. Our IAM
   #                         happens to allow it; that is not authorisation, and a year
   #                         of exports is >=54M EECU-seconds of someone else's quota.
-  ee_project: null
+  #
+  # SET 2026-08-24 after an owner granted roles/serviceusage.serviceUsageConsumer to
+  # the ADC identity. Verified: batch exports go RUNNING immediately (vs pdg's 51 min
+  # at PENDING). NOTE it is also REGISTERED_NOT_COMMERCIALLY — the same free tier that
+  # pdg exhausted — so heavy use could restrict it too. Watch the s2_export probe.
+  ee_project: abruptthawmapping
   train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 
