@@ -426,3 +426,16 @@ def test_s2_export_mounts_the_years_own_credential(cfg):
     argv = S._s2_cmd(2019, cfg)
     assert any("/adc/rtsmapping.json:/gcp_adc.json:ro" in a for a in argv)
     assert not any("/adc/default.json" in a for a in argv)
+
+
+def test_restart_clears_the_previous_attempts_exit_code(work: Path):
+    """Fields merge, so a retried stage must not keep showing the old failure's rc.
+
+    Seen on 2019: a launch failed with rc=1, was retried, and the running stage still
+    reported exit_code 1 — which reads as broken when it is working.
+    """
+    ST.set_stage(work, 2019, "s2_export", S.NAMES, "failed", exit_code=1)
+    ST.set_stage(work, 2019, "s2_export", S.NAMES, "running")
+    e = ST.load(work, 2019, S.NAMES)["stages"]["s2_export"]
+    assert e["status"] == "running"
+    assert "exit_code" not in e

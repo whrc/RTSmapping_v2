@@ -113,6 +113,10 @@ def set_stage(work: Path, year: int, stage: str, stage_names: list[str],
         entry["started_at"] = _now()
         entry["heartbeat_at"] = _now()
         entry.pop("finished_at", None)
+        # Fields are merged, so a previous attempt's outcome would otherwise linger and
+        # a healthy running stage would show a stale non-zero rc — seen on 2019 after a
+        # failed launch was retried.
+        entry.pop("exit_code", None)
     elif status in ("done", "failed"):
         entry["finished_at"] = _now()
     save(work, year, st, mirror_uri)
