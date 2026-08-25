@@ -89,8 +89,35 @@ docker:
     2021: abruptthawmapping
     2023: abruptthawmapping
     2024: abruptthawmapping
+
   train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
+
+# Google account each year's export runs under — THE throughput lever.
+#
+# Concurrency is per USER, so a second account gets its OWN ~3 slots. Measured
+# 2026-08-25: with yyang already holding all 3, rtsmapping's tasks went RUNNING within
+# ONE SECOND and the project total went 3 -> 5, even though they were queued behind
+# 1,676 of yyang's pending tasks. More projects did nothing; more accounts multiply.
+#
+# Four accounts ~= 12 concurrent ~= the campaign in ~16 days instead of ~64.
+#
+# Already provisioned on abruptthawmapping, no IAM changes needed:
+#   yyang@       earthengine.admin  + serviceUsageConsumer
+#   rtsmapping@  (editor is enough — verified it can init EE and submit)
+#   ryoung@      earthengine.writer + serviceUsageConsumer   (Rob)
+#   hrodenhizer@ earthengine.admin  + owner                  (Heidi)
+#
+# Each path is that person's Google credential; anyone with sudo here can read it.
+# Create one with:
+#   CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> gcloud auth application-default login
+#
+# NEVER put two accounts on the same year: the launcher skips DELIVERED cells but not
+# IN-FLIGHT ones, so they would submit duplicate tasks into the shared 3,000-slot queue.
+accounts:
+  default: ~/.config/gcloud/application_default_credentials.json   # yyang@
+  2022: ~/.config/gcloud/application_default_credentials.json      # yyang@ — running
+  2019: /mnt/outputs/adc-rtsmapping/application_default_credentials.json  # rtsmapping@
 
 alerts:
   # Comfortably past the inference stall watchdog (900s) plus the supervisor's

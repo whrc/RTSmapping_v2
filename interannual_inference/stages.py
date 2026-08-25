@@ -80,14 +80,30 @@ def count_lines(path: Path) -> int:
         return max(sum(1 for _ in fh) - 1, 0)
 
 
+def adc_for(year: int, cfg: dict) -> str:
+    """Path to the Google credential a year's work should run under.
+
+    Earth Engine's concurrent-task allowance is **per user** (measured 2026-08-25: a
+    second account's tasks went RUNNING within 1s while the first account already held
+    all 3 slots, taking the total to 5). So each year runs under its own account, and
+    `accounts:` records which — that mapping is the difference between a ~64-day serial
+    campaign and a ~16-day one.
+    """
+    accounts = cfg.get("accounts") or {}
+    path = accounts.get(year) or accounts.get("default")
+    if not path:
+        path = "~/.config/gcloud/application_default_credentials.json"
+    return str(Path(path).expanduser())
+
+
 def docker(image: str, argv: list[str], cfg: dict,
-           extra: tuple[tuple[str, str], ...] = ()) -> list[str]:
+           extra: tuple[tuple[str, str], ...] = (), adc: str | None = None) -> list[str]:
     """Wrap `argv` in the standard project container invocation.
 
     The repo mounts at /app and /mnt/outputs at /outputs, matching the paths the
     existing scripts default to (mask_tiles_to_domain.py hardcodes /app/domain).
     """
-    adc = str(Path.home() / ".config/gcloud/application_default_credentials.json")
+    adc = adc or str(Path.home() / ".config/gcloud/application_default_credentials.json")
     cmd = [
         "sudo", "docker", "run", "--rm", "--entrypoint", "python",
         "-v", f"{REPO}:/app", "-v", "/mnt/outputs:/outputs",
@@ -144,7 +160,7 @@ def _s2_cmd(year: int, cfg: dict) -> list[str]:
         # EE compute quota; distinct from GOOGLE_CLOUD_PROJECT (GCS billing), which
         # docker() sets. Conflating the two fails with "Project was not passed".
         "--project", ee_project,
-    ], cfg)
+    ], cfg, adc=adc_for(year, cfg))
 
 
 def _s2_probe(year: int, cfg: dict) -> Optional[dict]:

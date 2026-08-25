@@ -405,3 +405,24 @@ def test_fresh_heartbeat_is_never_stuck(cfg):
     from datetime import datetime, timezone
     entry = {"heartbeat_at": datetime.now(timezone.utc).isoformat()}
     assert alert.stuck(entry, {"done": 0}, {"done": 0, "at": 0.0}, cfg) is False
+
+
+def test_adc_for_year_picks_that_years_account(cfg):
+    """Concurrency is per USER, so the year->account map is the throughput lever."""
+    cfg["accounts"] = {"default": "/adc/default.json", 2019: "/adc/rtsmapping.json"}
+    assert S.adc_for(2019, cfg) == "/adc/rtsmapping.json"
+    assert S.adc_for(2022, cfg) == "/adc/default.json"
+
+
+def test_adc_for_expands_user_home(cfg):
+    cfg["accounts"] = {"default": "~/.config/gcloud/application_default_credentials.json"}
+    assert not S.adc_for(2022, cfg).startswith("~")
+
+
+def test_s2_export_mounts_the_years_own_credential(cfg):
+    """The wrong credential here silently runs two years on ONE account's quota,
+    which looks like it is working and delivers no speed-up at all."""
+    cfg["accounts"] = {"default": "/adc/default.json", 2019: "/adc/rtsmapping.json"}
+    argv = S._s2_cmd(2019, cfg)
+    assert any("/adc/rtsmapping.json:/gcp_adc.json:ro" in a for a in argv)
+    assert not any("/adc/default.json" in a for a in argv)

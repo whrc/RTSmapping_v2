@@ -5,7 +5,7 @@
 > truth. Refresh with `python interannual_inference/status.py --write-progress`;
 > `run_stage.py` also rewrites it after every stage transition.
 
-Last updated: 2026-08-25T09:23:42+00:00
+Last updated: 2026-08-25T10:18:54+00:00
 
 ✅ done · 🔄 running · ⏸ awaiting human sign-off · ❌ failed · · not started
 
