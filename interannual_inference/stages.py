@@ -125,11 +125,11 @@ def _acquire_probe(year: int, cfg: dict) -> Optional[dict]:
 # s2_export — launches GEE tasks and exits; progress is objects landing in GCS
 # --------------------------------------------------------------------------
 def _s2_cmd(year: int, cfg: dict) -> list[str]:
-    ee_project = cfg["docker"].get("ee_project")
+    ee_project = (cfg["docker"].get("ee_projects") or {}).get(year)
     if not ee_project:
         raise ValueError(
-            "docker.ee_project is not set, so there is no Earth Engine project "
-            "authorised to run this export.\n"
+            f"docker.ee_projects has no entry for {year}, so there is no Earth Engine "
+            "project authorised to run this export.\n"
             "  pdg-project-406720 is ours but cannot run batch exports (noncommercial "
             "restricted mode — tasks sit PENDING indefinitely).\n"
             "  abruptthawmapping is ours and unrestricted, but needs "
@@ -143,7 +143,7 @@ def _s2_cmd(year: int, cfg: dict) -> list[str]:
         "--prefix", fmt(cfg["paths"]["s2_prefix"], year),
         # EE compute quota; distinct from GOOGLE_CLOUD_PROJECT (GCS billing), which
         # docker() sets. Conflating the two fails with "Project was not passed".
-        "--project", cfg["docker"]["ee_project"],
+        "--project", ee_project,
     ], cfg)
 
 

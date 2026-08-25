@@ -41,7 +41,8 @@ def cfg(tmp_path: Path) -> dict:
                   "state_mirror": None},
         "expect": {"n_quads": 309100, "quad_tolerance": 0.01, "n_s2_cells": 1799,
                    "n_tiles": 41567572, "shard_size": 20000, "drift_sample_quads": 300},
-        "docker": {"project": "gcs-billing-proj", "ee_project": "ee-compute-proj",
+        "docker": {"project": "gcs-billing-proj",
+                   "ee_projects": {2022: "ee-proj-a", 2019: "ee-proj-b"},
                    "train_image": "img", "dataprep_image": "dimg"},
         "alerts": {"stale_after_s": 1800, "no_progress_after_s": 21600,
                    "webhook_file": str(tmp_path / "hook")},
@@ -264,30 +265,35 @@ def test_s2_export_passes_the_EE_project_not_the_gcs_one(cfg):
     (restricted mode: PENDING 51 min, 0 EECU), so the EE project must be the override.
     """
     argv = S._s2_cmd(2022, cfg)
-    assert argv[argv.index("--project") + 1] == "ee-compute-proj"
+    assert argv[argv.index("--project") + 1] == "ee-proj-a"
     assert "GOOGLE_CLOUD_PROJECT=gcs-billing-proj" in argv
-    assert "ee-compute-proj" != cfg["docker"]["project"]
+    assert "ee-proj-a" != cfg["docker"]["project"]
 
 
-def test_unset_ee_project_refuses_loudly(cfg):
-    """No authorised EE project must fail fast, never silently borrow another team's.
+def test_each_year_gets_its_own_ee_project(cfg):
+    """Quota and concurrency are per-PROJECT, so a year->project map is what
+    parallelises the campaign. Picking the wrong year's project would silently
+    pile two years onto one quota."""
+    assert S._s2_cmd(2022, cfg)[-1:] != S._s2_cmd(2019, cfg)[-1:]
+    a = S._s2_cmd(2022, cfg); b = S._s2_cmd(2019, cfg)
+    assert a[a.index("--project") + 1] == "ee-proj-a"
+    assert b[b.index("--project") + 1] == "ee-proj-b"
+    assert b[b.index("--prefix") + 1] == "S2_RGB/2019_south"
 
-    Our IAM happens to permit pdg-wg-* working-group projects, but those belong to
-    other teams and a year of exports is >=54M EECU-seconds of their quota. Failing
-    here is correct; stalling or substituting is not.
-    """
-    cfg["docker"]["ee_project"] = None
-    with pytest.raises(ValueError, match="no Earth Engine project"):
-        S._s2_cmd(2022, cfg)
+
+def test_year_with_no_ee_project_refuses_loudly(cfg):
+    """A year absent from the map must fail fast, never silently borrow another
+    year's project (which would double that project's load) or another team's."""
+    with pytest.raises(ValueError, match="no entry for 2021"):
+        S._s2_cmd(2021, cfg)
 
 
-def test_ee_project_guard_names_both_real_options(cfg):
-    cfg["docker"]["ee_project"] = None
+def test_ee_project_guard_names_the_real_options(cfg):
     with pytest.raises(ValueError) as e:
-        S._s2_cmd(2022, cfg)
+        S._s2_cmd(2021, cfg)
     msg = str(e.value)
     assert "abruptthawmapping" in msg and "serviceUsageConsumer" in msg
-    assert "pdg-wg-" in msg  # explicitly warns them off
+    assert "pdg-wg-" in msg
 
 
 def test_docker_wrapper_sets_the_gcs_billing_project(cfg):

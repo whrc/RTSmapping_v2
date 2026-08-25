@@ -135,6 +135,10 @@ Covers the bulk S2 export grid/domain geometry (doc §3); EE + GCS not exercised
 | `test_latlon_grid_aligns_and_covers` | `latlon_grid` cells are origin-aligned `dlon×dlat` and cover the bbox corners | real |
 | `test_cell_id_deterministic_and_sign_safe` | `cell_id` stable + sign-safe (`W1500_N0740`, `E0000_S0025`); distinct corners → distinct ids | real |
 | `test_domain_cells_keeps_only_intersecting` | Cells filtered to those intersecting the (reprojected) domain polygon; clip ⊆ domain ∩ cell; far cell excluded | real |
+| `test_queue_full_error_is_recognised` | the per-user ceiling arrives as a message, not a typed exception | real |
+| `test_submit_with_backoff_waits_out_a_full_queue` | a full queue is a wait, not a failure | real — three years' launches died at 3,002 tasks because the per-project slot check cannot see the per-user ceiling |
+| `test_submit_with_backoff_reraises_other_errors` | a real export bug surfaces at once | real — otherwise it would be retried for a day |
+| `test_submit_with_backoff_gives_up_eventually` | a queue that never drains is not waited on forever | real |
 
 ### [test_sampler.py](test_sampler.py)
 

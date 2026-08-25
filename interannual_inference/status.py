@@ -116,12 +116,103 @@ def render_year(year: int, row: dict) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------
+# PROGRESS.md — the committed, human-readable view of the same state
+# --------------------------------------------------------------------------
+PROGRESS_PATH = Path(__file__).resolve().parent / "PROGRESS.md"
+
+_MD_MARK = {"done": "✅", "running": "🔄", "failed": "❌", "pending": "·", "blocked": "⏸"}
+
+
+def _md_cell(entry: dict) -> str:
+    """One markdown table cell: mark, plus live percentage where we have one."""
+    m = _MD_MARK.get(entry["status"], "?")
+    p = entry.get("progress")
+    if entry["status"] == "running" and p and p.get("pct") is not None:
+        return f"{m} {p['pct']:.0f}%"
+    return m
+
+
+def render_progress(snap: dict, cfg: dict) -> str:
+    """Render PROGRESS.md: one row per year, one column per stage, plus evidence.
+
+    Generated from the per-year state files, which stay the source of truth — this
+    file is the readable view of them, never the other way round (CLAUDE.md SSoT).
+    """
+    from datetime import datetime, timezone
+
+    names = S.NAMES
+    head = "| year | " + " | ".join(names) + " |"
+    rule = "|---" * (len(names) + 1) + "|"
+    rows = []
+    for y, row in sorted(snap["years"].items()):
+        rows.append(f"| **{y}** | " + " | ".join(_md_cell(row[n]) for n in names) + " |")
+
+    ev_lines = []
+    for y, row in sorted(snap["years"].items()):
+        bits = []
+        for n in names:
+            e = row[n]
+            if e.get("evidence"):
+                kv = ", ".join(f"{k} {v:,}" if isinstance(v, int) else f"{k} {v}"
+                               for k, v in e["evidence"].items() if v is not None)
+                if kv:
+                    bits.append(f"`{n}` {kv}")
+            p = e.get("progress")
+            if e["status"] == "running" and p:
+                bits.append(f"`{n}` {p.get('done', 0):,}/{p.get('total', 0):,}"
+                            + (f", ETA {p['eta_hours']:.0f}h" if p.get("eta_hours") else ""))
+        if bits:
+            ev_lines.append(f"- **{y}** — " + " · ".join(bits))
+
+    ee = cfg.get("docker", {}).get("ee_projects") or {}
+    ee_lines = [f"| {y} | `{ee[y]}` |" for y in sorted(ee)] if ee else []
+
+    return "\n".join([
+        "# Interannual run — progress",
+        "",
+        "> **Generated file — do not hand-edit.** Written from the per-year state at",
+        "> `/mnt/outputs/interannual_inference/state/<year>.json`, which is the source of",
+        "> truth. Refresh with `python interannual_inference/status.py --write-progress`;",
+        "> `run_stage.py` also rewrites it after every stage transition.",
+        "",
+        f"Last updated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+        "",
+        "✅ done · 🔄 running · ⏸ awaiting human sign-off · ❌ failed · · not started",
+        "",
+        head, rule, *rows,
+        "",
+        "## Evidence",
+        "",
+        *(ev_lines or ["_nothing recorded yet._"]),
+        "",
+        "## Earth Engine project per year",
+        "",
+        "Quota and concurrency are per-project, so each year exports on its own.",
+        "",
+        *(["| year | EE project |", "|---|---|", *ee_lines] if ee_lines else ["_none configured._"]),
+        "",
+    ])
+
+
+def write_progress(cfg: dict, years: list[int], path: Path = PROGRESS_PATH,
+                   live: bool = True) -> Path:
+    """Regenerate PROGRESS.md from current state. Never raises — it is a view."""
+    try:
+        path.write_text(render_progress(snapshot(cfg, years, live=live), cfg))
+    except Exception as exc:  # noqa: BLE001 - a stale view must not fail a stage
+        logger.warning("could not write %s: %s", path, exc)
+    return path
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", type=Path, default=CONFIG)
     p.add_argument("--year", type=int, default=None, help="drill into one year")
     p.add_argument("--json", type=Path, default=None, help="also write the snapshot here")
+    p.add_argument("--write-progress", action="store_true",
+                   help=f"regenerate {PROGRESS_PATH.name} (the committed progress view)")
     p.add_argument("--no-live", action="store_true",
                    help="skip live probes (fast, offline)")
     args = p.parse_args()
@@ -132,6 +223,11 @@ def main() -> int:
     snap = snapshot(cfg, years, live=not args.no_live)
     if args.json:
         args.json.write_text(json.dumps(snap, indent=1, default=str))
+    if args.write_progress:
+        # Always render every year, not just --year, so a drill-down cannot silently
+        # blank the other rows of the committed file.
+        p = write_progress(cfg, cfg["years"], live=not args.no_live)
+        print(f"wrote {p}")
     if args.year:
         print(render_year(args.year, snap["years"][args.year]))
     else:

@@ -114,7 +114,21 @@ def run(year: int, stage_name: str, cfg: dict, force: bool = False,
         ST.set_stage(work, year, stage_name, S.NAMES, "failed",
                      mirror_uri=mirror, evidence=ev, exit_code=rc, log=str(log))
         logger.error("%s/%s FAILED rc=%d — see %s", year, stage_name, rc, log)
+    refresh_progress(cfg)
     return rc
+
+
+def refresh_progress(cfg: dict) -> None:
+    """Rewrite the committed PROGRESS.md so it cannot drift from the state files.
+
+    Imported lazily: status.py imports this module, so a top-level import would be
+    circular. Never raises — the progress file is a view, not the record.
+    """
+    try:
+        from interannual_inference.status import write_progress
+        write_progress(cfg, cfg["years"], live=False)
+    except Exception as exc:  # noqa: BLE001 - a stale view must not fail a stage
+        logger.debug("progress refresh skipped: %s", exc)
 
 
 def mark(year: int, stage_name: str, cfg: dict, status: str) -> int:
@@ -125,6 +139,7 @@ def mark(year: int, stage_name: str, cfg: dict, status: str) -> int:
     ST.set_stage(work, year, stage_name, S.NAMES, status,
                  mirror_uri=cfg["paths"].get("state_mirror"), evidence=ev)
     logger.info("%s/%s marked %s. Evidence: %s", year, stage_name, status, ev)
+    refresh_progress(cfg)
     return 0
 
 
@@ -140,6 +155,9 @@ def main() -> int:
     g.add_argument("--mark-done", action="store_true",
                    help="record an external stage as finished (acquire, merge, ...)")
     g.add_argument("--mark-failed", action="store_true", help="record a stage as failed")
+    g.add_argument("--mark-running", action="store_true",
+                   help="record an external stage as under way (Heidi's acquisition), so "
+                        "its progress shows instead of reading as not-started")
     g.add_argument("--sign-off", action="store_true",
                    help="clear a human gate so dependent stages may run")
     args = p.parse_args()
@@ -150,6 +168,8 @@ def main() -> int:
         return mark(args.year, args.stage, cfg, "done")
     if args.mark_failed:
         return mark(args.year, args.stage, cfg, "failed")
+    if args.mark_running:
+        return mark(args.year, args.stage, cfg, "running")
     return run(args.year, args.stage, cfg, force=args.force, dry_run=args.dry_run)
 
 

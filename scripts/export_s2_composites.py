@@ -118,7 +118,16 @@ def _existing_cell_ids(bucket: str, prefix: str) -> set[str]:
 
 
 def _wait_for_task_slot(ee, poll: int = 30) -> None:
-    """Block while the GEE task queue is at the per-user ceiling (avoids 'Too many tasks')."""
+    """Block while THIS PROJECT's queue is at the ceiling.
+
+    Necessary but NOT sufficient: ``listOperations()`` is scoped to the initialised
+    project, while the real "Too many tasks already in the queue (limit 3000)" ceiling
+    is **per user, across every project**. Measured 2026-08-25: with 1,799 tasks queued
+    on one project, launching three more years on three other projects sailed past this
+    check (each saw ~0 tasks of its own) and died server-side at 3,002. So the
+    authoritative guard is the retry in `submit_with_backoff`, which reacts to the error
+    the server actually raises; this check just avoids provoking it.
+    """
     while True:
         active = [t for t in ee.data.listOperations()
                   if t.get("metadata", {}).get("state") in ("PENDING", "RUNNING")]
@@ -126,6 +135,33 @@ def _wait_for_task_slot(ee, poll: int = 30) -> None:
             return
         logger.info("  GEE task queue full (%d active); backing off %ds", len(active), poll)
         time.sleep(poll)
+
+
+def is_queue_full_error(exc: Exception) -> bool:
+    """True for the per-user 'Too many tasks already in the queue' ceiling."""
+    return "too many tasks" in str(exc).lower()
+
+
+def submit_with_backoff(ee, submit, poll: int = 300, max_wait_s: int = 86_400):
+    """Call `submit()`, waiting out the per-user queue ceiling instead of dying on it.
+
+    The ceiling clears as earlier tasks finish, so this is a wait, not an error — a
+    multi-day export must not abort partway because the queue was briefly full. Any
+    other exception propagates untouched.
+    """
+    waited = 0
+    while True:
+        try:
+            return submit()
+        except Exception as exc:  # noqa: BLE001 - re-raised unless it is the queue ceiling
+            if not is_queue_full_error(exc):
+                raise
+            if waited >= max_wait_s:
+                raise
+            logger.info("  per-user task queue full; waiting %ds (waited %ds so far)",
+                        poll, waited)
+            time.sleep(poll)
+            waited += poll
 
 
 def export_cell(ee, cid, clip_geom, year, bands, bucket, prefix, scale):
@@ -183,7 +219,8 @@ def main() -> int:
     launched = 0
     for cid, _bbox, clip in todo:
         _wait_for_task_slot(ee)
-        export_cell(ee, cid, clip, args.year, bands, args.bucket, args.prefix, args.scale)
+        submit_with_backoff(ee, lambda cid=cid, clip=clip: export_cell(
+            ee, cid, clip, args.year, bands, args.bucket, args.prefix, args.scale))
         launched += 1
         if launched % 50 == 0:
             logger.info("  launched %d/%d", launched, len(todo))

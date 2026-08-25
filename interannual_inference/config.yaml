@@ -52,28 +52,37 @@ expect:
   drift_sample_quads: 300
 
 docker:
-  # GCS billing for bucket listings/writes. NOT the Earth Engine project — see ee_project.
+  # GCS billing for bucket listings/writes. NOT the Earth Engine project — see ee_projects.
   project: pdg-project-406720
 
-  # Earth Engine BATCH-COMPUTE project. MUST be a project this team owns or has been
-  # explicitly authorised to use. Deliberately null: there is currently no such project
-  # that can run batch exports, and the campaign must stop rather than borrow one.
+  # Earth Engine BATCH-COMPUTE projects, ONE PER YEAR.
   #
-  #   pdg-project-406720  — ours, but its EE registration is NONCOMMERCIAL and in
-  #                         restricted mode: batch exports never start (measured
-  #                         2026-08-24, PENDING 51 min, 0 EECU, empty queue).
-  #                         Interactive compute works, which is misleading.
-  #   abruptthawmapping   — ours, unrestricted, but our identity lacks
-  #                         serviceusage.services.use. One grant by an owner fixes it.
-  #   pdg-wg-*            — DO NOT USE. Other teams' working-group projects. Our IAM
-  #                         happens to allow it; that is not authorisation, and a year
-  #                         of exports is >=54M EECU-seconds of someone else's quota.
+  # Quota, restricted-mode and the concurrent-task allowance are all per-PROJECT, not
+  # per-user — proved 2026-08-24 when pdg sat restricted while abruptthawmapping ran
+  # normally, same user, same moment; each project also lists only its own tasks. So
+  # giving each year its own project parallelises the campaign close to linearly:
+  # ~64 days serial -> ~11-21 days.
   #
-  # SET 2026-08-24 after an owner granted roles/serviceusage.serviceUsageConsumer to
-  # the ADC identity. Verified: batch exports go RUNNING immediately (vs pdg's 51 min
-  # at PENDING). NOTE it is also REGISTERED_NOT_COMMERCIALLY — the same free tier that
-  # pdg exhausted — so heavy use could restrict it too. Watch the s2_export probe.
-  ee_project: abruptthawmapping
+  # An EXPLICIT year->project map, not a round-robin: when a project gets restricted you
+  # must be able to say immediately which year to re-run.
+  #
+  # Absent on purpose:
+  #   pdg-project-406720          — REGISTERED_NOT_COMMERCIALLY and restricted; its batch
+  #                                 exports never start (PENDING 51 min, 0 EECU, empty
+  #                                 queue) even though interactive compute works fine.
+  #   pdg-wg-{carbon,viz,lake-ice} — Earth Engine API not enabled on them.
+  #
+  # The pdg-wg-* projects belong to OTHER TEAMS and are used here on the user's explicit
+  # authorisation (2026-08-24), after the cost was flagged: each year costs its project
+  # ~20M EECU-seconds (measured 11,055 EECU-s/cell x 1,799 cells) — the same order of
+  # load that put pdg into restricted mode. Their owners should be told.
+  ee_projects:
+    2022: abruptthawmapping     # already running, ~6% done — do not move it
+    2019: pdg-wg-machlearn
+    2020: pdg-wg-workflow
+    2021: pdg-wg-forecast
+    2023: pdg-wg-machlearn
+    2024: pdg-wg-workflow
   train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 

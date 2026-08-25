@@ -7,6 +7,7 @@ the lat/lon grid, deterministic cell ids, and clipping cells to a domain polygon
 from __future__ import annotations
 
 import geopandas as gpd
+import pytest
 from shapely.geometry import box
 
 from scripts.export_s2_composites import cell_id, domain_cells, latlon_grid
@@ -49,3 +50,56 @@ def test_domain_cells_keeps_only_intersecting():
         assert clip.bounds[0] >= lon0 - 1e-6 and clip.bounds[2] <= lon1 + 1e-6
     # a cell far from the domain is excluded
     assert "E0900_N0700" not in ids                     # lon 90E, lat 70N
+
+
+def test_queue_full_error_is_recognised():
+    """The per-user ceiling arrives as a message, not a typed exception."""
+    from scripts.export_s2_composites import is_queue_full_error
+    assert is_queue_full_error(
+        Exception("Too many tasks already in the queue (3002, limit 3000)."))
+    assert not is_queue_full_error(Exception("Image.divide: ... Got 0 and 1."))
+
+
+def test_submit_with_backoff_waits_out_a_full_queue(monkeypatch):
+    """A full queue is a WAIT, not a failure.
+
+    Launching three more years while 1,799 tasks were queued died at 3,002 server-side
+    (2026-08-25) because the per-project slot check cannot see the per-user ceiling.
+    A multi-day export must not abort partway just because the queue was briefly full.
+    """
+    import scripts.export_s2_composites as X
+    monkeypatch.setattr(X.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def submit():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise Exception("Too many tasks already in the queue (3002, limit 3000).")
+        return "task"
+
+    assert X.submit_with_backoff(None, submit, poll=1) == "task"
+    assert calls["n"] == 3
+
+
+def test_submit_with_backoff_reraises_other_errors(monkeypatch):
+    """A real export bug must surface immediately, not be retried for a day."""
+    import scripts.export_s2_composites as X
+    monkeypatch.setattr(X.time, "sleep", lambda s: None)
+
+    def submit():
+        raise ValueError("Image.divide: If one image has no bands ...")
+
+    with pytest.raises(ValueError):
+        X.submit_with_backoff(None, submit, poll=1)
+
+
+def test_submit_with_backoff_gives_up_eventually(monkeypatch):
+    """Waiting forever would hide a queue that is never going to drain."""
+    import scripts.export_s2_composites as X
+    monkeypatch.setattr(X.time, "sleep", lambda s: None)
+
+    def submit():
+        raise Exception("Too many tasks already in the queue (3002, limit 3000).")
+
+    with pytest.raises(Exception, match="Too many tasks"):
+        X.submit_with_backoff(None, submit, poll=1, max_wait_s=3)
