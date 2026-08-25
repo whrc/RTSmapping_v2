@@ -158,6 +158,9 @@ def main() -> int:
     g.add_argument("--mark-running", action="store_true",
                    help="record an external stage as under way (Heidi's acquisition), so "
                         "its progress shows instead of reading as not-started")
+    g.add_argument("--mark-pending", action="store_true",
+                   help="reset a stage to not-started, e.g. after an attempt was "
+                        "deliberately abandoned and left no artifact")
     g.add_argument("--sign-off", action="store_true",
                    help="clear a human gate so dependent stages may run")
     args = p.parse_args()
@@ -170,6 +173,8 @@ def main() -> int:
         return mark(args.year, args.stage, cfg, "failed")
     if args.mark_running:
         return mark(args.year, args.stage, cfg, "running")
+    if args.mark_pending:
+        return mark(args.year, args.stage, cfg, "pending")
     return run(args.year, args.stage, cfg, force=args.force, dry_run=args.dry_run)
 
 

@@ -55,34 +55,40 @@ docker:
   # GCS billing for bucket listings/writes. NOT the Earth Engine project — see ee_projects.
   project: pdg-project-406720
 
-  # Earth Engine BATCH-COMPUTE projects, ONE PER YEAR.
+  # Earth Engine BATCH-COMPUTE project, per year.
   #
-  # Quota, restricted-mode and the concurrent-task allowance are all per-PROJECT, not
-  # per-user — proved 2026-08-24 when pdg sat restricted while abruptthawmapping ran
-  # normally, same user, same moment; each project also lists only its own tasks. So
-  # giving each year its own project parallelises the campaign close to linearly:
-  # ~64 days serial -> ~11-21 days.
+  # ONE PROJECT IS ENOUGH — spreading years across projects does NOT go faster.
+  # Which EE limit has which scope, measured 2026-08-25 (getting this wrong cost a day):
   #
-  # An EXPLICIT year->project map, not a round-robin: when a project gets restricted you
-  # must be able to say immediately which year to re-run.
+  #   EECU quota / restricted-mode  PER PROJECT  pdg sat restricted while
+  #                                              abruptthawmapping ran, same user, same
+  #                                              moment.
+  #   Task-queue depth (3,000)      PER USER     1,799 queued on one project + ~440 each
+  #                                              on three others died at 3,002:
+  #                                              "Too many tasks already in the queue".
+  #   Concurrent RUNNING (~3)       PER USER     1,321 tasks pending across three other
+  #                                              projects held 0 RUNNING for 20 min while
+  #                                              abruptthawmapping kept all 3 slots, and
+  #                                              2022's rate never moved off 6.6 cells/hr.
   #
-  # Absent on purpose:
-  #   pdg-project-406720          — REGISTERED_NOT_COMMERCIALLY and restricted; its batch
-  #                                 exports never start (PENDING 51 min, 0 EECU, empty
-  #                                 queue) even though interactive compute works fine.
-  #   pdg-wg-{carbon,viz,lake-ice} — Earth Engine API not enabled on them.
+  # Per-project quota being independent does NOT imply per-project concurrency. The real
+  # ceiling is ~3 concurrent tasks per USER, so the only levers that change the schedule
+  # are a noncommercial quota increase or commercial EE registration — not more projects.
   #
-  # The pdg-wg-* projects belong to OTHER TEAMS and are used here on the user's explicit
-  # authorisation (2026-08-24), after the cost was flagged: each year costs its project
-  # ~20M EECU-seconds (measured 11,055 EECU-s/cell x 1,799 cells) — the same order of
-  # load that put pdg into restricted mode. Their owners should be told.
+  # Still a year->project map rather than one scalar: it stays honest about which project
+  # ran which year, and an unmapped year fails fast instead of silently borrowing one.
+  #
+  # Do NOT add pdg-wg-* here. Those are other teams' working-group projects; our IAM
+  # permits them but that is not a reason, and since parallelism buys nothing there is no
+  # benefit to spending ~20M EECU-seconds/year of someone else's quota.
+  # pdg-project-406720 is unusable: REGISTERED_NOT_COMMERCIALLY, batch exports never start.
   ee_projects:
-    2022: abruptthawmapping     # already running, ~6% done — do not move it
-    2019: pdg-wg-machlearn
-    2020: pdg-wg-workflow
-    2021: pdg-wg-forecast
-    2023: pdg-wg-machlearn
-    2024: pdg-wg-workflow
+    2022: abruptthawmapping
+    2019: abruptthawmapping
+    2020: abruptthawmapping
+    2021: abruptthawmapping
+    2023: abruptthawmapping
+    2024: abruptthawmapping
   train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 
