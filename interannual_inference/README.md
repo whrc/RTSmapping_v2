@@ -68,35 +68,39 @@ getting that wrong cost a day:
 So **more projects do nothing** — that was tried and reverted. At ~3 concurrent tasks per
 user, one year is ~10.5 days and six years is ~64 days serial.
 
-### More *accounts*, on the other hand, should work
+### More *accounts* do work — and two is the right number
 
-The binding limit is per-user, so a second person running an export gets their own
-allowance. Four people ⇒ ~12 concurrent ⇒ the campaign drops from ~64 days to ~16–21.
+**Proven 2026-08-25.** With `yyang@` already holding all 3 slots, `rtsmapping@` submitted
+two tasks that went RUNNING within **one second**, taking the project total to 5 — even
+though they were queued behind 1,676 of yyang's pending tasks, which rules out a
+queue-position artifact. Both years now hold 3 RUNNING each.
 
-**This is not yet proven.** We showed one user cannot exceed 3 across many projects; we
-have *not* shown two users on one project get 6. The project's own noncommercial EECU
-quota could still cap the total. **Test it before building a rota** — five minutes:
+**We deliberately stopped at two accounts** (user decision, 2026-08-25). Adding more
+would speed up S2 but not the campaign, because the two halves are already balanced:
 
-```bash
-# Rob or Heidi, while another year's export is already running:
-python scripts/export_s2_composites.py --year 2023 \
-  --domain domain/circumpolar_south_domain.geojson \
-  --bucket rts-mapping-v2-usw1 --prefix S2_RGB/_concurrency_test \
-  --project abruptthawmapping --limit 2
-```
-Then check whether total RUNNING across the project exceeds 3. If it does, multi-account
-works; if it stays at 3, the cap is the project's and only a quota increase helps.
+| | remaining | finishes in |
+|---|---|---|
+| Planet acquisition (serial — Heidi holds one API key) | 2019 + four more years | ~27 days |
+| S2 export (2 accounts, ~10.5 d/year) | 2022 + 2019 running, then four in two rounds | ~31 days |
 
-### Who can already do it
+A third account would cut S2 to ~21 days and make Planet the binding constraint at ~27 —
+a net campaign gain of only ~4 days, for the cost of another person's Google credential
+sitting on a shared VM. Not worth it. Revisit only if Planet acquisition speeds up.
 
-No IAM changes needed for Rob or Heidi — both are provisioned on `abruptthawmapping`:
+And note the campaign is **pipelined per year**, not gated on the tail: a year's
+inference can start as soon as *that* year's Planet and S2 have both landed. 2022's
+Planet is already complete, so 2022 inference is unblocked the moment its S2 finishes.
+
+### Who could be added, if that ever changes
+
+No IAM changes needed for any of these — all are provisioned on `abruptthawmapping`:
 
 | account | Earth Engine role | `serviceusage.services.use` |
 |---|---|---|
 | `yyang@` | `earthengine.admin` | ✅ via `serviceUsageConsumer` |
+| `rtsmapping@` | *(none needed)* | ✅ via `editor` — **verified** it can init EE and submit |
 | `ryoung@` (Rob) | `earthengine.writer` | ✅ via `serviceUsageConsumer` |
 | `hrodenhizer@` (Heidi) | `earthengine.admin` | ✅ via `owner` |
-| `rtsmapping@` | *(none explicit)* | ✅ via `editor` — may need `earthengine.writer` added by an owner |
 
 ### One year per person — never the same year twice
 
