@@ -54,6 +54,70 @@ most important scheduling fact in the campaign: the S2 export is the long pole
 (measured 10.9 days for 2025_south, sharing GEE with two other exports), so it must
 be started as early as possible and run alongside acquisition, not after it.
 
+## The export ceiling, and the only thing that lifts it
+
+Earth Engine limits us in three places, and **they do not all have the same scope** —
+getting that wrong cost a day:
+
+| limit | scope | how we know |
+|---|---|---|
+| EECU quota / restricted-mode | **per project** | pdg sat restricted while `abruptthawmapping` ran, same user, same moment |
+| Task-queue depth (3,000) | **per user** | 1,799 queued on one project + ~440 each on three others died at 3,002 |
+| Concurrent RUNNING (~3) | **per user** | 1,321 tasks pending across three other projects held **0 RUNNING for 20 min** while `abruptthawmapping` kept all 3 slots, and the running year's rate never moved off 6.6 cells/hr |
+
+So **more projects do nothing** — that was tried and reverted. At ~3 concurrent tasks per
+user, one year is ~10.5 days and six years is ~64 days serial.
+
+### More *accounts*, on the other hand, should work
+
+The binding limit is per-user, so a second person running an export gets their own
+allowance. Four people ⇒ ~12 concurrent ⇒ the campaign drops from ~64 days to ~16–21.
+
+**This is not yet proven.** We showed one user cannot exceed 3 across many projects; we
+have *not* shown two users on one project get 6. The project's own noncommercial EECU
+quota could still cap the total. **Test it before building a rota** — five minutes:
+
+```bash
+# Rob or Heidi, while another year's export is already running:
+python scripts/export_s2_composites.py --year 2023 \
+  --domain domain/circumpolar_south_domain.geojson \
+  --bucket rts-mapping-v2-usw1 --prefix S2_RGB/_concurrency_test \
+  --project abruptthawmapping --limit 2
+```
+Then check whether total RUNNING across the project exceeds 3. If it does, multi-account
+works; if it stays at 3, the cap is the project's and only a quota increase helps.
+
+### Who can already do it
+
+No IAM changes needed for Rob or Heidi — both are provisioned on `abruptthawmapping`:
+
+| account | Earth Engine role | `serviceusage.services.use` |
+|---|---|---|
+| `yyang@` | `earthengine.admin` | ✅ via `serviceUsageConsumer` |
+| `ryoung@` (Rob) | `earthengine.writer` | ✅ via `serviceUsageConsumer` |
+| `hrodenhizer@` (Heidi) | `earthengine.admin` | ✅ via `owner` |
+| `rtsmapping@` | *(none explicit)* | ✅ via `editor` — may need `earthengine.writer` added by an owner |
+
+### One year per person — never the same year twice
+
+Assign a whole year to each account. The launcher skips cells already **delivered**, but
+not ones merely **in flight**, so two people on the same year would submit duplicate
+tasks and burn the shared 3,000-slot queue for nothing. One year each needs no code and
+cannot collide.
+
+Everyone can run on this VM under their own credentials, which keeps logs and monitoring
+in one place:
+
+```bash
+CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> gcloud auth application-default login
+CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> \
+  python interannual_inference/run_stage.py --year <YYYY> --stage s2_export
+```
+
+⚠️ That ADC file is that person's Google credential. Anyone with sudo on this VM can read
+it — the same caveat as the Planet API key. If that is not acceptable, run from your own
+machine instead; the export is server-side either way and no imagery transits your laptop.
+
 ## Human gates
 
 Two stages stop and wait for a person, and the driver will not pass them:
