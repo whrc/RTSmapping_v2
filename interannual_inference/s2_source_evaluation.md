@@ -70,14 +70,36 @@ mandatory, and *preferring the higher baseline* is the defensible rule.
 Note this asymmetry falls exactly across our comparison years — 2019–2021 duplicated,
 2022+ not — so getting it wrong would manufacture an interannual signal.
 
-**2. `_scale_offset`'s silent fallback is one schema migration from firing.**
-The BOA offset handling is *correct today* — I verified `raster:bands[0] = {scale: 0.0001,
-offset: -0.1}` is served, and the script applies it per item, which correctly handles 2019's
-mixed 02.13 (offset 0) / 05.00 (offset −0.1) scenes. But the `except` branch returns
-`offset = 0.0` silently. Earth Search also exposes a STAC 1.1 `bands` field (currently
-`None`); if `raster:bands` is ever dropped, every post-2022 scene shifts by 1000 DN = 0.1
-reflectance **with no error**, producing a fake 2021→2022 step in NDVI. Any port of this must
-**fail loudly** on missing offset metadata rather than default to zero.
+**2. The BOA offset handling is backwards — and it silently destroys the data.**
+
+This is the script's headline feature, and I had it wrong in my first pass: the metadata
+*is* served, but applying it is incorrect for these COGs.
+
+`sentinel-cogs` DN are **already** in the pre-baseline-04.00 convention — Element 84
+removes the +1000 before staging. The STAC `raster:bands` offset of −0.1 describes the
+*original ESA product*, not the file you just opened. Proof, from a baseline-05.11 tile:
+
+```
+raw DN red: mean 730.8   p5 44   p95 2412
+  DN/10000        = +0.0731     <- matches Earth Engine (0.0623 on the same cell)
+  (DN-1000)/10000 = -0.0269     <- negative reflectance, physically impossible
+```
+
+A 5th percentile of **44 DN** settles it: if +1000 were present, no pixel could sit below
+1000. Fitting my reconstruction against the EE product gave `ES = 1.01·EE − 0.0999` with
+the offset applied, and an intercept of ~0.0001 without it.
+
+Two consequences, both silent:
+
+- Reflectance goes negative, and NDVI's denominator `(nir + red)` then crosses zero, so
+  NDVI explodes rather than degrading gracefully. My first run produced NDVI mean +0.685
+  against EE's +0.189, with correlation 0.15.
+- Worse, the script writes `np.clip(a + shift, 0, 65535)` into a band whose **nodata is
+  0**. Every pixel darker than 0.1 reflectance — which over Arctic land is most of the
+  red band — is clipped to 0 and becomes indistinguishable from nodata.
+
+Any port must **verify the convention against a known-good product**, not trust the
+metadata. Ours is `S2_RGB/2025_south/`.
 
 ## The scientific risk: the mask changes
 
@@ -124,3 +146,44 @@ indices must become a property of the index, not a module constant.
 2. Run the 10-cell 2025 reproduction diff.
 3. Keep the Partner Tier application moving regardless — it is free, it is weeks of latency,
    and if the diff fails it is the only remaining lever.
+
+## Validation: does the Earth Search path reproduce the EE product?
+
+Prototype compositor (STAC search → dedupe reprocessed duplicates → SCL mask → per-item
+offset → median → `WarpedVRT` straight onto the EE product's own EPSG:3857 grid, so the
+EE side is never resampled). 1024×1024 windows, cells present in both exports.
+
+Geometry and radiometry are **exact**: reflectance correlation 0.9987 (red) / 0.9977
+(nir), best alignment at dy=0, dx=0 over a ±3 px search. There is no reprojection or
+co-registration problem.
+
+NDVI agreement over 14 windows:
+
+| | |
+|---|---|
+| 11 of 14 windows | MAE 0.0005 – 0.025, corr ≥ 0.975 |
+| `W1530_N0580` 2025 | MAE 0.072, corr **0.54** |
+| `W1590_N0710` 2022 | MAE 0.108, mean −0.080, corr 0.93 |
+
+**Not a clean pass.** The 2022 outlier is fully explained — it is the QA60 gap
+([`qa60_gap.md`](qa60_gap.md)), and disabling my mask reproduces EE to MAE 0.0016, which
+is what proves EE's 2022 product is unmasked. The 2025 outlier is **not yet explained**
+and needs to be before anyone relies on this path.
+
+Also note the sample is opportunistic, not designed: a centred 1024² window often lands
+on water or outside coverage, and 10 of 24 attempts returned too little data to compare.
+A real gate wants windows chosen for land cover and cloudiness, not for convenience.
+
+## Where this leaves the decision
+
+The source is sound and the arithmetic still favours it heavily — ~8 days of pulling
+versus 38 months of quota. What the prototype changes is the estimate of *effort*: the
+reference script is not a starting point so much as a cautionary one, since both of its
+non-trivial behaviours (offset, dedupe) are wrong for our data in ways that fail silently.
+
+Remaining before a switch could be recommended:
+
+1. Explain the `W1530_N0580` 2025 outlier.
+2. Choose a cloud mask on evidence (QA60 vs SCL vs s2cloudless on Arctic cells in a year
+   where all three exist) — required for the EE path too, per `qa60_gap.md`.
+3. Re-run the gate on a designed sample once 1 and 2 are settled.

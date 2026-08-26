@@ -203,6 +203,8 @@ is a bad trade. The webhook file is shared, so there is still only one secret.
 | `ee_quota.md` | **the EECU numbers** — tiers, per-cell cost, what the schedule really depends on |
 | `ee_partner_tier_request.md` | Partner Tier application draft, awaiting a human to submit |
 | `s2_source_evaluation.md` | Earth Search / S3 COGs vs the EE export — measured throughput, the traps, the gate |
+| `qa60_gap.md` | **QA60 is empty in 2022–2023** — those composites have no cloud mask |
+| `prototype_earthsearch_diff.py` | prototype behind those two docs; re-derives their numbers |
 
 State lives at `/mnt/outputs/interannual_inference/state/<year>.json` (mirrored to
 `gs://rts-mapping-v2-usw1/interannual_inference/state/`), logs at
