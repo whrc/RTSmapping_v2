@@ -71,9 +71,15 @@ docker:
   #                                              abruptthawmapping kept all 3 slots, and
   #                                              2022's rate never moved off 6.6 cells/hr.
   #
-  # Per-project quota being independent does NOT imply per-project concurrency. The real
-  # ceiling is ~3 concurrent tasks per USER, so the only levers that change the schedule
-  # are a noncommercial quota increase or commercial EE registration — not more projects.
+  # Per-project quota being independent does NOT imply per-project concurrency.
+  #
+  # And concurrency is not even the binding limit — the MONTHLY EECU ALLOWANCE is.
+  # Measured 2026-08-26: our export costs 12,755 EECU-s/cell, so one year (1,799 cells)
+  # needs 22.9M EECU-s, while abruptthawmapping's Contributor tier grants 3.6M/month
+  # (pdg-project-406720 is on Community: 540k/month, which is why ITS exports never ran).
+  # That is 6.4 months of quota per year of data, 38 months for six years.
+  # Partner tier (360M/month) fits the whole remaining campaign in 37% of one month and is
+  # the ONLY lever that changes the schedule. See interannual_inference/ee_quota.md.
   #
   # Still a year->project map rather than one scalar: it stays honest about which project
   # ran which year, and an unmapped year fails fast instead of silently borrowing one.

@@ -61,14 +61,33 @@ getting that wrong cost a day:
 
 | limit | scope | how we know |
 |---|---|---|
-| EECU quota / restricted-mode | **per project** | pdg sat restricted while `abruptthawmapping` ran, same user, same moment |
+| Monthly EECU allowance → restricted mode | **per project** | read off the quota API: 3.6M EECU-s/mo on `abruptthawmapping` (Contributor), 540k on pdg (Community) — which is why pdg sat restricted while `abruptthawmapping` ran, same user, same moment |
 | Task-queue depth (3,000) | **per user** | 1,799 queued on one project + ~440 each on three others died at 3,002 |
 | Concurrent RUNNING (~3) | **per user** | 1,321 tasks pending across three other projects held **0 RUNNING for 20 min** while `abruptthawmapping` kept all 3 slots, and the running year's rate never moved off 6.6 cells/hr |
 
 So **more projects do nothing** — that was tried and reverted. At ~3 concurrent tasks per
 user, one year is ~10.5 days and six years is ~64 days serial.
 
-### More *accounts* do work — and two is the right number
+### …but concurrency is not what is actually stopping us
+
+**Measured 2026-08-26.** The export costs **12,755 EECU-s per cell**, so one year is 22.9M
+EECU-s against a Contributor-tier allowance of **3.6M/month** — **6.4 months of quota per
+year of data, 38 months for six years.** We spent 69% of the month in the first 48 hours and
+have been throttled in restricted mode since. Past the cap tasks still run, just slowly, which
+is why this looked like a slowdown rather than an error.
+
+**Partner Tier (100,000 EECU-hours/month) fits the entire remaining campaign in 37% of one
+month's allowance** and is the only lever that changes the schedule. Application drafted at
+`ee_partner_tier_request.md`; the full numbers are in **[`ee_quota.md`](ee_quota.md)**.
+
+### More *accounts* raise concurrency — but they cannot create quota
+
+Two accounts get their own ~3 slots each, which is real. What they do **not** do is add
+EECU: both draw on the same project's monthly allowance, so the effect of the second account
+was to reach the cap in half the time. Keep two for when quota is available; adding more
+would only spend it faster.
+
+#### Two is still the right number
 
 **Proven 2026-08-25.** With `yyang@` already holding all 3 slots, `rtsmapping@` submitted
 two tasks that went RUNNING within **one second**, taking the project total to 5 — even
@@ -181,6 +200,8 @@ is a bad trade. The webhook file is shared, so there is still only one secret.
 | `drive.py` | walk a year through the chain, stopping at gates |
 | `status.py` | the year × stage matrix |
 | `alert.py` / `notify.py` | cron alerting |
+| `ee_quota.md` | **the EECU numbers** — tiers, per-cell cost, what the schedule really depends on |
+| `ee_partner_tier_request.md` | Partner Tier application draft, awaiting a human to submit |
 
 State lives at `/mnt/outputs/interannual_inference/state/<year>.json` (mirrored to
 `gs://rts-mapping-v2-usw1/interannual_inference/state/`), logs at
