@@ -1,0 +1,6 @@
+# Host-side dependencies for the campaign coordinator. The stages themselves run
+# inside the project Docker images; this venv only reads state, lists GCS, and
+# posts alerts, so it stays deliberately small.
+PyYAML>=6.0
+google-cloud-storage>=2.14
+pandas>=2.0

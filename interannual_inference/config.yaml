@@ -1,0 +1,137 @@
+# Interannual RTS mapping — declarative configuration for the multi-year inference run.
+#
+# Six years of PlanetScope q3 basemaps run through the FROZEN deployed model
+# (configs/deployment.yaml, 3-seed EffB5 ensemble). This file holds the values;
+# interannual_inference/stages.py holds the order and the commands.
+#
+# Numbers that are measured, not guessed, carry the year they were measured in.
+
+region: south
+quarter: q3
+
+# Ordered by campaign priority, not chronology: 2022 is the pilot, then the
+# earliest year (widest interannual baseline), then the rest.
+years: [2022, 2019, 2020, 2021, 2023, 2024]
+
+paths:
+  work: /mnt/outputs/interannual_inference
+  state_mirror: gs://rts-mapping-v2-usw1/interannual_inference/state
+  local_inference: /mnt/outputs/inference
+
+  # Planet basemap quads, as delivered by the Orders API (raw, un-renamed layout).
+  planet_bucket: pdg-planet-data
+  planet_prefix: global_quarterly/{year}/q3/
+
+  # Sentinel-2 composites — the NDVI source read on the fly at inference.
+  s2_bucket: rts-mapping-v2-usw1
+  s2_prefix: S2_RGB/{year}_south
+
+  inference_base: gs://rts-mapping-v2-usw1/inference/{year}q3_south
+
+  # The model is frozen, so every year runs the SAME weights the delivered 2025
+  # map was made with. Shared, not copied per year — that is the point.
+  packages: gs://rts-mapping-v2-usw1/inference/2025q3_south/packages
+
+  # Written by Heidi's order loop on the acquisition VM.
+  acquisition_status: /mnt/outputs/planetscope-download/status/{year}.json
+
+  # Drift check. The baseline is the 2025 QUAD sample, NOT normalization_stats.json:
+  # the training stats come from 17,951 curated RTS-centric tiles, so a random-quad
+  # sample of ANY year reads as wider (2025 itself trips the blue channel at +0.256).
+  # See inference/inference.md 5.4.
+  quad_baseline: inference/quad_baseline_2025q3.csv
+  drift_package: /outputs/inference/pkg_seed42
+
+expect:
+  n_quads: 309100          # 2025 measured; 2022 came in at 309,107
+  quad_tolerance: 0.01
+  n_s2_cells: 1799         # cells intersecting circumpolar_south_domain at 1x3 deg
+  n_tiles: 41567572        # 2025 measured, full domain, stride 344
+  tile_tolerance: 0.001
+  shard_size: 20000        # -> ~2,079 shards
+  drift_sample_quads: 300
+
+docker:
+  # GCS billing for bucket listings/writes. NOT the Earth Engine project — see ee_projects.
+  project: pdg-project-406720
+
+  # Earth Engine BATCH-COMPUTE project, per year.
+  #
+  # ONE PROJECT IS ENOUGH — spreading years across projects does NOT go faster.
+  # Which EE limit has which scope, measured 2026-08-25 (getting this wrong cost a day):
+  #
+  #   EECU quota / restricted-mode  PER PROJECT  pdg sat restricted while
+  #                                              abruptthawmapping ran, same user, same
+  #                                              moment.
+  #   Task-queue depth (3,000)      PER USER     1,799 queued on one project + ~440 each
+  #                                              on three others died at 3,002:
+  #                                              "Too many tasks already in the queue".
+  #   Concurrent RUNNING (~3)       PER USER     1,321 tasks pending across three other
+  #                                              projects held 0 RUNNING for 20 min while
+  #                                              abruptthawmapping kept all 3 slots, and
+  #                                              2022's rate never moved off 6.6 cells/hr.
+  #
+  # Per-project quota being independent does NOT imply per-project concurrency.
+  #
+  # And concurrency is not even the binding limit — the MONTHLY EECU ALLOWANCE is.
+  # Measured 2026-08-26: our export costs 12,755 EECU-s/cell, so one year (1,799 cells)
+  # needs 22.9M EECU-s, while abruptthawmapping's Contributor tier grants 3.6M/month
+  # (pdg-project-406720 is on Community: 540k/month, which is why ITS exports never ran).
+  # That is 6.4 months of quota per year of data, 38 months for six years.
+  # Partner tier (360M/month) fits the whole remaining campaign in 37% of one month and is
+  # the ONLY lever that changes the schedule. See interannual_inference/ee_quota.md.
+  #
+  # Still a year->project map rather than one scalar: it stays honest about which project
+  # ran which year, and an unmapped year fails fast instead of silently borrowing one.
+  #
+  # Do NOT add pdg-wg-* here. Those are other teams' working-group projects; our IAM
+  # permits them but that is not a reason, and since parallelism buys nothing there is no
+  # benefit to spending ~20M EECU-seconds/year of someone else's quota.
+  # pdg-project-406720 is unusable: REGISTERED_NOT_COMMERCIALLY, batch exports never start.
+  ee_projects:
+    2022: abruptthawmapping
+    2019: abruptthawmapping
+    2020: abruptthawmapping
+    2021: abruptthawmapping
+    2023: abruptthawmapping
+    2024: abruptthawmapping
+
+  train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
+  dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
+
+# Google account each year's export runs under — THE throughput lever.
+#
+# Concurrency is per USER, so a second account gets its OWN ~3 slots. Measured
+# 2026-08-25: with yyang already holding all 3, rtsmapping's tasks went RUNNING within
+# ONE SECOND and the project total went 3 -> 5, even though they were queued behind
+# 1,676 of yyang's pending tasks. More projects did nothing; more accounts multiply.
+#
+# Four accounts ~= 12 concurrent ~= the campaign in ~16 days instead of ~64.
+#
+# Already provisioned on abruptthawmapping, no IAM changes needed:
+#   yyang@       earthengine.admin  + serviceUsageConsumer
+#   rtsmapping@  (editor is enough — verified it can init EE and submit)
+#   ryoung@      earthengine.writer + serviceUsageConsumer   (Rob)
+#   hrodenhizer@ earthengine.admin  + owner                  (Heidi)
+#
+# Each path is that person's Google credential; anyone with sudo here can read it.
+# Create one with:
+#   CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> gcloud auth application-default login
+#
+# NEVER put two accounts on the same year: the launcher skips DELIVERED cells but not
+# IN-FLIGHT ones, so they would submit duplicate tasks into the shared 3,000-slot queue.
+accounts:
+  default: ~/.config/gcloud/application_default_credentials.json   # yyang@
+  2022: ~/.config/gcloud/application_default_credentials.json      # yyang@ — running
+  2019: /mnt/outputs/adc-rtsmapping/application_default_credentials.json  # rtsmapping@
+
+alerts:
+  # Comfortably past the inference stall watchdog (900s) plus the supervisor's
+  # restart delay, so self-healing never trips an alert. Mirrors the acquisition
+  # alerter's reasoning (planetscope-download/alert_if_stopped.py).
+  stale_after_s: 1800
+  # A detached stage whose probe has not advanced in this long is stuck, even if
+  # something is still nominally running. GEE queues can idle legitimately, so
+  # this is deliberately generous.
+  no_progress_after_s: 21600
+  webhook_file: /mnt/outputs/planetscope-download/slack_webhook

@@ -167,53 +167,51 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**Interannual acquisition built and approved — `planetscope-download/` (branch
-`interannual-planet-acquisition`, 2026-08-18).** Heidi approved PR #61 on 2026-08-17 with four
-changes and answers to all five open questions; her three notebooks are now ported into this repo
-with those changes applied, and the plan doc records the decisions. Runbook:
-`planetscope-download/README.md`. Rationale: `docs/interannual_planet_download_plan.md`.
+**2022 pilot passed; interannual run under way — `interannual_inference/` (branch `interannual-campaign`,
+2026-08-24).** The acquisition machinery built in August works: 2022 is downloaded, indexed and
+drift-checked, and the coordinator that will carry the remaining five years is built and tested.
+Runbooks: `interannual_inference/README.md` (us) · `planetscope-download/README.md` (Heidi).
 
-- **Quota is not a constraint** — *"We have unlimited basemap tiles… I don't even think they
-  track basemap downloads."* The blocking question turned out to have the best available answer,
-  so the programme is unblocked. **309,100 quads/year confirmed**; her notebook's 259,783 predated
-  dropping the ArcticDEM domain limit.
-- **Two of her four changes landed on our code, not hers.** `inference/quad_index.py` now matches
-  `(\d+)-(\d+)_quad[^/]*\.tif` instead of one literal suffix — Planet's naming varies by year and
-  by whether the COG `file_format` tool was applied, and pinning our matcher pushed that cost onto
-  her. Verified on live objects: identical match set on 2025 (220/220 in column 500), and the 2019
-  legacy archive now indexes where it previously returned **nothing**. The dead `udm2_path` column
-  went with it (written into every index, read by nothing).
-- **Dropping the rename removed two of her four problems instead of solving them.** The rename
-  existed for bucket tidiness; `build_quad_index` lists recursively and matches on the basename,
-  so the raw delivery indexes identically. That deletes both the crash-recovery redesign she was
-  dreading and one of the two slow listings. `tidy_rename.py` keeps it optional, rewritten to
-  derive work from bucket state (idempotent, no checkpoint) with per-object 404-tolerant deletes
-  instead of the batch delete that aborted on one missing object. **Verified by code reading, not
-  observation** — 2025 is fully renamed, so no raw object survives to test against; it is the
-  first check of the 2022 pilot.
-- **Retry policy goes further than the flat cap of 3 she suggested**, because a cap still aborts a
-  five-day run over one quad: 401 fails fast (auth cannot be retried into working), transient
-  statuses back off 30s→8min over 5 attempts, then the quad is recorded and the loop *continues*;
-  `run_year.sh` sweeps the failures up from the CSV, skipping the listing.
-- **Supervision reuses what the inference fleet already proved.** `_start_stall_watchdog` lifted
-  from `inference/runner.py` into `utils/watchdog.py` (two real callers); `run_year.sh` mirrors
-  `launch_south_inference.sh` — restart on non-zero, crash-loop guard, STOP sentinel. Root cause
-  fixed first: her `requests.post` calls had **no timeout**, so a hung socket stalled forever.
-- **Storage: Archive, not delete.** She pushed back that re-ordering assumes the licence is kept.
-  Archive is **$98/mo for all six years** ($1,181/yr) vs ~$4.1k for the delete plan's interim
-  holding — cheaper *and* it removes the licence dependency. Quads stay Standard through review
-  (the QC tooling streams crops from them), then transition on map approval.
-- **Live verification, full 2025 prefix:** rebuilt the quad index end to end — **309,102 quads from
-  1,854,623 objects**, reconciling against the ordered 309,100 at 0.00% off. The rebuild differs
-  from the stored June index by 5 added / 3 removed, and **none of it is the regex**: all 5 match
-  the old pattern too (delivered after 2026-06-17), and the 3 removed are objects `gsutil stat`
-  now reports GONE. Incidental finding worth knowing — **the deployed
-  `quad_index_2025q3.csv` references 3 objects that no longer exist** (`1153-1566`, `1189-1531`,
-  `1459-1437`). Inference already tolerates missing objects via `_note_missing_object`, and
-  `1459-1437` is the very example in `tests/test_inference_pipeline.py:173`, so this is known
-  behaviour rather than a new fault.
-- Notebook 2 ported R→geopandas, so the VM needs one language; the `planet` SDK dependency went
-  with it. Pilot is **2022 alone**. Next: merge, request Heidi's `osLogin` binding, run the pilot.
+- **2022 acquisition complete, 0 escalations.** 309,109 quads ordered in 131.6 h at 39.1 orders/min,
+  **0 failed**, 0 supervisor restarts, **92 transient failures absorbed** by the retry policy — 84 of
+  them HTTP 400s carrying GCS 500/503, which validates retrying 400s rather than treating them as
+  client errors. Two quads Planet never delivered (`1610-1516`; `622-1604` returned an empty
+  manifest) = 0.0006%, vs ~0.05% missing over land in 2025.
+- **The rename really was unnecessary — now observed, not just reasoned.** `build_quad_index` against
+  the raw delivery returned **309,107 quads from 1,854,688 objects**, reconciling against orders
+  placed at **0.00% off**, with paths like
+  `…/2022/q3/0/1515/<uuid>/global_quarterly_2022q3_mosaic/0-1515_quad_file_format.tif`. This was the
+  pilot's stated first check and the one claim that had only ever been verified by code reading.
+  **Heidi never has to run the rename or delete passes** — the two changes she found hardest.
+- **The §5.4 drift gate was mis-calibrated, not 2022.** 2022's blue channel tripped at σ-ratio
+  +0.295 (threshold 0.25) — but running the identical check on **2025**, the imagery the delivered
+  map was made from, trips the same channel at **+0.256**. The gate compares random *whole quads*
+  against `normalization_stats.json`, which came from 17,951 curated RTS-centric tiles, so any year
+  reads as wider. Against the right baseline (2025 quads, same sampling, now committed as
+  `inference/quad_baseline_2025q3.csv`) 2022's worst mean drift is **0.095σ against 0.5σ** and worst
+  σ-ratio **+0.047**. `inference.md` §5.4 corrected; the gate was fixed, not overridden.
+- **The real blocker for 2022 inference was NDVI, not imagery.** The deployed ensemble is RGB+NDVI,
+  read on the fly from year-matched S2 composites — and only `2024_train`/`2025_north`/`2025_south`
+  exist. Measured: `2025_south` took **10.9 days for 1,799 cells / 15.02 TiB** while sharing GEE with
+  two other exports. **This makes the S2 export the campaign's critical path, not the Planet
+  download** — and since it depends only on the fixed domain, it runs alongside acquisition rather
+  than after it. Decisions: export each year (reusing 2025 NDVI would bake 2025 vegetation into a
+  2022 map, destroying the signal we are measuring); keep all six years on Standard (~90 TiB).
+- **`interannual_inference/` coordinates the remaining work.** A per-year state file plus a driver that shells out
+  to the scripts we already run by hand; 12 stages from `acquire` to `qc`, with **human gates** at
+  `drift_check` and `qc` that the driver will not pass. Finished work is never repeated (re-running
+  `infer` is 2.5 A100-days), a stage with unready inputs refuses and names what is missing, and a
+  detached launcher exiting 0 is not treated as the work finishing. Alerting is announce-once on two
+  signals (stale heartbeat AND no progress), so a queuing GEE export cannot cry wolf.
+  30 tests, GPU/Docker/network-free. Cron: `/etc/cron.d/rts-interannual-inference`.
+- **Open risk being watched:** the pdg EE project has warned *"exceeded the compute quota of its
+  noncommercial tier … restricted mode"* since 2026-08-03. A 2-cell smoke export launched 2026-08-24
+  sat **PENDING with an empty project queue and zero EECU consumed** — batch export is exactly the
+  compute that warning covers. The whole interannual programme is gated on this; resolve before
+  committing six years of exports.
+- Next: EE verdict → launch the 2022 export → `s2_index` → `shard` → `infer` (~2.5 days, 8×A100,
+  master-only now the 32×L4 fleet is gone). Heidi starts **2019** in parallel; her acquisition runs
+  underneath the S2 critical path. Campaign critical path ≈ 40–65 days, set by S2.
 
 **Also live: collaborative review campaign — a 2–3 person team can now traverse all 60,167 candidates
 (branch `review-campaign`, 2026-08-03).** The South inventory has no human verification; everything

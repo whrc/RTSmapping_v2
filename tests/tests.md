@@ -135,6 +135,10 @@ Covers the bulk S2 export grid/domain geometry (doc §3); EE + GCS not exercised
 | `test_latlon_grid_aligns_and_covers` | `latlon_grid` cells are origin-aligned `dlon×dlat` and cover the bbox corners | real |
 | `test_cell_id_deterministic_and_sign_safe` | `cell_id` stable + sign-safe (`W1500_N0740`, `E0000_S0025`); distinct corners → distinct ids | real |
 | `test_domain_cells_keeps_only_intersecting` | Cells filtered to those intersecting the (reprojected) domain polygon; clip ⊆ domain ∩ cell; far cell excluded | real |
+| `test_queue_full_error_is_recognised` | the per-user ceiling arrives as a message, not a typed exception | real |
+| `test_submit_with_backoff_waits_out_a_full_queue` | a full queue is a wait, not a failure | real — three years' launches died at 3,002 tasks because the per-project slot check cannot see the per-user ceiling |
+| `test_submit_with_backoff_reraises_other_errors` | a real export bug surfaces at once | real — otherwise it would be retried for a day |
+| `test_submit_with_backoff_gives_up_eventually` | a queue that never drains is not waited on forever | real |
 
 ### [test_sampler.py](test_sampler.py)
 
@@ -753,6 +757,57 @@ exists only as 4096x4096 RGBA quads. GPU-free and GCS-free: synthetic RGBA quads
 | `test_fully_nodata_quad_contributes_nothing` | an empty quad does not skew the sample | real |
 | `test_unreadable_quad_is_skipped_not_fatal` | one bad object does not abort a 300-quad pass | real |
 | `test_drift_flags_a_real_shift` | a >0.5σ mean shift trips `concerning`, and only on the shifted channel | real — the gate itself |
+
+### [test_interannual_inference.py](test_interannual_inference.py)
+
+`interannual_inference/` — the multi-year inference coordinator (6 years x 12 stages, two people, months of
+wall clock). Its only job is to be trustworthy about what has and has not run, so the tests
+concentrate on the ways it could *lie*: losing state on a crashed write, re-running finished work,
+starting a stage whose inputs are not ready, walking past a human gate, or alerting either never
+or every ten minutes forever. No Docker, no GCS, no network — stage commands are stubbed to
+`true`/`false` and every path lives under `tmp_path`.
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_state_round_trip` | state survives save/load | shallow |
+| `test_save_is_atomic_no_tmp_left_behind` | no `.tmp` orphan after a write | real — a half-written state file strands a whole year |
+| `test_new_stage_added_later_reads_as_pending` | the stage table may grow mid-campaign | real |
+| `test_set_stage_rejects_unknown_status` | typo'd status is refused, not stored | real |
+| `test_running_sets_heartbeat_done_sets_finished` | timestamps follow the transition | real — the alerter reads these |
+| `test_refuses_stage_with_unmet_prereq` | refuses, and *names* the missing stage | real |
+| `test_runs_once_prereq_is_done` | the gate opens when it should | real |
+| `test_done_stage_is_a_noop_without_force` | finished work is never repeated | real — re-running `infer` is 2.5 A100-days |
+| `test_force_reruns_a_done_stage` | the deliberate override works | real |
+| `test_failure_records_exit_code_and_log` | a failure says where to look | real |
+| `test_external_stage_is_not_run_here` | `acquire` is Heidi's; the driver refuses it | real |
+| `test_dry_run_executes_nothing` | `--dry-run` prints, does not run | real |
+| `test_gate_stage_ends_blocked_not_done` | a gate stage stops at `blocked` | real — the whole point of gating |
+| `test_blocked_gate_blocks_its_dependents` | inference cannot start behind an unsigned drift check | real |
+| `test_sign_off_clears_the_gate` | a human can release it | real |
+| `test_detached_stage_stays_running_after_its_launcher_exits` | launcher rc=0 != work finished | real — GEE/nohup both exit immediately |
+| `test_quad_evidence_counts_rows_not_lines` | header is not counted as a quad | real |
+| `test_acquire_evidence_reads_the_order_loop_status` | reads Heidi's status JSON shape | real |
+| `test_drift_evidence_compares_against_the_quad_baseline` | drift is measured vs the 2025 *quad* sample | real — vs training-tile stats even 2025 trips the gate |
+| `test_s2_export_passes_the_EE_project_not_the_gcs_one` | `--project` (EE quota) is not `GOOGLE_CLOUD_PROJECT` (GCS billing) | real — pdg cannot run batch exports at all; conflating these broke the first launch |
+| `test_docker_wrapper_sets_the_gcs_billing_project` | the GCS billing project reaches the container | real — omitting it fails with "Project was not passed" |
+| `test_unset_ee_project_refuses_loudly` | no authorised EE project fails fast | real — must never silently borrow another team's pdg-wg-* quota |
+| `test_ee_project_guard_names_both_real_options` | the error names the two legitimate fixes and warns off pdg-wg-* | real |
+| `test_evidence_failure_is_recorded_not_raised` | a missing artifact is data, not a crash | real |
+| `test_matrix_shows_one_row_per_year_and_marks_each_stage` | the status grid renders | shallow |
+| `test_cell_shows_percentage_when_a_probe_reported` | live progress reaches the cell | shallow |
+| `test_detached_stage_making_progress_shows_no_heartbeat_warning` | a GEE launcher exiting is normal, not a fault | real — otherwise every export run looks broken |
+| `test_detached_stage_with_no_progress_still_warns` | the warning survives where it matters | real |
+| `test_dry_run_does_not_block_on_a_running_detached_stage` | `--dry-run` always returns | real — a running detached stage used to fall into the polling loop and hang |
+| `test_shard_does_not_wait_on_the_s2_export` | sharding reads no imagery | real — would idle ~11 days for nothing |
+| `test_infer_still_requires_the_s2_index` | NDVI prerequisite moved, did not vanish | real |
+| `test_year_detail_names_the_gate` | a blocked year says what is wanted | real |
+| `test_failure_alerts_once_not_every_tick` | announce-once, not every cron tick | real — the reason anyone keeps reading the channel |
+| `test_gate_alert_names_the_stage` | the alert is actionable | real |
+| `test_year_complete_alerts` | a finished year is announced | shallow |
+| `test_stale_heartbeat_alone_is_not_stuck` | a still-advancing stage is not "stuck" | real — the false-alarm guard |
+| `test_stale_heartbeat_plus_no_progress_is_stuck` | both signals together do alert | real |
+| `test_first_sighting_never_alerts` | nothing to compare against yet | real — would cry wolf on every restart |
+| `test_fresh_heartbeat_is_never_stuck` | a live stage is never flagged | real |
 
 ### [test_watchdog.py](test_watchdog.py)
 

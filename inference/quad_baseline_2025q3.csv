@@ -1,0 +1,11 @@
+# 2025q3 WHOLE-QUAD radiometric baseline — the reference for interannual drift checks.
+# Produced by: scripts/check_inference_normalization.py --quad-index quad_index_2025q3.csv
+#              --n-quads 300 --sample-seed 42   (2026-08-24)
+# 2025 is the imagery the delivered RTS map was made from, so it defines 'normal'.
+# Do NOT compare a whole-quad sample against normalization_stats.json — those stats come
+# from 17,951 curated RTS-centric tiles and 2025 itself trips the gate against them.
+# See inference/inference.md 5.4.
+channel,train_mean,train_std,sample_mean,sample_std,abs_delta_mean,abs_delta_mean_over_sigma_train,std_ratio_minus_one,concerning
+R,54.26125261294977,35.94997142712513,51.12980993763113,38.35273666062639,3.131442675318638,0.08710556784909955,0.06683636003360816,False
+G,54.362500186750474,27.53187088772642,53.727598224321234,32.04747490791267,0.6349019624292396,0.023060618183861813,0.16401370028940843,False
+B,30.547004186079754,27.889452631696088,33.954175815677694,35.029453266927966,3.40717162959794,0.12216703119249185,0.2560107840595387,True
