@@ -127,3 +127,7 @@ Heidi runs Planet acquisition on the same box. Conventions that keep that painle
   is not acceptable for a given credential, run that job from your own machine instead.
 - **Name your `tmux` session** after the job (`tmux new -s planet`), so an attached session
   is self-explanatory.
+- **Never branch-switch the ops checkout.** It is mounted live into the running containers and
+  read by cron; changing branches under a multi-day job swaps its source out from under it.
+  Develop on `ARCHITECTURE`, and update `rts-ops` with a deliberate `git pull` on one branch.
+  This is not hypothetical — see `pdg_migration.md` §4a.

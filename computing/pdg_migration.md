@@ -118,9 +118,14 @@ operational sequence.
 
 - **A (27–28 Aug)** — request the human-blocked items (Planet delivery SA key, `roles/editor`
   and `roles/iap.tunnelResourceAccessor` for `yyang@`, licence confirmation); notify PDG;
-  create the three buckets and the `rts` Artifact Registry repo as `rtsmapping@`; create
-  `rts-ops`; copy the deployment packages first and verify their MD5s; run the throughput
-  probe and the read-only local-disk audit.
+  set up `ARCHITECTURE` as the control node; then, **from there**, run §4b to create the three
+  buckets, the `rts` Artifact Registry repo and `rts-ops`. Copy the deployment packages first
+  and verify their MD5s; run the throughput probe. *(The read-only local-disk audit is
+  done — §3b.)*
+
+  **Provisioning deliberately waits for `ARCHITECTURE`** (user decision, 2026-08-27): the
+  machines that outlive this migration should be created from the host that outlives it, not
+  from the master being deleted.
 - **B (28 Aug – 1 Sep)** — bulk copy, largest first, from `rts-ops`.
 - **C (1–3 Sep)** — per producer: stop submitting → drain → freeze → delta-sync → verify
   parity on the frozen source → repoint → restart → watch it work. One at a time.
@@ -140,6 +145,134 @@ giant `rsync`, so they are resumable and independently verifiable.
 
 Same-location pairs throughout (US→US, us-west1→us-west1, us-central1→us-central1), so there
 is no network egress charge. Expect ~**$235** of Class-A operations for ~47 M object writes.
+
+## 4a. Operational hazard found the hard way: the checkout is live infrastructure
+
+**2026-08-27.** Creating the migration branch off `main` removed `interannual_inference/` from
+the working tree for ~40 minutes — because that package had not yet been merged to `main`,
+and this checkout is the one the cron alerters and the S2 export driver run from
+(`-v /home/…/RTSmappingDL:/app`). Consequences, all now closed:
+
+- The interannual alerter failed four consecutive cron runs (15:10–15:40). The first run after
+  the tree was restored (15:50) announced normally, so the **alert was delayed ~23 minutes,
+  not lost**. `alerts_seen.json` is announce-once state and was never corrupted.
+- The 2019 S2 export died at 15:26 on a transient Earth Engine `403 Not signed up for Earth
+  Engine`. This was **not** caused by the branch switch — a file swap cannot produce a
+  server-side 403, and EE was verified healthy immediately after (2,220 operations visible,
+  1,998 PENDING, 2 RUNNING). Restarted at 15:52; it resumed correctly, skipping the 55
+  already-delivered cells and queueing the remaining 1,744.
+- Heidi's Planet acquisition was never affected.
+
+The traceback from the dying export had line numbers that did not match its own source — the
+signature of Python re-reading a file that changed on disk under a running process. That is
+the real lesson:
+
+> **`rts-ops` gets a dedicated checkout that is never branch-switched.** Development happens
+> on `ARCHITECTURE`; the ops host tracks one branch and is updated by an explicit `git pull`
+> at a moment of your choosing, not as a side effect of someone else's work. Anything long
+> and unattended is reading those files the whole time it runs.
+
+## 4b. Provisioning — run these from `ARCHITECTURE`
+
+Nothing here has been run yet. Provisioning waits until the office PC is set up as the
+control node ([control_node.md](control_node.md)), so that the machines are created from the
+host that will outlive the migration rather than from the master we are deleting.
+
+**Run as `rtsmapping@woodwellclimate.org`** — that account holds `roles/editor`;
+`yyang@` has only `viewer` + `storage.objectUser` and will be refused.
+
+```powershell
+gcloud config set account rtsmapping@woodwellclimate.org
+gcloud config set project abruptthawmapping
+```
+
+### 1. APIs
+
+```powershell
+gcloud services enable storagetransfer.googleapis.com artifactregistry.googleapis.com iap.googleapis.com
+```
+
+### 2. The three buckets
+
+Locations match their sources, so every copy is same-location and pays no network egress.
+Uniform bucket-level access: no per-object ACLs to reason about.
+
+```powershell
+gcloud storage buckets create gs://rts-arctic-us   --location=US          --uniform-bucket-level-access
+gcloud storage buckets create gs://rts-arctic-usw1 --location=US-WEST1    --uniform-bucket-level-access
+gcloud storage buckets create gs://rts-arctic-usc1 --location=US-CENTRAL1 --uniform-bucket-level-access
+```
+
+`rts-arctic-usc1` exists for one reason: Earth Engine's `loadGeoTIFF` reads US-CENTRAL1
+buckets only. Do not "tidy it up" into the us-west1 bucket later — that silently breaks the
+published map.
+
+### 3. Lifecycle — imagery ages into Coldline
+
+Applied to the bulk bucket only, and scoped to `imagery/`, so future years inherit the policy
+without anyone remembering to set it. **Nothing under `inference/`**: those objects average
+~2.5 KB and the colder classes bill a 128 KiB minimum per object, which would make Coldline
+roughly 10× the cost of Standard.
+
+```powershell
+@'
+{"lifecycle": {"rule": [
+  {"action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+   "condition": {"age": 30, "matchesPrefix": ["imagery/"], "matchesStorageClass": ["STANDARD"]}}
+]}}
+'@ | Out-File -Encoding ascii lifecycle.json
+gcloud storage buckets update gs://rts-arctic-usw1 --lifecycle-file=lifecycle.json
+```
+
+`imagery/s2_composites/2024_train` is read by training and should stay hot; after the copy,
+put it back with
+`gcloud storage objects update "gs://rts-arctic-usw1/imagery/s2_composites/2024_train/**" --storage-class=STANDARD`.
+
+### 4. Artifact Registry
+
+```powershell
+gcloud artifacts repositories create rts --repository-format=docker --location=us-west1 `
+    --description="RTS mapping images (migrated from pdg-artifact-registry)"
+```
+
+### 5. `rts-ops` — the migration workhorse
+
+No external IP: it is reached over IAP. Created before the bulk copy because the copy runs
+from it, and it must outlive `a100-8x-train`.
+
+```powershell
+gcloud compute instances create rts-ops `
+    --zone=us-west1-a --machine-type=e2-standard-2 `
+    --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud `
+    --boot-disk-size=200GB --boot-disk-type=pd-balanced `
+    --no-address `
+    --scopes=https://www.googleapis.com/auth/cloud-platform `
+    --metadata=enable-oslogin=TRUE
+
+# IAP needs ingress from Google's tunnel range; the default network's
+# default-allow-ssh (0.0.0.0/0 on tcp:22) already covers it. If that rule has been
+# tightened, add the narrower one instead:
+gcloud compute firewall-rules create allow-iap-ssh `
+    --network=default --direction=INGRESS --action=allow `
+    --rules=tcp:22 --source-ranges=35.235.240.0/20
+```
+
+Then, on the box: clone the repo, create the venvs, install Docker, rebuild
+`rts-dataprep:v1` from `computing/Dockerfile.dataprep`, re-create both ADCs with
+`gcloud auth application-default login` (never copy the credential files), restore the Slack
+webhook file, and install the two cron entries. Register it in [README.md](README.md).
+
+### 6. Verify before copying anything
+
+```bash
+# From rts-ops, as yyang@ — read on the PDG side, write on the destination.
+gcloud storage cp gs://rts-mapping-v2-usw1/inference/2025q3_south/packages/seed42/normalization_stats.json \
+                  gs://rts-arctic-usw1/_writetest.json
+gcloud storage rm gs://rts-arctic-usw1/_writetest.json
+```
+
+A refusal here means the identity is wrong, and is much cheaper to discover now than four
+days into a 34.5 TB copy.
 
 ## 5. Verification — the gate before deletion
 
