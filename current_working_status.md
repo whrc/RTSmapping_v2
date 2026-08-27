@@ -184,15 +184,51 @@ assets behind the published public map. Plan and runbook: `computing/pdg_migrati
 - **Storage tiers by lifecycle** — imagery to Coldline, ~$230–300/mo instead of ~$1,100. One
   counterintuitive exception: the 41.5 M per-tile prob COGs stay **Standard**, because the
   colder classes bill a 128 KiB minimum per object and would cost ~10× more.
-- **Control moves to the desk.** The office PC `ARCHITECTURE` becomes the control node,
-  reaching VMs over IAP; unattended loops move to a small `rts-ops` VM. `computing/README.md`
-  is the new host-registry SSoT and `computing/control_node.md` the setup guide.
+- **Control has moved to the desk — `ARCHITECTURE` is set up (2026-08-27).** gcloud on
+  `abruptthawmapping`/us-west1-a, the three migration APIs enabled, the `rts-ops` SSH block
+  written and parsing, VSCode Remote-SSH present. The box runs a deliberate **two-identity
+  split**: the CLI is `rtsmapping@` (`roles/editor`, provisions) and the ADC is `yyang@`
+  (`viewer`+`objectUser`+`earthengine.admin`, reads and copies) — neither can do the other's
+  job, so do not merge them. `yyang@`'s ADC was verified to read all four PDG source buckets,
+  which is the §4b step-6 precondition checked ahead of the copy rather than four days into it.
+  `computing/README.md` is the host-registry SSoT and `computing/control_node.md` the setup guide.
+- **Destination infrastructure provisioned (§4b steps 1–4, 6).** The three buckets exist with the
+  right locations — `rts-arctic-us` (US multi-region), `-usw1` (US-WEST1), `-usc1` (US-CENTRAL1) —
+  so every copy leg is same-location and pays no egress; UBLA on all three; all empty. The
+  Coldline@30d lifecycle is on `-usw1` **scoped to `imagery/`**, and verified *absent* on the other
+  two, which is the point: `inference/`'s 41.5 M ~2.5 KB objects must never age into a class that
+  bills a 128 KiB minimum. Artifact Registry repo `rts` (docker, us-west1) created. **The step-6
+  write test passed early** — pulled forward from `rts-ops` to the desk since what it tests is the
+  identity, not the host: `normalization_stats.json` copied PDG → new bucket under `yyang@`'s ADC
+  with matching MD5, then deleted. Only the `rts-ops` VM create is left, and it is blocked.
 - **Day-1 audit done:** the master's 762 GB of local disk is mostly mirrored or regenerable.
   The real payload is **~7 GB** of unmirrored 2022 tile lists plus one **189 GB** judgement
   call on the closed v2.1 MAE corpus. `pdg_migration.md` §3b.
-- **Open with the user:** whether to keep that MAE corpus; provisioning waits until
-  `ARCHITECTURE` is set up. Blocked on Heidi (owner): a Planet delivery SA key for the new
-  bucket, `roles/editor` and `roles/iap.tunnelResourceAccessor` for `yyang@`.
+- **`rts-ops` exists and is reachable — §4b is complete.** The IAP blocker was real and is
+  cleared. Two traps came out of it, both now in `computing/control_node.md` §1a: **`roles/editor`
+  does not carry `iap.tunnelInstances.accessViaIAP` but `roles/owner` does** — so the box would
+  have been created unreachable, and anyone checking from an owner's seat would see it working and
+  conclude there was nothing to grant; and **`posixAccounts[0]` returns the wrong OS Login
+  username** here (`ext_…`, correct for PDG, wrong for an in-org project), which surfaces as
+  `Permission denied (publickey)` and reads like a key fault that it is not. `yyang@` was given
+  owner and used it to grant `rtsmapping@` the one narrow `roles/iap.tunnelResourceAccessor` —
+  deliberately not a second owner, since `yyang@`'s ADC is what the bulk copy and Earth Engine run
+  under. `rts-ops` is Ubuntu 22.04.5, 2 vCPU / 7 GB / 194 GB, no external IP, `ssh rts-ops` verified.
+- **A `--no-address` VM has no egress, and the runbook never said so.** The fresh box could reach
+  **nothing** — not GitHub, PyPI or apt, and *not `storage.googleapis.com`*, which would have
+  stopped the Phase-B copy dead, since `rts-ops` must reach the GCS API to orchestrate it even
+  though the bytes move server-side. **Private Google Access is now enabled** (free, subnet flag)
+  and GCS/OAuth/Artifact Registry all answer, so the copy path works. **Cloud NAT is still needed**
+  for GitHub/PyPI/apt — i.e. to build and maintain the box, and for §4a's `git pull` workflow —
+  and is not created: ~$32/mo, egress-only so the no-inbound posture is unchanged, and it carries
+  no data charge for the copy because GCS prefers PGA. Commands in `pdg_migration.md` §4b step 5a.
+- **Next, and blocked on that: the box itself is bare.** It needs the §4b step-5 tail — a dedicated
+  checkout that is **never branch-switched** (§4a), venvs, Docker, `rts-dataprep:v1`, both ADCs
+  re-created *in place* (never copied), the Slack webhook, and the two cron entries. Every one of
+  those needs NAT. Until they land nothing unattended can move off the master, so Phase B cannot
+  start.
+- **Open with the user:** whether to keep the 189 GB MAE corpus. Still blocked on Heidi: a Planet
+  delivery SA key for the new bucket, and licence confirmation.
 - **Live-checkout hazard, recorded:** branching on the master pulled `interannual_inference/`
   out from under cron for 40 min; the alerter announced 23 min late and the 2019 S2 export
   died in that window on an unrelated transient EE 403 (restarted, resumed at 55/1799).

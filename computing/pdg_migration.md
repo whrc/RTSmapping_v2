@@ -116,8 +116,10 @@ so this is not really about money; it is about whether a rebuild is ever wanted.
 Detailed phases, dates and rationale: the approved migration plan. Condensed here as the
 operational sequence.
 
-- **A (27–28 Aug)** — request the human-blocked items (Planet delivery SA key, `roles/editor`
-  and `roles/iap.tunnelResourceAccessor` for `yyang@`, licence confirmation); notify PDG;
+- **A (27–28 Aug)** — request the human-blocked items (Planet delivery SA key,
+  `roles/iap.tunnelResourceAccessor` — **for `rtsmapping@`**, the account that SSHes from
+  `ARCHITECTURE`, not `yyang@` as first written; `roles/editor` for `yyang@` if the ADC is
+  ever to provision, which it currently is not; licence confirmation); notify PDG;
   set up `ARCHITECTURE` as the control node; then, **from there**, run §4b to create the three
   buckets, the `rts` Artifact Registry repo and `rts-ops`. Copy the deployment packages first
   and verify their MD5s; run the throughput probe. *(The read-only local-disk audit is
@@ -174,9 +176,43 @@ the real lesson:
 
 ## 4b. Provisioning — run these from `ARCHITECTURE`
 
-Nothing here has been run yet. Provisioning waits until the office PC is set up as the
-control node ([control_node.md](control_node.md)), so that the machines are created from the
-host that will outlive the migration rather than from the master we are deleting.
+**Status 2026-08-27: §4b COMPLETE — all six steps done. `rts-ops` exists and is reachable.** `ARCHITECTURE` is now set up as
+the control node ([control_node.md §1](control_node.md)) — gcloud on the new project/zone, the
+CLI/ADC identity split settled, the SSH block for `rts-ops` written and parsing. Provisioning
+waited for that, so that the machines are created from the host that will outlive the
+migration rather than from the master we are deleting.
+
+**Pre-flight checks that passed on `ARCHITECTURE`:**
+
+| Check | Result |
+|---|---|
+| `rtsmapping@` can create buckets / VMs / AR repos / enable services | all GRANTED (`testIamPermissions`) |
+| `yyang@` ADC reads all four PDG source buckets | 200 on `pdg-planet-data`, `rts-mapping-v2`, `-usw1`, `-usc1` |
+| Destination buckets absent (nothing half-created) | 404 × 3, as expected |
+| `default-allow-ssh` covers the IAP range `35.235.240.0/20` | yes — `0.0.0.0/0 tcp:22`, no firewall work needed |
+| VPC | single auto-mode `default` network |
+
+One check failed on the day and has since been cleared: the IAP grant. It is worth reading
+[control_node.md §1a](control_node.md) before touching SSH on this project — `roles/editor` does
+not carry IAP tunnel access while `roles/owner` does, and the OS Login username differs between
+PDG and `abruptthawmapping`.
+
+| §4b step | State |
+|---|---|
+| 1. APIs | done — `storagetransfer` + `iap` enabled, `artifactregistry` already on |
+| 2. Three buckets | done — `rts-arctic-us` (US), `-usw1` (US-WEST1), `-usc1` (US-CENTRAL1), UBLA on all three, all empty |
+| 3. Lifecycle | done — Coldline@30d scoped to `imagery/` on `-usw1` only; **no lifecycle on `-us`/`-usc1`**, confirmed |
+| 4. Artifact Registry | done — `rts` (DOCKER, us-west1) |
+| 5. `rts-ops` | done — `e2-standard-2`, no external IP, Ubuntu 22.04.5, 2 vCPU / 7 GB / 194 GB disk; IAP SSH verified |
+| 6. Write verification | **passed** — see below |
+
+**Step 6 ran early and passed.** The runbook has it running from `rts-ops`, but the point of the
+check is the *identity*, and that identity (`yyang@`'s ADC) lives on `ARCHITECTURE` too — so it
+was run from the desk instead of waiting for a box that is blocked. `normalization_stats.json`
+copied `rts-mapping-v2-usw1` → `rts-arctic-usw1` and the MD5 matched
+(`yC/MH+H/nMKn7WrfhDJ26w==`) on both sides; the test object was deleted. Cross-project read plus
+destination write both work under the copy identity, which was the thing worth knowing before a
+34.5 TB leg rather than four days into one.
 
 **Run as `rtsmapping@woodwellclimate.org`** — that account holds `roles/editor`;
 `yyang@` has only `viewer` + `storage.objectUser` and will be refused.
@@ -186,11 +222,15 @@ gcloud config set account rtsmapping@woodwellclimate.org
 gcloud config set project abruptthawmapping
 ```
 
-### 1. APIs
+### 1. APIs — DONE 2026-08-27
 
 ```powershell
 gcloud services enable storagetransfer.googleapis.com artifactregistry.googleapis.com iap.googleapis.com
 ```
+
+`artifactregistry` was already on; `storagetransfer` and `iap` were enabled by this run.
+Enabling `iap.googleapis.com` does **not** grant tunnel access — that is IAM, and it is
+missing (step 5).
 
 ### 2. The three buckets
 
@@ -240,6 +280,12 @@ gcloud artifacts repositories create rts --repository-format=docker --location=u
 No external IP: it is reached over IAP. Created before the bulk copy because the copy runs
 from it, and it must outlive `a100-8x-train`.
 
+> **Was blocked; cleared 2026-08-27.** `roles/editor` does not carry
+> `iap.tunnelInstances.accessViaIAP`, so this VM would have been created unreachable. `yyang@`
+> was granted `roles/owner` and used it to give `rtsmapping@` `roles/iap.tunnelResourceAccessor`;
+> the VM was then created `--no-address` as designed and IAP SSH confirmed. Full write-up, and
+> the OS Login username trap that follows it, in [control_node.md §1a](control_node.md).
+
 ```powershell
 gcloud compute instances create rts-ops `
     --zone=us-west1-a --machine-type=e2-standard-2 `
@@ -256,6 +302,41 @@ gcloud compute firewall-rules create allow-iap-ssh `
     --network=default --direction=INGRESS --action=allow `
     --rules=tcp:22 --source-ranges=35.235.240.0/20
 ```
+
+### 5a. Egress — a `--no-address` VM has none, and this step was missing
+
+**Found 2026-08-27, the hard way.** A VM created `--no-address` on the stock `default` subnet
+can reach **nothing** — not GitHub, not PyPI, not apt, and *not `storage.googleapis.com`*. The
+first three block provisioning; the fourth would have stopped the Phase-B copy dead, because
+`rts-ops` must reach the GCS API to orchestrate it even though the bytes move server-side.
+Measured on the fresh box: all four hosts refused, only the metadata server answered.
+
+Two independent layers, and they fix different things:
+
+| Layer | Covers | Cost | State |
+|---|---|---|---|
+| **Private Google Access** (subnet flag) | `*.googleapis.com`, `*.pkg.dev` — GCS, OAuth, Artifact Registry | **free** | **enabled 2026-08-27** |
+| **Cloud NAT** (router + gateway) | everything else — GitHub, PyPI, apt, Docker | ~$32/mo + $0.045/GB | **not created — needs a human** |
+
+```powershell
+# Layer 1 — free, and the one the copy actually depends on. Already applied.
+gcloud compute networks subnets update default --region=us-west1 --enable-private-ip-google-access
+
+# Layer 2 — required for provisioning and for the `git pull` workflow in §4a.
+gcloud compute routers create rts-ops-router --network=default --region=us-west1
+gcloud compute routers nats create rts-ops-nat --router=rts-ops-router --region=us-west1 `
+    --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
+```
+
+**PGA alone is not enough to build the box, but it is enough to run the copy.** After enabling it,
+`storage.googleapis.com`, `oauth2.googleapis.com` and `us-west1-docker.pkg.dev` all answered while
+`github.com`, `pypi.org` and `download.docker.com` stayed dark. So if NAT is ever unwanted, the
+copy still works — only maintenance breaks.
+
+**NAT does not weaken the no-inbound posture.** It is egress-only; nothing becomes reachable from
+the internet, and the reason for `--no-address` is unaffected. Note also that GCS traffic prefers
+PGA once enabled, so the 34.5 TB copy generates **no NAT data charges** — the gateway's hourly rate
+is essentially the whole cost.
 
 Then, on the box: clone the repo, create the venvs, install Docker, rebuild
 `rts-dataprep:v1` from `computing/Dockerfile.dataprep`, re-create both ADCs with

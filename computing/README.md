@@ -18,8 +18,8 @@ inventory.
 
 | Codename | Kind | Where | Function | Status |
 |---|---|---|---|---|
-| **`ARCHITECTURE`** | Office PC (Windows) | Woodwell office | **Control node** — code editing, `gcloud compute` lifecycle, VSCode Remote-SSH origin. Never runs unattended work. | active |
-| `rts-ops` | `e2-standard-2`, no external IP (IAP) | `abruptthawmapping` / us-west1-a | Unattended loops: Planet acquisition, S2 export driver, cron alerters. Shared with Heidi. | planned |
+| **`ARCHITECTURE`** | Office PC (Windows) | Woodwell office | **Control node** — code editing, `gcloud compute` lifecycle, VSCode Remote-SSH origin. Never runs unattended work. | **active — configured 2026-08-27** |
+| `rts-ops` | `e2-standard-2`, no external IP (IAP) | `abruptthawmapping` / us-west1-a | Unattended loops: Planet acquisition, S2 export driver, cron alerters. Shared with Heidi. | **active — created 2026-08-27**, IAP SSH verified; box not yet provisioned |
 | `rts-review` | `e2-small`, static IP, `:80` public | `abruptthawmapping` / us-west1-a | Polygon-rating app for the review campaign | planned |
 | ~~`a100-8x-train`~~ | `a2-ultragpu-8g`, 8× A100-80GB | PDG / us-central1-a | Training, pan-Arctic inference, and — by accretion — every other running process | retiring 2026-09-06 (PDG funding ends 09-07) |
 | ~~`rts-review-vm`~~ | `e2-small`, `8.229.247.193` | PDG / us-west1-a | Rating app, superseded by `rts-review` | retiring 2026-09-06 |
