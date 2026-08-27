@@ -912,6 +912,31 @@ argv. See `post-inference/review_campaign.md` §4.1.
 | `test_heartbeat_does_not_steal_others_claim` | heartbeat by a non-owner is a no-op | real — ownership guard |
 | `test_reclaim_absent_claim_is_false` | reclaiming a missing claim returns False | shallow |
 
+### [test_gcs_parity.py](test_gcs_parity.py)
+
+`scripts/gcs_parity.py` — the object-level parity check that gates deletion of the PDG buckets (`computing/pdg_migration.md` §5). GPU-free, network-free: a FakeClient serves canned listings. The tool compares *every* object by walking both lexicographic listings in lockstep, so these tests pin each way a copy can be wrong rather than trusting a sample.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_split_uri` (4 cases) | `gs://bucket/prefix` parsing, trailing slash, bare bucket | shallow |
+| `test_split_uri_rejects_non_gs` | a local path raises rather than being silently treated as a URI | real |
+| `test_entries_are_named_relative_to_the_prefix` | two prefixes at different absolute paths yield identical entry lists | real — the premise the whole comparison rests on |
+| `test_entries_skips_directory_placeholders` | zero-byte `dir/` objects are not counted as data | real |
+| `test_entries_tolerates_null_size_and_md5` | absent size/MD5 in the projection degrade to `0`/`""` instead of raising | shallow |
+| `test_identical_listings_match` | a clean copy passes; counts and bytes agree | real |
+| `test_both_empty_is_a_pass` | a legitimately empty prefix is not a failure | shallow |
+| `test_missing_object_is_reported_by_name` | a dropped object fails and is named | real |
+| `test_missing_object_at_the_end_is_caught` | the walk drains the longer side rather than stopping at the shorter | real — the classic lockstep off-by-one |
+| `test_missing_object_at_the_start_is_caught` | divergence at the first element is caught | real |
+| `test_extra_object_at_destination_is_reported` | an unexpected object at the destination fails | real |
+| `test_truncated_object_is_caught_by_size` | same count, wrong bytes — the partial write | real |
+| `test_corrupt_object_is_caught_by_md5` | same count *and* same bytes; only the MD5 differs | real — the failure a sampling check would miss |
+| `test_every_corruption_is_caught_not_just_a_sample` | 500/500 corrupt objects counted, reporting capped at `MAX_REPORTED` | real — pins full coverage vs capped display |
+| `test_reported_names_are_capped_but_the_walk_completes` | capping the report never truncates the counts | real |
+| `test_main_exits_zero_on_a_clean_copy` | exit 0 on parity | real — this is what the gate reads |
+| `test_main_exits_nonzero_on_a_bad_copy` | exit 1 on corruption | real |
+| `test_main_exits_nonzero_on_an_empty_destination` | exit 1 when nothing arrived | real |
+
 ### [test_shard_tiles.py](test_shard_tiles.py)
 
 `scripts/shard_tiles.make_shards` — splits the tile list into spatially-contiguous shards (plan Phase 1). GPU-free, I/O-free (the pure split logic; the CLI's GCS writes are thin glue).
@@ -1173,4 +1198,5 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 - 2026-06-30 — Object-scorecard instrument (v3 object-improvement plan, Phase 0): +4 `_object_match_detail` tests in `test_metrics.py` (tp/fp/fn parity with the frozen gate path + split/merge/geometry), and new `test_object_scorecard.py` (14 tests) covering `object_detail_counts`, per-region bootstrap CIs, `_geometry_summary`, `build_scorecard` self-check, the region-stratified train sampler, the D2 change-signal probe, and the seed-noise aggregator. All report-only/synthetic; verified green off-VM under a torch stub (real torch on the L4 runs them in the full suite). Tier-2 execution gaps recorded in Coverage gaps #8.
 - 2026-07-04 — Minimum Mapping Unit fix (data-v1.1): new `test_gt_mmu_scoring.py` (6 tests) validating `apply_min_mapping_unit` composing through the 255-ignore machinery — sub-MMU GT + correct pred → (0,0,0); real object survives; straddle keeps 1 FP; `build_scorecard` parity self-check holds; pixel counts unmoved + focal loss invariant to logits under the 255 sliver. The primitive itself stays covered by `test_label_cleaning.py`. All synthetic/CPU. Green under real torch (`test_gt_mmu_scoring.py` + `test_label_cleaning.py` + `test_object_scorecard.py` = 28 passed; `test_dataset.py` + `test_metrics.py` = 35 passed).
 - 2026-08-12 — Shipped-product-rule scoring: new `test_score_product_rule.py` (14 tests) for `scripts/score_product_rule.py`, which scores the delivered adaptive rule (0.30 contour → `max_prob` → `conf_class`/`rts_class`) on the frozen test cache alongside the ledger-J/K anchors. Concentrates on the failure modes the replication invites: the 1/250 quantisation boundary that makes the 0.65 tier cut `u8 >= 163` rather than the `u8 >= 162` of a raster cut, the 2-px technical floor and its ordering *before* banding, and `load_product_constants` reading `export_south_products.py`'s constants via `ast` (geopandas is absent from the scoring image, so importing it is not an option and retyping the constants would fork the SSoT). Also pins the intentional pixel-count basis change vs `object_counts` (final mask, not pre-filter). All synthetic/CPU. Green in `rts-train:v2` (14 passed).
+- 2026-08-27 — PDG migration parity gate: new `test_gcs_parity.py` (21 tests) for `scripts/gcs_parity.py`, the check that decides whether the PDG buckets may be deleted. The tool was first written to MD5-sample 200 objects per leg; the test that corrupted one object in twenty exposed why that is worthless here — a 200-object sample over the 41.7M-object `probs/` leg would essentially never touch the bad one. Rewritten as a constant-memory lockstep walk of both lexicographic listings, which is both stronger (every object compared) and simpler (no reservoir, no RNG, no seed flag). The tests pin each failure mode separately — missing at start/middle/end, extra, truncated, corrupt-but-same-size — because they exercise different branches of the three-way merge. All synthetic/CPU. Green in `rts-train:v2` (21 passed); full suite **620 passed, 2 skipped**. Fixed en route: `test_quad_drift.py` hardcoded `REPO = Path("/w")`, so the whole suite failed collection unless the container happened to mount the repo at `/w` — now derived from `__file__` like every other test.
 - 2026-07-07 — ArcGIS Pro QC package (Banks Island team review): new `test_build_rgb_chips.py` (5 tests) for `scripts/build_rgb_chips.py`, which generates RGB "underlying tile" context chips for the ArcGIS Pro QC package — only for the tiles a detected RTS polygon references, reusing `inference.tiles.read_tile`. All synthetic/GPU-free. Full suite 356 passed, 1 skipped (pre-existing) + these 5 = 361 green.

@@ -83,10 +83,13 @@ The 2025 Q3 pan-Arctic South run produced a tiered product family in
 ### Computing
 | Document | Purpose |
 |----------|---------|
-| [computing/infrastructure.md](computing/infrastructure.md) | **Infra SSoT** — GCP projects, buckets, VM inventory, regions, compute budget, data storage map |
-| [computing/vm_instruction.md](computing/vm_instruction.md) | Daily VM/SSH how-to — start/stop, config, Python env, file transfer |
+| [computing/README.md](computing/README.md) | **Host registry SSoT** — every machine, its codename, function and status; index to the rest of `computing/` |
+| [computing/infrastructure.md](computing/infrastructure.md) | **Infra SSoT** — GCP projects, buckets, regions, quota, data storage map |
+| [computing/control_node.md](computing/control_node.md) | Office-PC (`ARCHITECTURE`) setup — gcloud, SSH over IAP, VM lifecycle from the desk |
+| [computing/vm_instruction.md](computing/vm_instruction.md) | Day-to-day on a VM — Python env, file transfer |
 | [computing/docker_training.md](computing/docker_training.md) | Docker build/run how-to — image, mounts, GCS auth |
 | [computing/artifact_inventory.md](computing/artifact_inventory.md) | Artifact → bucket/path map — where every durable artifact lives, SSoT vs backup |
+| [computing/pdg_migration.md](computing/pdg_migration.md) | The Sept 2026 move off the PDG project — decisions, path history, parity evidence |
 
 ### Domain
 | Document | Purpose |
@@ -112,7 +115,8 @@ This repo follows a single-source-of-truth standard. Where each kind of fact liv
 | Status, roadmap, project decisions | [current_working_status.md](current_working_status.md) |
 | Experiments, scores, recipe, findings | [docs/experiment_ledger.md](docs/experiment_ledger.md) |
 | Test inventory | [tests/tests.md](tests/tests.md) |
-| Infra facts — projects, buckets, VMs, regions, budget | [computing/infrastructure.md](computing/infrastructure.md) |
+| Machines — what exists, what each is for | [computing/README.md](computing/README.md) |
+| Infra facts — projects, buckets, regions, quota | [computing/infrastructure.md](computing/infrastructure.md) |
 | Shipped South products — files, numbers, caveats | [post-inference/south_products.md](post-inference/south_products.md) |
 | Artifact locations — what lives in which bucket | [computing/artifact_inventory.md](computing/artifact_inventory.md) |
 | Multi-year run progress — which year is at which stage | `interannual_inference/` state files (`/mnt/outputs/interannual_inference/state/<year>.json`), read with `status.py` |

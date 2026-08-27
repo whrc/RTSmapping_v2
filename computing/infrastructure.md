@@ -1,7 +1,13 @@
 # Computing Infrastructure
 
-**Single source of truth for compute facts**: GCP projects, storage buckets, the VM inventory,
-regions, the compute budget, and the data storage map. This doc is *facts*; the step-by-step
+> ⚠️ **MIGRATION IN PROGRESS (2026-08-27 → 2026-09-06).** PDG funding ends **2026-09-07** and
+> everything below is moving to `abruptthawmapping`. Sections 1–6 still describe the *PDG*
+> state and are being rewritten as each leg completes — read them alongside
+> [pdg_migration.md](pdg_migration.md), which owns the old→new path map and the current
+> status. The **machine inventory has moved out of this doc** to [README.md](README.md).
+
+**Single source of truth for compute facts**: GCP projects, storage buckets, regions, quota,
+and the data storage map. This doc is *facts*; the step-by-step
 how-tos live in [vm_instruction.md](vm_instruction.md) (daily VM/SSH workflow) and
 [docker_training.md](docker_training.md) (build/run the training container).
 
@@ -135,7 +141,7 @@ Consequences:
 | Tier | Path | Durability | Use for |
 |------|------|-----------|---------|
 | Boot disk | `~` / local | **Treat as ephemeral** — do not rely on it across restarts | Repo checkout, venv, transient files |
-| Filestore | `/mnt/argo_filestore` | Persistent, **1 TB, shared across VMs** | Large datasets, shared scratch |
+| ~~Filestore~~ | ~~`/mnt/argo_filestore`~~ | **Not ours, and not mounted** — checked 2026-08-27: the 2 TB `argo-filestore` is a PDG instance, absent from the master and holding nothing of ours | — |
 | Host outputs | `/mnt/outputs` → mounted `/outputs` in Docker | Persists on the host VM | Checkpoints, logs, MLflow at `/mnt/outputs/mlflow` |
 | gcsfuse mount | `/data` (inside Docker) | View onto GCS | Training data at run time; cache flags in `configs/baseline.yaml:training.gcsfuse` |
 
@@ -157,13 +163,17 @@ a **recommendation to confirm** — once authoritative, mirror any path code rea
 | **Deployment packages** | model weights + `normalization_stats.json` bundle (`scripts/package_model.py`) | examples currently point at stale `gs://abruptthawmapping/models/...` | `gs://rts-mapping-v2/models/<model-id>/` | Script default paths are example strings (see §10 backlog). |
 | **Inference images (input)** | 2025 PlanetScope basemap, pan-arctic | `gs://pdg-planet-data/` (**us-west1**, verified) | leave in place; run inference in us-west1 to read egress-free | Pan-arctic ≈ 7.5M tile-inferences at default stride (inference.md §3.2). |
 | **Inference outputs + 2025 EXTRA** | per-tile probability COGs, merged regional COGs, vectors, 2025 EXTRA tiles | n/a (new) | `gs://woodwell-rts-inference-arts-south/` (**us-west1**, single region) — co-located with input + fleet | Egress-free; per-tile probs persist first, then merge/vectorize (post-inference §). |
-| **Scratch / cache** | gcsfuse file cache, intermediate tiles | `/mnt/argo_filestore` or local scratch | same | Ephemeral; not a system of record. |
+| **Scratch / cache** | gcsfuse file cache, intermediate tiles | local scratch (`/mnt/nvme_scratch`) | same | Ephemeral; not a system of record. |
 
 ---
 
 ## 5. VM inventory
 
-All VMs are in the **PDG project**. Daily start/stop/SSH workflow:
+> **Moved.** The machine registry — codename, function, status, and which machines are *not*
+> ours — now lives in [README.md](README.md) and is the SSoT for it. What remains here is
+> zone/GPU-availability and quota context. Register new VMs there, not here.
+
+All VMs listed below are in the **PDG project** and are retiring with it. Daily start/stop/SSH workflow:
 [vm_instruction.md](vm_instruction.md). Migration runbook/handover: [migrate_vm.md](migrate_vm.md).
 
 ### Existing
@@ -180,7 +190,11 @@ All VMs are in the **PDG project**. Daily start/stop/SSH workflow:
   underscores) so our instances are identifiable in the shared org project. **Not all VMs in the
   project are ours** — e.g. the pre-existing `download-vm` (n2-standard-4, us-west1-a) is **not ours;
   do not touch it**.
-- **Control node:** `a100-8x-train` (us-central1-a) drives the other VMs' lifecycle + jobs via
+- **Control node (SUPERSEDED 2026-08-27):** the office PC `ARCHITECTURE` now drives VM
+  lifecycle, reaching hosts over IAP — see [control_node.md](control_node.md). The convention
+  below existed only because IAP was not authorized in the PDG project (§8); it does not
+  carry over to `abruptthawmapping`.
+- *(historical)* `a100-8x-train` (us-central1-a) drives the other VMs' lifecycle + jobs via
   `gcloud compute instances …` and `gcloud compute ssh rts-… --command "…"` over **external IP**
   (IAP is not authorized, §8) — so no VSCode Remote-SSH target switch is needed to operate them.
 

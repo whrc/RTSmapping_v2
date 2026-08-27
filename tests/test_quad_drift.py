@@ -3,7 +3,7 @@ import sys, importlib.util
 from pathlib import Path
 import numpy as np, rasterio, pytest
 from rasterio.transform import from_bounds
-REPO = Path("/w"); sys.path.insert(0, str(REPO))
+REPO = Path(__file__).resolve().parent.parent; sys.path.insert(0, str(REPO))
 spec = importlib.util.spec_from_file_location("cin", REPO/"scripts"/"check_inference_normalization.py")
 cin = importlib.util.module_from_spec(spec); spec.loader.exec_module(cin)
 
