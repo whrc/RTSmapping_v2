@@ -167,7 +167,38 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**2022 pilot passed; interannual run under way — `interannual_inference/` (branch `interannual-campaign`,
+**PDG funding ends 2026-09-07 — everything migrates to `abruptthawmapping` (branch
+`pdg-migration`, 2026-08-27).** This now sets the schedule for everything else. The whole
+project runs inside `pdg-project-406720`: ~54 TB across four buckets, the 8×A100 master that
+hosts *every* running process, the rating app, the Docker registry, and the Earth Engine
+assets behind the published public map. Plan and runbook: `computing/pdg_migration.md`.
+
+- **The campaign cannot outrun the cliff, so inference pauses.** `abruptthawmapping` has zero
+  A100/L4 quota and no credit, and the campaign is 9 % into 2022's S2 export and 3 % into
+  2019's. **Acquisition continues** — Planet ordering and the S2 export are server-side work
+  costing almost nothing in GCP, and they are the critical path; stopping them would throw
+  away months to save ~$100/month.
+- **Copy live, verify frozen.** A copy does not disturb its source, so the bulk moves while
+  everything runs; each producer then gets a short quiet window in which parity is measured
+  against a *stopped* source. Hours per producer, not the ten days a full pause would cost.
+- **Storage tiers by lifecycle** — imagery to Coldline, ~$230–300/mo instead of ~$1,100. One
+  counterintuitive exception: the 41.5 M per-tile prob COGs stay **Standard**, because the
+  colder classes bill a 128 KiB minimum per object and would cost ~10× more.
+- **Control moves to the desk.** The office PC `ARCHITECTURE` becomes the control node,
+  reaching VMs over IAP; unattended loops move to a small `rts-ops` VM. `computing/README.md`
+  is the new host-registry SSoT and `computing/control_node.md` the setup guide.
+- **Day-1 audit done:** the master's 762 GB of local disk is mostly mirrored or regenerable.
+  The real payload is **~7 GB** of unmirrored 2022 tile lists plus one **189 GB** judgement
+  call on the closed v2.1 MAE corpus. `pdg_migration.md` §3b.
+- **Open with the user:** whether to keep that MAE corpus; provisioning waits until
+  `ARCHITECTURE` is set up. Blocked on Heidi (owner): a Planet delivery SA key for the new
+  bucket, `roles/editor` and `roles/iap.tunnelResourceAccessor` for `yyang@`.
+- **Live-checkout hazard, recorded:** branching on the master pulled `interannual_inference/`
+  out from under cron for 40 min; the alerter announced 23 min late and the 2019 S2 export
+  died in that window on an unrelated transient EE 403 (restarted, resumed at 55/1799).
+  `rts-ops` will get a checkout that is never branch-switched. `pdg_migration.md` §4a.
+
+Prior: **2022 pilot passed; interannual run under way — `interannual_inference/` (branch `interannual-campaign`,
 2026-08-24).** The acquisition machinery built in August works: 2022 is downloaded, indexed and
 drift-checked, and the coordinator that will carry the remaining five years is built and tested.
 Runbooks: `interannual_inference/README.md` (us) · `planetscope-download/README.md` (Heidi).
