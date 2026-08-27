@@ -217,16 +217,22 @@ assets behind the published public map. Plan and runbook: `computing/pdg_migrati
 - **A `--no-address` VM has no egress, and the runbook never said so.** The fresh box could reach
   **nothing** — not GitHub, PyPI or apt, and *not `storage.googleapis.com`*, which would have
   stopped the Phase-B copy dead, since `rts-ops` must reach the GCS API to orchestrate it even
-  though the bytes move server-side. **Private Google Access is now enabled** (free, subnet flag)
-  and GCS/OAuth/Artifact Registry all answer, so the copy path works. **Cloud NAT is still needed**
-  for GitHub/PyPI/apt — i.e. to build and maintain the box, and for §4a's `git pull` workflow —
-  and is not created: ~$32/mo, egress-only so the no-inbound posture is unchanged, and it carries
-  no data charge for the copy because GCS prefers PGA. Commands in `pdg_migration.md` §4b step 5a.
-- **Next, and blocked on that: the box itself is bare.** It needs the §4b step-5 tail — a dedicated
-  checkout that is **never branch-switched** (§4a), venvs, Docker, `rts-dataprep:v1`, both ADCs
-  re-created *in place* (never copied), the Slack webhook, and the two cron entries. Every one of
-  those needs NAT. Until they land nothing unattended can move off the master, so Phase B cannot
-  start.
+  though the bytes move server-side. Fixed in two layers: **Private Google Access** (free, subnet
+  flag) restores the copy path, and **Cloud NAT** (~$32/mo, egress-only so the no-inbound posture
+  is unchanged) restores GitHub/PyPI/apt. GCS prefers PGA, so the copy carries no NAT data charge.
+  `pdg_migration.md` §4b step 5a.
+- **`rts-ops` is provisioned bar the credentials.** Checkout at `/opt/rts/RTSmapping_v2` tracking
+  **`main`** and never to be branch-switched (§4a), Docker 29.1.3, shared venv at `/opt/rts/venv`,
+  `rts-dataprep:v1` built and smoke-tested. `status.py` renders the campaign matrix and both
+  alerters run clean under `--dry-run`. A shared box also needed an explicit `rts` group — OS Login
+  gives each user a private uid/gid and puts nobody in `google-sudoers`, so **Heidi must be added
+  to it on her first login**. Outstanding and human-only: the user ADC on the box, the Slack
+  webhook file, and the two cron entries. `pdg_migration.md` §5b.
+- **The VM service account cannot stand in for the ADC** — `801926669176-compute@…` is 403 on both
+  PDG buckets, so the copy, the state mirror and Earth Engine all need `yyang@`'s ADC created *on
+  the box* (`--no-browser` device flow; never copy the credential file). Until it exists `status.py`
+  reads all-pending, because the real state lives in the GCS mirror — so **§5 gate row 5 cannot
+  pass yet**, and Phase B cannot start.
 - **Open with the user:** whether to keep the 189 GB MAE corpus. Still blocked on Heidi: a Planet
   delivery SA key for the new bucket, and licence confirmation.
 - **Live-checkout hazard, recorded:** branching on the master pulled `interannual_inference/`

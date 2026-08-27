@@ -338,10 +338,49 @@ the internet, and the reason for `--no-address` is unaffected. Note also that GC
 PGA once enabled, so the 34.5 TB copy generates **no NAT data charges** — the gateway's hourly rate
 is essentially the whole cost.
 
-Then, on the box: clone the repo, create the venvs, install Docker, rebuild
-`rts-dataprep:v1` from `computing/Dockerfile.dataprep`, re-create both ADCs with
-`gcloud auth application-default login` (never copy the credential files), restore the Slack
-webhook file, and install the two cron entries. Register it in [README.md](README.md).
+### 5b. On-box provisioning — state 2026-08-27
+
+| Item | Where | State |
+|---|---|---|
+| Repo checkout | `/opt/rts/RTSmapping_v2` | done — tracks **`main`** @ `9d438db`, **never branch-switch it** (§4a) |
+| Shared group | `rts` (gid 1002) | done — OS Login gives each user a private uid/gid and puts nobody in `google-sudoers`, so a shared box needs an explicit group. **Heidi must be added on her first login:** `sudo usermod -aG rts <her-oslogin-user>` |
+| Docker | apt `docker.io` 29.1.3 | done |
+| Shared venv | `/opt/rts/venv` (Python 3.10.12) | done — same dependency floors as `requirements.txt`; no torch, the box has no GPU |
+| `rts-dataprep:v1` | local image, 1.14 GB | done — built from `computing/Dockerfile.dataprep`, EE + geo imports smoke-tested |
+| Work dirs | `/mnt/outputs/{interannual_inference,planetscope-download}` | done |
+| **User ADC** | `~/.config/gcloud` per user | **NOT DONE — needs a human** |
+| **Slack webhook** | `/mnt/outputs/planetscope-download/slack_webhook` (mode 600) | **NOT DONE — secret** |
+| **Cron entries** | `/etc/cron.d/rts-{interannual-inference,acquisition-alert}` | **NOT DONE** |
+
+**The VM service account is not a substitute for the user ADC.** `801926669176-compute@…`
+returns **403 on both `pdg-planet-data` and `rts-mapping-v2-usw1`** — it belongs to
+`abruptthawmapping` and has no standing on PDG. So the copy, the state mirror and Earth Engine
+all need `yyang@`'s ADC created *on the box*. Never copy the credential file; on a headless host
+use the device flow:
+
+```bash
+gcloud auth application-default login --no-browser
+```
+
+Per-user ADCs for a shared box, per [README.md §6](README.md):
+`CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> gcloud auth application-default login --no-browser`.
+
+**Verified working without ADC:** `status.py` renders the year × stage matrix, and both alerters
+run clean under `--dry-run`. The matrix reads all-pending because local state is empty — the real
+state is in `gs://…/interannual_inference/state/`, so **§5 gate row 5 cannot pass until the ADC
+exists**. That is the check, not a fault.
+
+Cron content, ready to install (`$U` = the OS Login user that owns the ADC):
+
+```
+# /etc/cron.d/rts-interannual-inference
+*/10 * * * * $U cd /opt/rts/RTSmapping_v2 && /opt/rts/venv/bin/python interannual_inference/alert.py >> /mnt/outputs/interannual_inference/logs/alert.log 2>&1
+
+# /etc/cron.d/rts-acquisition-alert
+*/10 * * * * $U cd /opt/rts/RTSmapping_v2 && /opt/rts/venv/bin/python planetscope-download/alert_if_stopped.py >> /mnt/outputs/planetscope-download/alert.log 2>&1
+```
+
+Register the host in [README.md](README.md).
 
 ### 6. Verify before copying anything
 
