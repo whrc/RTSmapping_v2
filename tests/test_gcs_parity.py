@@ -22,10 +22,11 @@ Entry = gcs_parity.Entry
 
 
 class _FakeBlob:
-    def __init__(self, name: str, size: int, md5: str) -> None:
+    def __init__(self, name: str, size: int, md5: str, crc32c: str = "crc") -> None:
         self.name = name
         self.size = size
         self.md5_hash = md5
+        self.crc32c = crc32c
 
 
 class _FakeClient:
@@ -40,11 +41,11 @@ class _FakeClient:
 
 def _blobs(prefix: str, n: int, size: int = 100) -> list[_FakeBlob]:
     """n objects in lexicographic order, as GCS would list them."""
-    return [_FakeBlob(f"{prefix}obj{i:04d}", size, f"md5-{i}") for i in range(n)]
+    return [_FakeBlob(f"{prefix}obj{i:04d}", size, f"md5-{i}", f"crc-{i}") for i in range(n)]
 
 
 def _entries(n: int, size: int = 100) -> list[Entry]:
-    return [Entry(f"obj{i:04d}", size, f"md5-{i}") for i in range(n)]
+    return [Entry(f"obj{i:04d}", size, f"md5-{i}", f"crc-{i}") for i in range(n)]
 
 
 # ---------------------------------------------------------------- split_uri
@@ -84,9 +85,9 @@ def test_entries_skips_directory_placeholders():
     assert len(list(gcs_parity.entries(client, "gs://b/old"))) == 3
 
 
-def test_entries_tolerates_null_size_and_md5():
-    client = _FakeClient({"b/old/": [_FakeBlob("old/a", None, None)]})
-    assert list(gcs_parity.entries(client, "gs://b/old")) == [Entry("a", 0, "")]
+def test_entries_tolerates_null_size_and_checksums():
+    client = _FakeClient({"b/old/": [_FakeBlob("old/a", None, None, None)]})
+    assert list(gcs_parity.entries(client, "gs://b/old")) == [Entry("a", 0, "", "")]
 
 
 # ----------------------------------------------------------------- compare
@@ -123,7 +124,7 @@ def test_missing_object_at_the_start_is_caught():
 
 
 def test_extra_object_at_destination_is_reported():
-    dst = _entries(20) + [Entry("obj9999", 100, "md5-x")]
+    dst = _entries(20) + [Entry("obj9999", 100, "md5-x", "crc-x")]
     result = gcs_parity.compare(iter(_entries(20)), iter(dst))
     assert not result.ok
     assert result.extra == ["obj9999"]
@@ -132,7 +133,7 @@ def test_extra_object_at_destination_is_reported():
 def test_truncated_object_is_caught_by_size():
     """Same count, wrong bytes — the classic partial write."""
     dst = _entries(20)
-    dst[3] = Entry("obj0003", 1, "md5-3")
+    dst[3] = Entry("obj0003", 1, "md5-3", "crc-3")
     result = gcs_parity.compare(iter(_entries(20)), iter(dst))
     assert not result.ok
     assert result.differing == ["obj0003"]
@@ -141,7 +142,7 @@ def test_truncated_object_is_caught_by_size():
 def test_corrupt_object_is_caught_by_md5():
     """Same count AND same bytes — only the MD5 gives it away. Sampling would miss it."""
     dst = _entries(20)
-    dst[3] = Entry("obj0003", 100, "CORRUPT")
+    dst[3] = Entry("obj0003", 100, "CORRUPT", "crc-3")
     result = gcs_parity.compare(iter(_entries(20)), iter(dst))
     assert not result.ok
     assert result.differing == ["obj0003"]
@@ -150,7 +151,7 @@ def test_corrupt_object_is_caught_by_md5():
 def test_every_corruption_is_caught_not_just_a_sample():
     """The point of lockstep: 500 objects, all corrupt, none missed."""
     src = _entries(500)
-    dst = [Entry(e.name, e.size, "CORRUPT") for e in src]
+    dst = [Entry(e.name, e.size, "CORRUPT", e.crc32c) for e in src]
     result = gcs_parity.compare(iter(src), iter(dst))
     assert not result.ok
     assert len(result.differing) == gcs_parity.MAX_REPORTED  # reporting is capped…
@@ -189,3 +190,39 @@ def test_main_exits_nonzero_on_a_bad_copy(monkeypatch):
 
 def test_main_exits_nonzero_on_an_empty_destination(monkeypatch):
     assert _run_main(monkeypatch, {"b/old/": _blobs("old/", 20), "c/new/": []}) == 1
+
+
+# ---------------------------------------------------------------- composite objects
+
+
+def test_composite_objects_are_compared_on_crc32c_not_waved_through():
+    """GCS stores no md5Hash for composite objects; size alone must not pass them.
+
+    This is the 2026-08-28 finding: three hand-uploaded files in the t65 build (the
+    largest 3.6 GB) carried no MD5, so an MD5-only comparison saw "" == "" and would
+    have called a corrupt copy identical.
+    """
+    src = [Entry("big", 3_605_613_560, "", "zMHaaQ==")]
+    dst = [Entry("big", 3_605_613_560, "", "DIFFERENT")]
+    result = gcs_parity.compare(iter(src), iter(dst))
+    assert result.differing == ["big"]
+    assert not result.ok
+
+
+def test_composite_objects_matching_on_crc32c_pass():
+    src = [Entry("big", 3_605_613_560, "", "zMHaaQ==")]
+    dst = [Entry("big", 3_605_613_560, "", "zMHaaQ==")]
+    assert gcs_parity.compare(iter(src), iter(dst)).ok
+
+
+def test_no_shared_checksum_is_reported_not_assumed_equal():
+    """Absence of evidence is not agreement."""
+    src = [Entry("x", 10, "", "")]
+    dst = [Entry("x", 10, "", "")]
+    assert gcs_parity.compare(iter(src), iter(dst)).differing == ["x"]
+
+
+def test_md5_still_wins_when_both_sides_have_it():
+    src = [Entry("x", 10, "same", "crc-a")]
+    dst = [Entry("x", 10, "same", "crc-b")]
+    assert gcs_parity.compare(iter(src), iter(dst)).ok

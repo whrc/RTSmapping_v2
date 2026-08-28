@@ -13,7 +13,7 @@ Usage:
         --dst  gs://rts-arctic-usw1/inference/2025q3_south/probs
 
 Exit code is 0 only when the two sides hold exactly the same object names, sizes
-and MD5s. Needs GOOGLE_CLOUD_PROJECT set when running on bare ADC (the storage
+and checksums (MD5 where GCS stores one, CRC32C otherwise — see :func:`same_content`). Needs GOOGLE_CLOUD_PROJECT set when running on bare ADC (the storage
 client requires a quota project).
 """
 
@@ -42,6 +42,7 @@ class Entry(NamedTuple):
     name: str
     size: int
     md5: str
+    crc32c: str
 
 
 class Result(NamedTuple):
@@ -91,16 +92,37 @@ def entries(client: storage.Client, uri: str) -> Iterator[Entry]:
         placeholder objects are skipped.
     """
     bucket, prefix = split_uri(uri)
-    # name/size/md5Hash only: the default projection triples the listing cost.
+    # name/size/checksums only: the default projection triples the listing cost.
     blobs = client.list_blobs(
         bucket, prefix=f"{prefix}/" if prefix else None,
-        fields="items(name,size,md5Hash),nextPageToken",
+        fields="items(name,size,md5Hash,crc32c),nextPageToken",
     )
     cut = len(prefix) + 1 if prefix else 0
     for blob in blobs:
         if blob.name.endswith("/"):  # directory placeholder, not an object
             continue
-        yield Entry(blob.name[cut:], blob.size or 0, blob.md5_hash or "")
+        yield Entry(blob.name[cut:], blob.size or 0,
+                    blob.md5_hash or "", blob.crc32c or "")
+
+
+def same_content(a: Entry, b: Entry) -> bool:
+    """True when the strongest checksum both objects carry agrees.
+
+    GCS stores **no** ``md5Hash`` for composite objects — anything uploaded with a
+    parallel composite upload, which `gcloud storage cp` does automatically for large
+    files. Comparing MD5 alone would see ``"" == ""`` and call such a pair equal, so
+    the biggest objects in the migration would have been checked on *size only*.
+    Found 2026-08-28 on three hand-uploaded files in the t65 build (171 MB, 216 MB and
+    3.6 GB); they were in fact identical, but nothing here proved it.
+
+    CRC32C is always stored, so it is the fallback. If the two share no checksum at
+    all, that is reported rather than passed: absence of evidence is not agreement.
+    """
+    if a.md5 and b.md5:
+        return a.md5 == b.md5
+    if a.crc32c and b.crc32c:
+        return a.crc32c == b.crc32c
+    return False
 
 
 def compare(src: Iterator[Entry], dst: Iterator[Entry]) -> Result:
@@ -138,7 +160,7 @@ def compare(src: Iterator[Entry], dst: Iterator[Entry]) -> Result:
         else:
             src_count += 1; src_bytes += a.size
             dst_count += 1; dst_bytes += b.size
-            if (a.size, a.md5) != (b.size, b.md5) and len(differing) < MAX_REPORTED:
+            if (a.size != b.size or not same_content(a, b)) and len(differing) < MAX_REPORTED:
                 differing.append(a.name)
             a = next(src, None)
             b = next(dst, None)
