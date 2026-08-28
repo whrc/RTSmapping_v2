@@ -14,7 +14,7 @@
 //
 //                     loadGeoTIFF also only reads from buckets in US-CENTRAL1 (a
 //                     hard EE restriction - the source shards live in US-WEST1,
-//                     gs://rts-mapping-v2-usw1/...). They're mirrored read-only at
+//                     gs://rts-arctic-usw1/...). They're mirrored read-only at
 //                     gs://rts-arctic-usc1/ee_mirror/2025q3_south/products/
 //                     (US-CENTRAL1) purely so this script can read them; that
 //                     mirror is not a product deliverable, just an EE-readable copy.

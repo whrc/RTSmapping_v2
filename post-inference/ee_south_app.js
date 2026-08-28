@@ -2,8 +2,9 @@
 // Pan-Arctic South RTS map — public Earth Engine App source
 //
 // Publish (Code Editor UI): paste this script -> Apps button -> the existing
-// "south-rts-map" app -> Update. Cloud project abruptthawmapping (the assets
-// live in pdg-project-406720 but are public, so any project can host the app).
+// "south-rts-map" app -> Update. Cloud project abruptthawmapping, where the
+// assets now live too (migrated off pdg-project-406720 2026-08-28, ACLs mirrored
+// so they stay public — a private asset renders the app blank for viewers).
 //   https://abruptthawmapping.projects.earthengine.app/view/south-rts-map
 //
 // Assets-only (no live COG mosaic) — no bucket reads, no auth dependency, fast
@@ -521,7 +522,7 @@ panel.add(toggle);
 panel.add(controlsHolder);
 panel.add(ui.Label(
   'Model v2 (3-seed EffB5 ensemble, calibrated T=0.512321). Woodwell Climate. ' +
-  'Full products: gs://rts-mapping-v2-usw1/inference/2025q3_south/products/',
+  'Full products: gs://rts-arctic-usw1/inference/2025q3_south/products/',
   {fontSize: '10px', color: '#8a8a85', margin: '8px 0 0 0'}));
 ui.root.add(panel);
 
