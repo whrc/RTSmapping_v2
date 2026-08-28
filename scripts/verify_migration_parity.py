@@ -27,6 +27,7 @@ import argparse
 import json
 import logging
 import sys
+import time
 from dataclasses import dataclass, asdict
 from typing import Iterator
 
@@ -37,6 +38,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 API = "https://storage.googleapis.com/storage/v1/b"
+_MAX_RETRIES = 8
 
 # (label, source bucket, source prefix, dest bucket, dest prefix, frozen_required)
 PAIRS: list[tuple[str, str, str, str, str, bool]] = [
@@ -65,20 +67,21 @@ class Tally:
     bytes: int
 
 
-def _session() -> requests.Session:
-    """Return a session carrying ADC bearer credentials.
+def _session() -> google.auth.transport.requests.AuthorizedSession:
+    """Return a session that re-signs each request and refreshes its own token.
 
     Uses ADC (not the gcloud CLI credential) because on a GCE VM the CLI defaults to
     the attached service account, which has no standing on the PDG buckets -- see
     `pdg_migration.md` §5c.
+
+    `AuthorizedSession` rather than a bare `Session` with a fixed bearer header: the
+    biggest prefix here is ~42 M objects, which is ~42 k pages and takes far longer than
+    an access token lives. A static header would 401 partway through and lose the count.
     """
     creds, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/devstorage.read_only"]
     )
-    creds.refresh(google.auth.transport.requests.Request())
-    s = requests.Session()
-    s.headers["Authorization"] = f"Bearer {creds.token}"
-    return s
+    return google.auth.transport.requests.AuthorizedSession(creds)
 
 
 def _pages(session: requests.Session, bucket: str, prefix: str) -> Iterator[dict]:
@@ -92,8 +95,25 @@ def _pages(session: requests.Session, bucket: str, prefix: str) -> Iterator[dict
         }
         if token:
             params["pageToken"] = token
-        r = session.get(f"{API}/{bucket}/o", params=params, timeout=120)
-        r.raise_for_status()
+        # A multi-hour listing will meet transient resets and 5xx. Retry the page --
+        # the pageToken makes it idempotent, so this resumes rather than restarts.
+        for attempt in range(_MAX_RETRIES):
+            try:
+                r = session.get(f"{API}/{bucket}/o", params=params, timeout=120)
+                if r.status_code >= 500:
+                    raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
+                r.raise_for_status()
+                break
+            except (requests.RequestException, ConnectionError) as exc:
+                if attempt == _MAX_RETRIES - 1:
+                    logger.error("gs://%s/%s: giving up after %d retries: %s",
+                                 bucket, prefix, _MAX_RETRIES, exc)
+                    raise
+                wait = min(2 ** attempt, 30)
+                logger.warning("gs://%s/%s: %s -- retry %d/%d in %ds",
+                               bucket, prefix, type(exc).__name__, attempt + 1,
+                               _MAX_RETRIES, wait)
+                time.sleep(wait)
         page = r.json()
         yield page
         token = page.get("nextPageToken")
