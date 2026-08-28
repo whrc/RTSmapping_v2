@@ -120,12 +120,28 @@ cry wolf on every restart.
 ## Stopping
 
 ```bash
-touch /mnt/outputs/planetscope-download/status/STOP   # stops after the current step
+touch /mnt/outputs/planetscope-download/status/STOP   # prevents the next restart
 rm /mnt/outputs/planetscope-download/status/STOP      # then re-run run_year.sh to resume
 ```
 
+**The sentinel alone will not stop a run in progress** (learned the hard way,
+2026-08-28). `run_year.sh` checks it at the top of its supervision loop — that is,
+*between* restarts of the ordering step. But the ordering step is the multi-day one,
+and `order_basemaps.py` never looks at the sentinel, so "stops after the current
+step" can mean "in forty hours".
+
+To stop now, set the sentinel **first**, then end the ordering process — the sentinel
+is what stops the supervisor restarting it:
+
+```bash
+touch /mnt/outputs/planetscope-download/status/STOP
+pkill -f order_basemaps.py        # sudo if someone else started it
+```
+
 Resuming is always safe. Steps 1 and 2 skip if their output exists, and step 3
-lists what's already delivered and skips those quads.
+lists what's already delivered and skips those quads. A quad whose order was
+in flight when you stopped is either delivered (and skipped) or not (and
+re-ordered) — at worst you pay for one duplicate.
 
 ## When something goes wrong
 
