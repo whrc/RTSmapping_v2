@@ -96,10 +96,29 @@ rewritten. This table is how you read them.
 | `gs://rts-mapping-v2/RTS_MODEL_V21/…` | `gs://rts-arctic-us/experiments/v2.1/…` |
 | `gs://rts-mapping-v2/RTS_MODEL_V2_scale05/…` | `gs://rts-arctic-us/experiments/scale05/…` |
 | `gs://rts-mapping-v2/runs/…` | `gs://rts-arctic-us/experiments/v1.0/runs/…` |
-| `gs://pdg-planet-data/global_quarterly/<y>/q3/…` | `gs://rts-arctic-usw1/imagery/planet_q3/<y>/…` |
-| `gs://rts-mapping-v2-usw1/S2_RGB/<y>_<region>/…` | `gs://rts-arctic-usw1/imagery/s2_composites/<y>_<region>/…` |
+| `gs://pdg-planet-data/global_quarterly/<y>/q3/…` | `gs://rts-arctic-usw1/global_quarterly/<y>/q3/…` *(prefix unchanged — see below)* |
+| `gs://rts-mapping-v2-usw1/S2_RGB/<y>_<region>/…` | `gs://rts-arctic-usw1/S2_RGB/<y>_<region>/…` *(prefix unchanged — see below)* |
 | `gs://rts-mapping-v2-usw1/inference/…` | `gs://rts-arctic-usw1/inference/…` *(prefixes unchanged below the bucket)* |
 | `gs://rts-mapping-v2-usc1/ee_mirror/…` | `gs://rts-arctic-usc1/ee_mirror/…` *(unchanged below the bucket)* |
+
+**REVISED 2026-08-28 — nothing is renamed now; only the bucket changes.** The original map
+renamed Planet to `imagery/planet_q3/` and S2 to `imagery/s2_composites/`. With the deadline at
+08-31 that rename costs more than it buys:
+
+- **Planet's prefix is baked into the order CSV**, not just read from it —
+  `planetscope-download/filter_to_domain.py` writes `delivery_location` as
+  `global_quarterly/<y>/q3/<col>/<row>/`, Planet's servers deliver to exactly that, and
+  `list_delivered()` lists it to skip already-ordered quads. Renaming means regenerating the CSV
+  and re-verifying the skip logic on Heidi's running multi-day loop, inside 72 hours. As a bonus,
+  **Heidi's change becomes a single `--bucket` flag** — no new key, no new CSV, no code.
+- **S2's prefix is mid-export.** 2022 is 10 % delivered and 2019 3 %; the driver resumes by
+  listing what is already there.
+- This is the same reasoning §3 already used to leave `inference/` alone, applied consistently.
+
+The one argument for renaming was the Coldline lifecycle rule, which was scoped to `imagery/`.
+That is solved by widening the rule rather than moving 57 TB into a new shape: it now matches
+**`imagery/`, `global_quarterly/`, `S2_RGB/`** (applied 2026-08-28). `inference/` remains
+excluded — verified — because those 41.5 M ~2.5 KB objects would bill a 128 KiB minimum each.
 
 `inference/` keeps its internal layout deliberately. Those prefixes are read by `claim.py`,
 the crop server's prefix check, `chip_index`, the batch manifest and the shard queue;

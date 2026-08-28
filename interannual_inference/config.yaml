@@ -20,11 +20,11 @@ paths:
 
   # Planet basemap quads, as delivered by the Orders API (raw, un-renamed layout).
   planet_bucket: rts-arctic-usw1
-  planet_prefix: imagery/planet_q3/{year}/
+  planet_prefix: global_quarterly/{year}/q3/
 
   # Sentinel-2 composites — the NDVI source read on the fly at inference.
   s2_bucket: rts-arctic-usw1
-  s2_prefix: imagery/s2_composites/{year}_south
+  s2_prefix: S2_RGB/{year}_south
 
   inference_base: gs://rts-arctic-usw1/inference/{year}q3_south
 

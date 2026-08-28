@@ -33,6 +33,15 @@ foreach ($b in $sinks) {
     gcloud storage buckets add-iam-policy-binding "gs://$b" --member=$STS --role=roles/storage.legacyBucketWriter --quiet | Out-Null
 }
 
+# --- Planet delivery: the SAME service account Heidi already orders with ---
+# planet-orders@ already holds storage.objectUser on pdg-planet-data and has a
+# user-managed key from 2023 that is in use right now. It simply has no standing on
+# the new bucket. Grant that, and the PDG_PL_ORDERS_KEY Heidi already types keeps
+# working - no new key, and nothing needed from Planet.
+$PLANET = "serviceAccount:planet-orders@abruptthawmapping.iam.gserviceaccount.com"
+Write-Host "planet  gs://rts-arctic-usw1"
+gcloud storage buckets add-iam-policy-binding gs://rts-arctic-usw1 --member=$PLANET --role=roles/storage.objectUser --quiet | Out-Null
+
 # --- verify: every bucket must list the agent, or the transfer fails at run time, not create time ---
 Write-Host "`n--- verification ---"
 foreach ($b in ($sources + $sinks)) {
