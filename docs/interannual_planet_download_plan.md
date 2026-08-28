@@ -275,6 +275,34 @@ substantial by directory count, but it holds only ~8.8% of 2025's quad density i
 columns it covers, and 296 of 2025's columns are missing from it entirely — it is an ARTS-site
 subset, not a mapping layer. Same for the 2019/2021/2023 trees there.
 
+## 5a. Outcome — 2022, the pilot year (completed 2026-08-24)
+
+The pilot's job was to settle retry behaviour, delivery layout and drift before committing five more
+years. It did, and all three answers were useful.
+
+**309,109 quads ordered in 131.6 h at 39.1 orders/min, 0 failed, 0 supervisor restarts.** The retry
+policy absorbed **92 transient failures**, and the composition matters: **84 of them were HTTP 400s
+carrying a GCS 500/503**. That validates [§3.5](#35-bounded-retries-and-never-abandoning-the-run-her-change-4)'s
+decision to retry 400s rather than treat them as client errors — a strict reading of the status code
+would have abandoned 84 quads. Two quads Planet never delivered (`1610-1516`, and `622-1604` which
+returned an empty manifest) = **0.0006 %**, against ~0.05 % missing over land in 2025.
+
+**The rename really was unnecessary — now observed, not merely reasoned.** `build_quad_index` run
+against the raw delivery returned **309,107 quads from 1,854,688 objects**, reconciling against orders
+placed at **0.00 % off**, with paths of the form
+`…/2022/q3/0/1515/<uuid>/global_quarterly_2022q3_mosaic/0-1515_quad_file_format.tif`. This was
+[§3.6](#36-dropping-the-rename--which-removes-two-of-her-four-problems-her-changes-2-and-3)'s stated
+first check and the one claim there that had only ever been verified by reading code. **Heidi never
+has to run the rename or delete passes** — the two changes she found hardest.
+
+*(The 2022 radiometric-drift question turned out to be a mis-calibrated gate rather than bad imagery;
+that finding is `inference/inference.md` §5.4, which owns it.)*
+
+**2019 is the second year** and was stopped mid-run at 215,443 / 308,686 (69.8 %, 0 failed) on
+2026-08-28 — not a fault, but because it was ordering into `pdg-planet-data`, which is retired on
+2026-08-31. It resumes on `rts-ops` against `gs://rts-arctic-usw1` with the same two keys; see
+`computing/cutover_runbook.md` §3.
+
 ## 6. Decisions
 
 Answered by Heidi in the PR #61 review, 2026-08-17.
