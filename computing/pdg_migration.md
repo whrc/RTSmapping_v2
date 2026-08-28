@@ -348,9 +348,33 @@ is essentially the whole cost.
 | Shared venv | `/opt/rts/venv` (Python 3.10.12) | done — same dependency floors as `requirements.txt`; no torch, the box has no GPU |
 | `rts-dataprep:v1` | local image, 1.14 GB | done — built from `computing/Dockerfile.dataprep`, EE + geo imports smoke-tested |
 | Work dirs | `/mnt/outputs/{interannual_inference,planetscope-download}` | done |
-| **User ADC** | `~/.config/gcloud` per user | **NOT DONE — needs a human** |
+| **User ADC** | `~/.config/gcloud` per user | done 2026-08-28 — `yyang@`, mode 600, quota project `abruptthawmapping`, reads all three PDG buckets |
 | **Slack webhook** | `/mnt/outputs/planetscope-download/slack_webhook` (mode 600) | **NOT DONE — secret** |
 | **Cron entries** | `/etc/cron.d/rts-{interannual-inference,acquisition-alert}` | **NOT DONE** |
+
+### 5c. `gcloud` CLI and ADC are different credentials — the copy needs both
+
+**Found 2026-08-28.** §4's copy method says the copy runs "from `rts-ops` under `yyang@`'s ADC".
+That is true of Python, and **false of the `gcloud` CLI**. On a GCE VM the CLI defaults to the
+attached service account and ignores ADC entirely, so with ADC correctly installed:
+
+```
+gcloud config get-value account   ->  801926669176-compute@developer.gserviceaccount.com
+gcloud storage ls gs://rts-mapping-v2-usw1/…   ->  403
+python -c "from google.cloud import storage; …"  ->  200   (same box, same moment)
+```
+
+So `gcloud storage cp`/`rsync` — the tool the runbook actually specifies for the 34.5 TB — would
+have run as the wrong identity and failed on every PDG read. **The box needs a second login:**
+
+```bash
+gcloud auth login                 # CLI credential, separate from ADC
+gcloud config set account yyang@woodwellclimate.org
+```
+
+Do not paper over this with `CLOUDSDK_AUTH_ACCESS_TOKEN=$(gcloud auth application-default
+print-access-token)`. It works, and the token expires in an hour — fine for a probe, useless for a
+multi-day copy. `gcloud auth login` stores a refresh token that renews itself.
 
 **The VM service account is not a substitute for the user ADC.** `801926669176-compute@…`
 returns **403 on both `pdg-planet-data` and `rts-mapping-v2-usw1`** — it belongs to
@@ -380,6 +404,13 @@ Cron content, ready to install (`$U` = the OS Login user that owns the ADC):
 */10 * * * * $U cd /opt/rts/RTSmapping_v2 && /opt/rts/venv/bin/python planetscope-download/alert_if_stopped.py >> /mnt/outputs/planetscope-download/alert.log 2>&1
 ```
 
+**Do not start cron on `rts-ops` while the master's cron is still running.** Both alerters are
+announce-once against their *own* `alerts_seen.json`, and `rts-ops` has an empty one — so two live
+alerters means every open incident is announced twice, and at cutover a second `drive.py` could act
+on a stage the master already owns. Install the cron entries as part of the Phase-C cutover for
+that producer, not before. The state seeded here is a snapshot for verification; re-sync it from
+the mirror at cutover.
+
 Register the host in [README.md](README.md).
 
 ### 6. Verify before copying anything
@@ -404,7 +435,7 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 | 2 | `gcloud storage hash` on 200 random objects per leg, plus *all* of `packages/seed{42,43,44}` and `normalization_stats.json` | — |
 | 3 | Frozen-model reload — migrated packages reproduce the recorded 3-seed anchor (`anchors_all_match: true`) | — |
 | 4 | No dead references — repo grep for old bucket/project names returns only historical prose | — |
-| 5 | Cold start on `rts-ops` over IAP; `status.py` reproduces the campaign grid; a dry-run stage resolves; survives a reboot | — |
+| 5 | Cold start on `rts-ops` over IAP; `status.py` reproduces the campaign grid; a dry-run stage resolves; survives a reboot | **PASS** 2026-08-28 — grid matches (2022 `s2_export` ▶10 %, 2019 ▶3 %); `run_stage.py` refused `s2_index` naming `s2_export`, `drive.py` stopped at the same point and recognised the detached export; rebooted 08:45:23, Docker/ADC/venv/state/IAP all intact |
 | 6 | Live acquisition unbroken — `check_status.py` advancing into the new bucket, `ord/min` back at 38–39 | — |
 | 7 | Review app end-to-end on the new host — rater page, 301 batches / 60,167 items, a crop served, manifest still 404, claim → submit → idempotent retry → 409 | — |
 | 8 | Public EE map renders from the new assets and the new usc1 mirror | — |

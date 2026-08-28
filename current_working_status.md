@@ -228,11 +228,23 @@ assets behind the published public map. Plan and runbook: `computing/pdg_migrati
   gives each user a private uid/gid and puts nobody in `google-sudoers`, so **Heidi must be added
   to it on her first login**. Outstanding and human-only: the user ADC on the box, the Slack
   webhook file, and the two cron entries. `pdg_migration.md` §5b.
-- **The VM service account cannot stand in for the ADC** — `801926669176-compute@…` is 403 on both
-  PDG buckets, so the copy, the state mirror and Earth Engine all need `yyang@`'s ADC created *on
-  the box* (`--no-browser` device flow; never copy the credential file). Until it exists `status.py`
-  reads all-pending, because the real state lives in the GCS mirror — so **§5 gate row 5 cannot
-  pass yet**, and Phase B cannot start.
+- **Gate row 5 PASSES (2026-08-28).** `yyang@`'s ADC is on the box (mode 600, quota project
+  `abruptthawmapping`, reads all three PDG buckets), and with the state seeded from the mirror
+  `status.py` reproduces the real campaign grid — 2022 `s2_export` ▶10 %, 2019 ▶3 %, matching the
+  master. `run_stage.py` correctly refused `s2_index` naming `s2_export` as the missing
+  prerequisite, and `drive.py` walked to the same point and recognised the detached export rather
+  than restarting it. Rebooted at 08:45:23: Docker, ADC, venv, checkout, state and IAP all intact.
+- **`gcloud` CLI and ADC are different credentials, and §4's copy method conflated them.** On a GCE
+  VM the CLI defaults to the attached service account and ignores ADC, so on the same box at the
+  same moment `gcloud storage ls` on a PDG bucket returned **403** while Python's
+  `google.cloud.storage` returned **200**. Since the runbook specifies `gcloud storage cp`/`rsync`
+  for the 34.5 TB, the copy would have failed on every PDG read. **The box needs a second login**
+  (`gcloud auth login` as `yyang@`) — not a `CLOUDSDK_AUTH_ACCESS_TOKEN` export, whose token dies
+  in an hour. That is the last thing standing between here and Phase B. `pdg_migration.md` §5c.
+- **The state mirror is write-only by design** — `_mirror()` uploads, `load()` reads local, there is
+  no restore path. Seeding `rts-ops` means pulling the four year files down, which is safe only
+  while cron is off: two live alerters would double-announce every open incident against their own
+  `alerts_seen.json`. **Install cron at Phase-C cutover, not before**, and re-sync state then.
 - **Open with the user:** whether to keep the 189 GB MAE corpus. Still blocked on Heidi: a Planet
   delivery SA key for the new bucket, and licence confirmation.
 - **Live-checkout hazard, recorded:** branching on the master pulled `interannual_inference/`
