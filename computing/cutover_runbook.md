@@ -17,13 +17,23 @@ Nothing else in the migration can lose data. These can:
 
 | Writer | Writes to | Owned by | Frozen at |
 |---|---|---|---|
-| S2 export driver | `rts-mapping-v2-usw1/S2_RGB/` | us, `tmux` on the master | §2 |
+| ~~S2 export driver~~ | `rts-mapping-v2-usw1/S2_RGB/` | us, `tmux` on the master | **stopped 2026-08-28** (§2) |
 | Planet order loop | `pdg-planet-data/global_quarterly/` | Heidi | §3 |
 | Review app | `rts-mapping-v2-usw1/inference/2025q3_south/review/` | reviewers, continuously | §4 |
 
-Each is *live*, so each already shows a byte mismatch against its copy — object counts match, byte
-totals do not. **That is the source moving, not the copy failing.** S2 measured +780 MB drift on
-2026-08-28 with counts identical at 14,780.
+Each is *live*, so each already mismatches its copy. **That is the source moving, not the copy
+failing** — but the two acquisition legs move in different ways, and the difference decides what
+the final sync has to do (measured 2026-08-28):
+
+- **S2 rewrites in place.** Counts are *identical* (14,780 = 14,780) and 823 MB of bytes differ, and
+  the drift grows between measurements. A count-only check passes this falsely. The delta-sync
+  **must** carry `--overwrite-when=different`; a plain "copy what's missing" sync would copy nothing
+  and leave stale composites behind.
+- **Planet appends.** Counts differ (src 4,953,262 vs dst 4,939,100) and the destination count is
+  *exactly* what the `planet-quads` job reported copying, so nothing was dropped — 14,162 new quads
+  (+97.2 GB) landed after the job listed the source.
+
+So a **count** difference on `planet` before the freeze is expected; on `s2` it would not be.
 
 ---
 
@@ -36,22 +46,35 @@ gcloud compute instances list --project=abruptthawmapping
 gcloud compute instances list --project=pdg-project-406720
 ```
 
-Expect `inference`, `experiments`, `ee_mirror`, `ee_staging`, `interannual` to MATCH, and `s2` /
-`planet` to MISMATCH on bytes only. If an object **count** differs on a frozen prefix, stop and
-find out why before going further.
+`experiments`, `ee_mirror`, `ee_staging` and `interannual` already MATCH exactly (2026-08-28) and
+should still. `s2` and `planet` mismatch until frozen, in the two distinct ways §0 describes. If an
+object **count** differs on any *frozen* prefix, stop and find out why before going further.
 
-## 2. Freeze the S2 export
+## 2. S2 export — DONE 2026-08-28, abandoned on instruction
 
-```bash
-ssh a100-8x-train
-tmux ls                      # find the export session
-tmux attach -t 0             # Ctrl-C the driver, or touch its STOP sentinel
+**No longer a cutover step.** The export is stopped and will not be restarted; resuming it
+(and against which bucket) is a later decision, deliberately deferred.
+
+Stopping the driver was not enough, and this is the part worth remembering: the driver only
+*submits* `Export.image.toCloudStorage` tasks — Earth Engine's servers do the writing. Killing it
+left **2,000 PENDING tasks** queued (373 for 2019, the rest 2022) that would have gone on writing
+into `rts-mapping-v2-usw1` right up to deletion, and failed after it. So:
+
+```
+kill <run_stage.py>                      # the interannual driver
+sudo docker stop <export container>      # the driver runs inside it
+ee.data.cancelOperation(name)  × 2,000   # the queue, which is the real writer
 ```
 
-The export is resumable and 2022 is only ~10 % delivered, so stopping costs nothing but the
-in-flight cells. **Do not** kill the whole tmux server — Heidi's work may share it.
+All 2,000 cancelled, 0 failures, no active EE task remains. `S2_RGB/` is now **frozen**, so its
+parity can be measured for real.
 
-Then delta-sync and verify against the now-frozen source:
+A second thing surfaced while cancelling: `abruptthawmapping` is in Earth Engine **restricted
+mode** ("exceeded the compute quota of its noncommercial tier"). That is why 1,999 tasks sat
+PENDING behind a single RUNNING one — the export was not going to finish on this schedule
+whatever we did. Anything that resumes S2 has to resolve the EE quota first.
+
+Remaining for this leg — one delta-sync against the frozen source, then verify:
 
 ```powershell
 gcloud transfer jobs create gs://rts-mapping-v2-usw1 gs://rts-arctic-usw1 `
@@ -59,16 +82,12 @@ gcloud transfer jobs create gs://rts-mapping-v2-usw1 gs://rts-arctic-usw1 `
     --overwrite-when=different
 ```
 ```bash
-python scripts/verify_migration_parity.py --pair s2      # must now MATCH on bytes too
+python scripts/gcs_parity.py --src gs://rts-mapping-v2-usw1/S2_RGB --dst gs://rts-arctic-usw1/S2_RGB
 ```
 
-Restart the export **against the new bucket** only after that passes. `interannual_inference/config.yaml`
-already points at `gs://rts-arctic-usw1`, so on `rts-ops`:
-
-```bash
-cd /opt/rts/RTSmapping_v2 && git pull            # picks up the repointed config
-python interannual_inference/drive.py --year 2022
-```
+The pre-freeze measurement showed **identical counts (14,780) with 5 objects differing** on
+size/MD5, all under `2019_south/` — exactly the cells being rewritten. `--overwrite-when=different`
+is what carries them; a "copy what's missing" sync would copy nothing.
 
 ## 3. Freeze Planet acquisition (needs Heidi)
 

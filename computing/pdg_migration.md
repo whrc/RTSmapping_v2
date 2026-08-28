@@ -162,6 +162,14 @@ So Phase E's real payload is **~7 GB that must be uploaded** (the 2022 tile list
 **189 GB judgement call** (the MAE corpus), and a verification pass over everything else.
 That is a very different afternoon from "drain 762 GB".
 
+**A gap in this table, found 2026-08-28.** It walks the big trees and misses a small one:
+`/mnt/outputs/planetscope-download/` — Heidi's acquisition state (step-1/2 grid geojson, per-year
+`status/*.json` progress, `logs/`). Tens of MB, so it never showed up in a `du`-driven audit, but
+it is her *resume* state and the step-1 geojson costs Planet API listings to regenerate. Now
+mirrored to `gs://rts-arctic-usw1/planetscope-download/` and restored onto `rts-ops`. The lesson is
+that "what is large" and "what is unreproducible" are different questions, and only the second one
+gates deletion.
+
 **The MAE corpus decision.** Precedent exists: the five 26 GB sat-7B dead-arm checkpoints were
 deliberately dropped in the 2026-07-16 cleanup, with the rationale recorded in
 `artifact_inventory.md`. The corpus is the same shape of decision at 189 GB — a closed
@@ -410,8 +418,10 @@ is essentially the whole cost.
 | `rts-dataprep:v1` | local image, 1.14 GB | done — built from `computing/Dockerfile.dataprep`, EE + geo imports smoke-tested |
 | Work dirs | `/mnt/outputs/{interannual_inference,planetscope-download}` | done |
 | **User ADC** | `~/.config/gcloud` per user | done 2026-08-28 — `yyang@`, mode 600, quota project `abruptthawmapping`, reads all three PDG buckets |
-| **Slack webhook** | `/mnt/outputs/planetscope-download/slack_webhook` (mode 600) | **NOT DONE — secret** |
-| **Cron entries** | `/etc/cron.d/rts-{interannual-inference,acquisition-alert}` | **NOT DONE** |
+| **Slack webhook** | `/mnt/outputs/planetscope-download/slack_webhook` (mode 600) | done 2026-08-28 — moved host-to-host from the master through a pipe, never written to a bucket or displayed |
+| **Cron entries** | `/etc/cron.d/planetscope-acquisition` | done 2026-08-28 — acquisition alerter installed and dry-run clean. The interannual one is deliberately **not** installed: the S2 export is abandoned (cutover §2) and the campaign has nothing to alert on yet |
+| **Acquisition venv** | `/mnt/outputs/planetscope-venv` | done 2026-08-28 — geopandas 1.1.4 / shapely 2.1.2; the box had none, so Heidi could not have run there |
+| **Acquisition work dir** | `/mnt/outputs/planetscope-download/{data,status,logs}` | done 2026-08-28 — restored from the master (see §3b) |
 
 ### 5c. `gcloud` CLI and ADC are different credentials — the copy needs both
 
@@ -531,9 +541,9 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 
 | # | Check | Result |
 |---|---|---|
-| 1 | Parity per prefix — object count and total bytes, source vs destination. Acquisition prefixes must use the **frozen** Phase-C measurement, not the provisional Phase-B one | — |
-| 2 | `gcloud storage hash` on 200 random objects per leg, plus *all* of `packages/seed{42,43,44}` and `normalization_stats.json` | **PARTIAL** 2026-08-28 — the deployment packages are done: **all 18 objects MD5-identical, 0 mismatch**, including all three seed `weights.pth` and the shared `normalization_stats.json` (`yC/MH+H/nMKn7WrfhDJ26w==`, same across seeds). The 200-random-per-leg sample still to run once `inference-cogs` finishes. |
-| 3 | Frozen-model reload — migrated packages reproduce the recorded 3-seed anchor (`anchors_all_match: true`) | — |
+| 1 | Parity per prefix — object count and total bytes, source vs destination. Acquisition prefixes must use the **frozen** Phase-C measurement, not the provisional Phase-B one | **PARTIAL** 2026-08-28 — four legs **MATCH exactly** on both count and bytes: `experiments` 253,035 obj / 272.81 GB, `ee_mirror` 4,061 / 13.99 GB, `ee_staging` 3 / 71.19 MB, `interannual` 4 / 7,538 B. The two live acquisition legs mismatch as designed, and *how* they mismatch is the evidence: **`planet`** src 4,953,262 obj vs dst 4,939,100 — the destination count is *exactly* the `planet-quads` job's `copied=4939100`, so nothing was dropped; Heidi's loop has delivered 14,162 further quads (+97.2 GB) since the job listed the source. **`s2`** has *identical* counts (14,780 = 14,780) and 822.75 MB of byte drift, i.e. the export driver is **rewriting existing composites**, not appending new ones — a count-only check would have passed this falsely, and `--overwrite-when=different` on the final sync is therefore mandatory, not cosmetic. `inference` (42.3 M obj) still counting. Re-measure both acquisition legs after the freeze (cutover §2, §3). |
+| 2 | `gcloud storage hash` on 200 random objects per leg, plus *all* of `packages/seed{42,43,44}` and `normalization_stats.json` | **PARTIAL** 2026-08-28 — deployment packages: **all 18 objects MD5-identical, 0 mismatch**, including all three seed `weights.pth` and the shared `normalization_stats.json` (`yC/MH+H/nMKn7WrfhDJ26w==`, same across seeds). Random sample via `scripts/sample_hash_check.py` (reservoir, seed 42, so a re-run checks the same objects): **604 objects, 0 differ, 0 missing** — `s2` 200/200, `experiments` 200/200, `ee_mirror` 200/200, `interannual` 4/4 and `ee_staging` 3/3 (both sampled exhaustively — the legs are smaller than the sample). `planet` and `inference` still running. |
+| 3 | Frozen-model reload — migrated packages reproduce the recorded 3-seed anchor | **PASS** 2026-08-28 — `scripts/verify_frozen_model.py`. Anchored on something stronger than the plan assumed: every shard manifest written during the production run records `model_checkpoint_sha`, the SHA256 of each seed's `weights.pth` **as loaded on 2026-07-07**. All three migrated packages match it — seed42 `e0ffdbff…`, seed43 `335aeedd…`, seed44 `fa4866cd…` — so the migrated weights are tied to the delivered map through a hash neither copy could have influenced, not merely to whatever sat in PDG. 25 manifests spread across the 1,000-shard run agree on one ensemble triple (a disagreement would have meant the map was not the product of a single model), and each package's `deployment_config.yaml` still carries the delivered calibration: threshold 0.65, temperature 0.512321, matching the manifests. |
 | 4 | No dead references — repo grep for old bucket/project names returns only historical prose | **PASS** 2026-08-28 — every *live default* repointed across 24 files: argparse defaults, shell `${VAR:-…}` fallbacks, module constants, `cloudbuild.yaml`, and the EE `--project` defaults. Remaining hits are docstrings, comments, `configs/*.yaml` (kept per §3) and test fixtures — i.e. exactly the historical prose this row allows. `stages.py` was already safe: it passes every bucket explicitly from `cfg["paths"]`, so the live campaign path never used those defaults — but anything run by hand after 08-31 would have silently targeted a dead project. 71 tests pass over the changed code. |
 | 5 | Cold start on `rts-ops` over IAP; `status.py` reproduces the campaign grid; a dry-run stage resolves; survives a reboot | **PASS** 2026-08-28 — grid matches (2022 `s2_export` ▶10 %, 2019 ▶3 %); `run_stage.py` refused `s2_index` naming `s2_export`, `drive.py` stopped at the same point and recognised the detached export; rebooted 08:45:23, Docker/ADC/venv/state/IAP all intact |
 | 6 | Live acquisition unbroken — `check_status.py` advancing into the new bucket, `ord/min` back at 38–39 | — |
