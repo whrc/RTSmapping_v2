@@ -66,7 +66,7 @@ def main() -> int:
     ap.add_argument("--rgb-dir", required=True, type=Path)
     ap.add_argument("--labels-dir", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--project", default="pdg-project-406720")
+    ap.add_argument("--project", default="abruptthawmapping")
     ap.add_argument("--pca-tiles", type=int, default=120, help="random tiles sampled for PCA fit")
     ap.add_argument("--pca-px-per-tile", type=int, default=2000)
     ap.add_argument("--proto-tiles", type=int, default=400, help="random positive tiles for the prototype")

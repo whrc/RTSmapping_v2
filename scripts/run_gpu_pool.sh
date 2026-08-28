@@ -27,7 +27,7 @@
 # Requires bash >= 4.3 (wait -n).
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-IMAGE="us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2"
+IMAGE="us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-train:v2"
 ADC="${ADC_PATH:-$HOME/.config/gcloud/application_default_credentials.json}"
 PATCH='sed -i "s/LayerId = cv2.dnn.DictValue/LayerId = object/" /usr/local/lib/python3.10/dist-packages/cv2/typing/__init__.py 2>/dev/null || true'
 
@@ -73,7 +73,7 @@ run_one() {  # $1=name  $2=gpu  — one container to completion (blocking; calle
       -v "${HF_CACHE}:/root/.cache/huggingface" -e HF_HOME=/root/.cache/huggingface \
       -v "${ADC}:/gcp_adc.json:ro" \
       -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
-      -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
+      -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-abruptthawmapping}" \
       -e MLFLOW_TRACKING_URI="file://${HOTROOT_C}/mlflow/${name}" \
       -e GDAL_HTTP_MAX_RETRY=3 -e GDAL_HTTP_RETRY_DELAY=1 \
       --entrypoint bash "$IMAGE" \

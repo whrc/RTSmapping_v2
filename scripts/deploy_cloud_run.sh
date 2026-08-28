@@ -25,14 +25,14 @@
 #   scripts/deploy_cloud_run.sh reviewer1@woodwellclimate.org reviewer2@...
 set -euo pipefail
 
-PROJECT="${REVIEW_PROJECT:-pdg-project-406720}"
+PROJECT="${REVIEW_PROJECT:-abruptthawmapping}"
 REGION="${REVIEW_REGION:-us-west1}"          # same region as the bucket
 SERVICE="${REVIEW_SERVICE:-rts-review}"
-BUCKET="${REVIEW_BUCKET:-rts-mapping-v2-usw1}"
+BUCKET="${REVIEW_BUCKET:-rts-arctic-usw1}"
 PREFIX="${REVIEW_PREFIX:-inference/2025q3_south/review}"
 CROPS="${REVIEW_CROP_PREFIX:-inference/2025q3_south/internal/review_crops}"
 MANIFEST="${REVIEW_MANIFEST:-gs://$BUCKET/$PREFIX/manifest.parquet}"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT/pdg-artifact-registry/rts-review:v1"
+IMAGE="$REGION-docker.pkg.dev/$PROJECT/rts/rts-review:v1"
 SA="rts-review-app@$PROJECT.iam.gserviceaccount.com"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

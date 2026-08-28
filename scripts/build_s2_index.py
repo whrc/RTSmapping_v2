@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--bucket", default="rts-mapping-v2-usw1")
+    p.add_argument("--bucket", default="rts-arctic-usw1")
     p.add_argument("--prefix", default="S2_RGB/2025_south")
     p.add_argument("--output", required=True, type=Path)
     args = p.parse_args()

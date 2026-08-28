@@ -46,10 +46,10 @@ from data.splits import load_splits_yaml  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("restage_v1")
 
-PROJECT = "pdg-project-406720"
+PROJECT = "abruptthawmapping"
 SRC_BUCKET = "abrupt_thaw"
 SRC_PREFIX = "RTS_MODEL_V2/DATA/TRAINING_DATA/"
-DST_BUCKET = "rts-mapping-v2"
+DST_BUCKET = "rts-arctic-us"
 DST_PREFIX = "training/v1.0/"
 KNOWN_ISSUES = "/outputs/v1.0/qc/known_issues_v1.0.json"
 

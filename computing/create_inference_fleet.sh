@@ -24,12 +24,12 @@
 #   bash computing/create_inference_fleet.sh
 set -euo pipefail
 
-PROJECT="${PROJECT:-pdg-project-406720}"
+PROJECT="${PROJECT:-abruptthawmapping}"
 ZONE="${ZONE:-us-west1-a}"
 MACHINE="${MACHINE:-g2-standard-96}"          # 8x L4 inherent to the machine type
 GPUS_PER_VM="${GPUS_PER_VM:-8}"
 N_VMS="${N_VMS:-3}"                            # safe default given the 31 schedulable L4
-IMAGE="${IMAGE:-us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-infer:v1}"
+IMAGE="${IMAGE:-us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-infer:v1}"
 DL_WORKERS="${DL_WORKERS:-8}"                  # DataLoader workers per GPU worker
 # DLVM image with NVIDIA drivers + Docker + nvidia-container-toolkit preinstalled.
 # (common-cu123 was retired by Google — family verified live 2026-07-05 audit.)

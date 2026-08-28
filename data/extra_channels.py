@@ -104,7 +104,7 @@ def band_norm_mode(band: int) -> str:
     raise ValueError(f"band {band} is not in any EXTRA group (0-{N_EXTRA_BANDS - 1})")
 
 
-def init_ee(project: str = "pdg-project-406720") -> None:
+def init_ee(project: str = "abruptthawmapping") -> None:
     """Initialize Earth Engine via ADC against the high-volume endpoint."""
     import ee
     ee.Initialize(project=project,

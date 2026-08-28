@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_s2_index(
-    bucket: str = "rts-mapping-v2-usw1",
+    bucket: str = "rts-arctic-usw1",
     prefix: str = "S2_RGB/2025_south",
 ) -> pd.DataFrame:
     """List the bucket and build the S2 composite index (one row per COG).

@@ -140,7 +140,7 @@ def main() -> int:
                    help="table: local GPKG. image: gs:// URI of the GeoTIFF")
     p.add_argument("--asset", required=True, help="destination EE asset id")
     p.add_argument("--staging", help="gs:// prefix for the shapefile (tables)")
-    p.add_argument("--project", default="pdg-project-406720")
+    p.add_argument("--project", default="abruptthawmapping")
     p.add_argument("--pyramiding", default=None, help="image only, e.g. MEAN")
     p.add_argument("--nodata", default=None, help="image only, e.g. -1")
     p.add_argument("--work-dir", type=Path, default=Path("/tmp/ee_ingest"))

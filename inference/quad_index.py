@@ -63,7 +63,7 @@ def quad_bounds(x: int, y: int) -> tuple[float, float, float, float]:
 
 
 def build_quad_index(
-    bucket: str = "pdg-planet-data",
+    bucket: str = "rts-arctic-usw1",
     prefix: str = "global_quarterly/2025/q3/",
 ) -> pd.DataFrame:
     """List the bucket and build the quad index (one row per quad id).

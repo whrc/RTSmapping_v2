@@ -91,7 +91,7 @@ def main() -> int:
     args = ap.parse_args()
 
     from google.cloud import storage
-    proj = os.environ.get("GOOGLE_CLOUD_PROJECT", "pdg-project-406720")
+    proj = os.environ.get("GOOGLE_CLOUD_PROJECT", "abruptthawmapping")
     client = storage.Client(project=proj)
 
     meta = pd.read_csv(f"{args.data_root}/metadata.csv")

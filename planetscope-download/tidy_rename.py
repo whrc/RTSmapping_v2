@@ -61,7 +61,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--year", type=int, required=True)
-    p.add_argument("--bucket", default="pdg-planet-data")
+    p.add_argument("--bucket", default="rts-arctic-usw1")
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()

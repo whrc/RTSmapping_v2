@@ -22,8 +22,8 @@ from google.cloud import storage
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("stage_local")
 
-PROJECT = "pdg-project-406720"
-BUCKET = "rts-mapping-v2"
+PROJECT = "abruptthawmapping"
+BUCKET = "rts-arctic-us"
 PREFIX = "training/v1.0/"
 SUBDIRS = ("PLANET-RGB", "labels")
 

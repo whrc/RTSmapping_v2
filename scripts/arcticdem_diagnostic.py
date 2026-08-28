@@ -275,7 +275,7 @@ def main() -> None:
     parser.add_argument("--allowlist-out", type=Path,
                         help="dates only: write the DEM-covered tile IDs here, one "
                              "per line, for splits.tile_allowlist")
-    parser.add_argument("--ee-project", default="pdg-project-406720")
+    parser.add_argument("--ee-project", default="abruptthawmapping")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,

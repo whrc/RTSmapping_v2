@@ -17,7 +17,7 @@
 #   nohup bash computing/inference_watchdog.sh > /mnt/outputs/watchdog.log 2>&1 &
 set -euo pipefail
 
-PROJECT="${PROJECT:-pdg-project-406720}"
+PROJECT="${PROJECT:-abruptthawmapping}"
 ZONE="${ZONE:-us-west1-a}"
 POLL_S="${POLL_S:-120}"
 MAX_HOURS="${MAX_HOURS:-48}"          # backstop: stop the fleet after this long no matter what

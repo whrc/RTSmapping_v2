@@ -56,7 +56,7 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=8, help="number of sites to preview")
     ap.add_argument("--positives-only", action="store_true", help="only RTS==1 sites")
     ap.add_argument("--size-m", type=float, default=2560.0, help="window side in metres")
-    ap.add_argument("--project", default="pdg-project-406720")
+    ap.add_argument("--project", default="abruptthawmapping")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 

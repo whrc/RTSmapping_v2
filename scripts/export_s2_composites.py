@@ -191,7 +191,7 @@ def main() -> int:
     ap.add_argument("--dlat", type=float, default=1.0)
     ap.add_argument("--dlon", type=float, default=3.0)
     ap.add_argument("--scale", type=int, default=10, help="export resolution m (S2 native 10)")
-    ap.add_argument("--project", default="pdg-project-406720")
+    ap.add_argument("--project", default="abruptthawmapping")
     ap.add_argument("--limit", type=int, default=0, help="cap cells (smoke)")
     ap.add_argument("--dry-run", action="store_true", help="list cells, launch nothing")
     args = ap.parse_args()

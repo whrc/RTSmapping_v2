@@ -35,11 +35,11 @@ from google.cloud import storage
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("stage_v1")
 
-PROJECT = "pdg-project-406720"
+PROJECT = "abruptthawmapping"
 SRC_BUCKET = "abrupt_thaw"
 SRC_PREFIX = "RTS_MODEL_V2/DATA/TRAINING_DATA/"
 SRC_GEOJSON = "RTS_MODEL_V2/DATA/circumpolar_subregions.geojson"
-DST_BUCKET = "rts-mapping-v2"
+DST_BUCKET = "rts-arctic-us"
 DST_PREFIX = "training/v1.0/"
 QC_DIR = Path("/outputs/inference/v21_qc")
 SUBTREES = ["PLANET-RGB/", "labels/", "TESTING/"]

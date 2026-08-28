@@ -27,11 +27,11 @@
 #                      STOP_FILE RESTART_DELAY_S MIN_HEALTHY_S MAX_FAST_FAILS GCP_PROJECT ADC_PATH
 set -u
 
-BASE="${BASE:-gs://rts-mapping-v2-usw1/inference/2025q3_south}"
+BASE="${BASE:-gs://rts-arctic-usw1/inference/2025q3_south}"
 QUAD_INDEX="${QUAD_INDEX:-$BASE/quad_index_2025q3.csv}"
 S2_INDEX="${S2_INDEX:-$BASE/s2_index_2025_south.csv}"
 CONFIG="${CONFIG:-configs/deployment.yaml}"
-IMAGE="${IMAGE:-us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-infer:v1}"
+IMAGE="${IMAGE:-us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-infer:v1}"
 NGPU="${NGPU:-8}"
 NUM_WORKERS="${NUM_WORKERS:-16}"   # measured 2026-07-07: 8→16 workers ~doubled t/s (12→~24 t/s/A100)
 #                                    by hiding cross-region read latency; master has ~61 spare vCPUs
@@ -65,7 +65,7 @@ supervise_gpu() {  # $1=gpu index — restarts its worker until queue-drained, S
         --shm-size=16g --name "$name" \
         -v "$ADC:/gcp_adc.json:ro" \
         -e GOOGLE_APPLICATION_CREDENTIALS=/gcp_adc.json \
-        -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-pdg-project-406720}" \
+        -e GOOGLE_CLOUD_PROJECT="${GCP_PROJECT:-abruptthawmapping}" \
         -e PYTHONPATH=/app \
         -e GDAL_HTTP_MAX_RETRY=3 -e GDAL_HTTP_RETRY_DELAY=1 \
         "$IMAGE" \

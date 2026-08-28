@@ -3,10 +3,10 @@ steps:
     args:
       - build
       - -t
-      - us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
+      - us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-train:v2
       - -f
       - computing/Dockerfile.train
       - .
 images:
-  - us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
+  - us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-train:v2
 timeout: 1800s

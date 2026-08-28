@@ -222,7 +222,7 @@ def main() -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--grids", type=Path, required=True, help="step 2 output")
-    p.add_argument("--bucket", default="pdg-planet-data")
+    p.add_argument("--bucket", default="rts-arctic-usw1")
     p.add_argument("--status-dir", type=Path, default=DEFAULT_WORK / "status")
     p.add_argument("--workers", type=int, default=1,
                    help="Concurrent order placements. 1 = serial (default). Raise only "

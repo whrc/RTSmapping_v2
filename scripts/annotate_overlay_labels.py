@@ -29,8 +29,8 @@ from google.cloud import storage
 from pyproj import Transformer
 from rasterio.warp import Resampling, reproject
 
-PROJECT = "pdg-project-406720"
-BUCKET = "rts-mapping-v2"
+PROJECT = "abruptthawmapping"
+BUCKET = "rts-arctic-us"
 PREFIX = "training/v1.0/"
 TILE_HALF_M = 1225  # ~512px * 4.78 m / 2, to catch footprint overlaps
 

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--bucket", default="pdg-planet-data")
+    p.add_argument("--bucket", default="rts-arctic-usw1")
     p.add_argument("--prefix", default="global_quarterly/2025/q3/")
     p.add_argument("--output", required=True, type=Path)
     p.add_argument("--expect-quads", type=int, default=None,

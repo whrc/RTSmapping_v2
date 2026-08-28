@@ -145,7 +145,7 @@ def main() -> int:
     ap.add_argument("--rgb-dir", type=Path, default=None,
                     help="dir of PLANET-RGB tiles; only needed when --metadata has no bbox cols")
     ap.add_argument("--out-dir", required=True, type=Path)
-    ap.add_argument("--project", default="pdg-project-406720")
+    ap.add_argument("--project", default="abruptthawmapping")
     ap.add_argument("--se-artifacts", type=Path, default=None,
                     help="se_artifacts.npz (required for --groups se/all); from build_se_artifacts.py")
     ap.add_argument("--copy-ndvi-from", type=Path, default=None,
