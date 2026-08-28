@@ -555,6 +555,23 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 
 ## 6. Teardown (irreversible — only after §5)
 
+**Gate cleared 2026-08-28** — §5 row 1 PASS, every leg compared object-by-object with
+`missing = 0`. Runnable form: [teardown.ps1](teardown.ps1). Progress:
+
+| Step | State |
+|---|---|
+| Soft-delete cleared on all three buckets | **done 2026-08-28** — all carried the 7-day default (604,800 s), which keeps deleted objects billable for a week |
+| Cloud Run service `rts-review` (superseded 08-04, never torn down) | **done 2026-08-28** |
+| `rts-review-vm` stopped | **done 2026-08-28** — after verifying the new app was *ahead* of it |
+| `a100-8x-train` stopped | **done 2026-08-28** — `--discard-local-ssd=false`, so the t65 build survives on disk as well as in GCS |
+| Delete VMs, release `rts-review-vm-ip`, delete images, delete the three buckets | **pending — run `teardown.ps1`** |
+| `pdg-planet-data` handed back to Luigi/Todd | pending (a conversation, not a command) |
+
+Ordering trap worth restating: release the static IP **after** its VM is deleted, or the
+release is refused as in-use.
+
+### The original sequence
+
 1. Stop cron and `tmux` on the master; final delta-sync; re-list each source prefix once more
    for anything that landed late.
 2. Cut reviewers to the new URL, then retire `rts-review-vm`.
