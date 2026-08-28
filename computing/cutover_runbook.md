@@ -19,7 +19,7 @@ Nothing else in the migration can lose data. These can:
 |---|---|---|---|
 | ~~S2 export driver~~ | `rts-mapping-v2-usw1/S2_RGB/` | us, `tmux` on the master | **stopped 2026-08-28** (§2) |
 | ~~Planet order loop~~ | `pdg-planet-data/global_quarterly/` | Heidi | **stopped 2026-08-28** (§3); delivery tail still draining |
-| Review app | `rts-mapping-v2-usw1/inference/2025q3_south/review/` | reviewers, continuously | §4 |
+| ~~Review app~~ | `rts-mapping-v2-usw1/inference/2025q3_south/review/` | reviewers, continuously | **cut over 2026-08-28** (§4) |
 
 Each is *live*, so each already mismatches its copy. **That is the source moving, not the copy
 failing** — but the two acquisition legs move in different ways, and the difference decides what
@@ -134,33 +134,51 @@ Finally: her acquisition state (`data/`, `status/`, `logs/`) is mirrored to
 `gs://rts-arctic-usw1/planetscope-download/` and restored on `rts-ops`, and the venv, work dir,
 Slack webhook and alert cron are in place there — none of which existed before 2026-08-28.
 
-## 4. Cut the reviewers over
+## 4. Cut the reviewers over — DONE 2026-08-28
 
 **Order matters here more than anywhere else.** Claims and verdicts live in the bucket, so a verdict
-submitted to the old app after the final sync is simply lost.
+submitted to the old app after the final sync is simply lost. Stop first, then sync.
 
-1. **Stop the old app** — this is the freeze:
-   ```powershell
-   gcloud compute instances stop rts-review-vm --project=pdg-project-406720 --zone=us-west1-a
-   ```
-2. **Final sync of the review state:**
-   ```powershell
-   gcloud transfer jobs create gs://rts-mapping-v2-usw1 gs://rts-arctic-usw1 `
-       --project=abruptthawmapping --name=review-final `
-       --include-prefixes="inference/2025q3_south/review/" --overwrite-when=different
-   ```
-3. **Now run the gate-row-7 check that was deliberately skipped** — it mutates state, so it could
-   not be run before this point:
+1. **Stopped the old app** — `gcloud compute instances stop rts-review-vm --project=pdg-project-406720
+   --zone=us-west1-a`. This is the freeze; nothing else is safe until it is done.
+2. **Diffed the two stores before copying anything**, which is the step this section originally
+   lacked:
    ```bash
-   curl -s http://34.83.225.204/api/next            # claim
-   curl -s -X POST http://34.83.225.204/api/submit -H 'Content-Type: application/json' -d '{...}'
-   curl -s -X POST http://34.83.225.204/api/submit -H 'Content-Type: application/json' -d '{...}'   # expect 409
+   python scripts/gcs_parity.py --src gs://rts-mapping-v2-usw1/inference/2025q3_south/review                                 --dst gs://rts-arctic-usw1/inference/2025q3_south/review
    ```
-4. **Tell the reviewers**: <http://34.83.225.204/>. They need nothing else — no account, no install,
-   the name is remembered in `localStorage`. Send the heads-up *before* Monday so the switch is just
-   a link.
-5. Retire **both** old deployments — the VM and the Cloud Run service that was superseded on
-   2026-08-04 but never torn down.
+   Result: **nothing missing, nothing differing, 5 objects extra at the destination.** Reviewers had
+   already been cut over and one had submitted a batch on the new app, so the new store was *ahead*
+   of the old one. **The final sync was correctly a no-op.**
+
+   > The instinct this section used to encode — fire an `--overwrite-when=different` sync old → new —
+   > is the wrong shape once the new app is live. Diff first. Verdicts are unreproducible human
+   > effort, and "sync the old one over the new one" is how you lose them.
+
+3. **The deferred end-to-end check.** Two things the original recipe got wrong: the submit endpoint
+   is `POST /api/batch`, not `/api/submit`; and a duplicate submit is **200, not 409** — it is
+   idempotent by design (`review/app.py`: *"a retry is accepted, not doubled"*). The **409** comes
+   from `GET /api/batch/{id}` when reopening an already-submitted batch.
+
+   It also should not fabricate a verdict. `merge_review_verdicts.py` pools every
+   `verdicts/*.jsonl` into the verified inventory, so a synthetic submission contaminates the
+   product. What the migration actually needs to prove is that this deployment reads and writes the
+   *new* bucket — a claim marker proves that without inventing science:
+
+   ```bash
+   curl -s "http://34.83.225.204/api/next?reviewer=migration-check"   # claim -> b00046, 201 items
+   gcloud storage ls gs://rts-arctic-usw1/.../review/claims/b00046    # the write landed
+   curl -o /dev/null -w "%{http_code}" http://34.83.225.204/api/batch/b00044   # 409 submitted
+   curl -o /dev/null -w "%{http_code}" http://34.83.225.204/api/batch/b99999   # 404 unknown
+   gcloud storage rm gs://rts-arctic-usw1/.../review/claims/b00046    # release it
+   ```
+
+   **Delete the claim afterwards.** `STALE_AFTER_S` is one week, so a claim left behind blocks that
+   batch from every reviewer until next Friday.
+
+4. **Reviewers told**: <http://34.83.225.204/> — done. They need nothing else: no account, no
+   install, the name is remembered in `localStorage`.
+5. Retire **both** old deployments — the VM (now stopped) and the Cloud Run service that was
+   superseded on 2026-08-04 but never torn down.
 
 > The URL changes and cannot be preserved: `8.229.247.193` is a PDG static address, and static IPs
 > do not transfer between projects.
