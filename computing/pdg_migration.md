@@ -50,10 +50,25 @@ Measured 2026-08-27 (`storage.googleapis.com/storage/v2/total_bytes`, live-objec
 | `rts-mapping-v2-usc1/staging/` | 247 GB | — | **not copied** — stale Banks slice, disposable |
 | `a100-8x-train` local disks | 741 GB + 21 GB | — | audit, upload remainder, delete VM |
 | `pdg-artifact-registry` (`rts-train:v2`, `rts-infer:v1`, `rts-review:v1`) | 10.8 GB | — | push to new repo |
-| EE assets `projects/pdg-project-406720/assets/*` | small | 4 | re-ingest |
+| EE assets `projects/pdg-project-406720/assets/*` | small | **9** (not 4) | re-ingest |
 
 **Not ours, untouched:** `download-vm`, `gke-water-cluster-*`, `pdg-storage-default`,
 `argo-filestore`, the `lake_drainage_test` image.
+
+> **This table has been wrong three times — verify against live listings, not against it.**
+> Found 2026-08-28 while scoping the transfer jobs:
+>
+> - **Two prefixes missing entirely** — `rts-mapping-v2-usw1/ee_staging/` and
+>   `.../interannual_inference/`. Both are now copied and parity-verified.
+> - **Nine EE assets, not four**: `RTS_Sentinel_ROI`, `south_density_10km`,
+>   `south_likelihood_95m`, `south_mask`, `south_rts`, `south_rts_candidates`,
+>   `south_rts_centroids`, `south_rts_high_confidence`, `south_rts_t65`. All nine are
+>   public and behind the published map, and all nine die with the project.
+> - `pdg-planet-data` measures **36.5 TB** live, against the 34.5 TB recorded here.
+>
+> `scripts/verify_migration_parity.py` therefore counts what is in the buckets rather than
+> checking off this table. Anything driven from the table alone would have silently dropped
+> two prefixes and five map assets.
 
 `infrastructure.md` used to list `/mnt/argo_filestore` (2 TB PDG Filestore) as our persistent
 shared storage. Checked 2026-08-27: **not mounted on the master, holds nothing of ours.**
