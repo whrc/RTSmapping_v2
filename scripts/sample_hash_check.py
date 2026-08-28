@@ -20,12 +20,14 @@ import argparse
 import logging
 import random
 import sys
+from pathlib import Path
 from typing import Iterator
 
 import google.auth
 import google.auth.transport.requests
 
-from verify_migration_parity import PAIRS, _session, API, _MAX_RETRIES  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # run from anywhere, not just scripts/
+from verify_migration_parity import PAIRS, _session, API  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
