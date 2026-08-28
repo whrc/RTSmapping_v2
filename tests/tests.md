@@ -1201,9 +1201,11 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 - 2026-08-27 — PDG migration parity gate: new `test_gcs_parity.py` (21 tests) for `scripts/gcs_parity.py`, the check that decides whether the PDG buckets may be deleted. The tool was first written to MD5-sample 200 objects per leg; the test that corrupted one object in twenty exposed why that is worthless here — a 200-object sample over the 41.7M-object `probs/` leg would essentially never touch the bad one. Rewritten as a constant-memory lockstep walk of both lexicographic listings, which is both stronger (every object compared) and simpler (no reservoir, no RNG, no seed flag). The tests pin each failure mode separately — missing at start/middle/end, extra, truncated, corrupt-but-same-size — because they exercise different branches of the three-way merge. All synthetic/CPU. Green in `rts-train:v2` (21 passed); full suite **668 passed, 2 skipped** (620 before the `interannual-campaign` merge landed its 48). Fixed en route: `test_quad_drift.py` hardcoded `REPO = Path("/w")`, so the whole suite failed collection unless the container happened to mount the repo at `/w` — now derived from `__file__` like every other test.
 - 2026-07-07 — ArcGIS Pro QC package (Banks Island team review): new `test_build_rgb_chips.py` (5 tests) for `scripts/build_rgb_chips.py`, which generates RGB "underlying tile" context chips for the ArcGIS Pro QC package — only for the tiles a detected RTS polygon references, reusing `inference.tiles.read_tile`. All synthetic/GPU-free. Full suite 356 passed, 1 skipped (pre-existing) + these 5 = 361 green.
 
-## `scripts/verify_migration_parity.py` — not a pytest test
+## `scripts/verify_migration_parity.py` and `scripts/sample_hash_check.py` — not pytest tests
 
-Added 2026-08-28 for the PDG migration gate (`computing/pdg_migration.md` §5 row 1). It is an
-operational verifier, not part of the suite: it needs live ADC and reads two GCP projects, so it
+Added 2026-08-28 for the PDG migration gate (`computing/pdg_migration.md` §5 rows 1 and 2). Parity
+counts objects and bytes per prefix; the sampler reservoir-samples objects per leg and compares
+stored MD5s, because equal counts and equal totals can both survive a swapped or truncated object.
+They are operational verifiers, not part of the suite: it needs live ADC and reads two GCP projects, so it
 has no place in a GPU-free offline run. Invoked by hand during the cutover and retired with the
 migration. Listed here so nobody adds it to CI looking for missing coverage.
