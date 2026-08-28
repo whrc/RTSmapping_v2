@@ -167,90 +167,62 @@ suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× 
 
 <!-- NOW:BEGIN -->
 ### Now
-**PDG funding ends 2026-09-07 — everything migrates to `abruptthawmapping` (branch
-`pdg-migration`, 2026-08-27).** This now sets the schedule for everything else. The whole
-project runs inside `pdg-project-406720`: ~54 TB across four buckets, the 8×A100 master that
-hosts *every* running process, the rating app, the Docker registry, and the Earth Engine
-assets behind the published public map. Plan and runbook: `computing/pdg_migration.md`.
+**ALL PDG ACCESS CLOSES MONDAY 2026-08-31 — the migration is running (branch `pdg-migration`).**
+A week earlier than the funding cliff the plan was built for, so the §4 phase dates (B 28 Aug–1 Sep
+… G 6 Sep) are void and everything compresses into ~72 hours. ~57.6 TB / ~47 M objects across four
+buckets, plus the rating app, the Docker registry and the nine EE assets behind the published map.
+Runbook: `computing/pdg_migration.md`.
 
-- **The campaign cannot outrun the cliff, so inference pauses.** `abruptthawmapping` has zero
-  A100/L4 quota and no credit, and the campaign is 9 % into 2022's S2 export and 3 % into
-  2019's. **Acquisition continues** — Planet ordering and the S2 export are server-side work
-  costing almost nothing in GCP, and they are the critical path; stopping them would throw
-  away months to save ~$100/month.
-- **Copy live, verify frozen.** A copy does not disturb its source, so the bulk moves while
-  everything runs; each producer then gets a short quiet window in which parity is measured
-  against a *stopped* source. Hours per producer, not the ten days a full pause would cost.
-- **Storage tiers by lifecycle** — imagery to Coldline, ~$230–300/mo instead of ~$1,100. One
-  counterintuitive exception: the 41.5 M per-tile prob COGs stay **Standard**, because the
-  colder classes bill a 128 KiB minimum per object and would cost ~10× more.
-- **Control has moved to the desk — `ARCHITECTURE` is set up (2026-08-27).** gcloud on
-  `abruptthawmapping`/us-west1-a, the three migration APIs enabled, the `rts-ops` SSH block
-  written and parsing, VSCode Remote-SSH present. The box runs a deliberate **two-identity
-  split**: the CLI is `rtsmapping@` (`roles/editor`, provisions) and the ADC is `yyang@`
-  (`viewer`+`objectUser`+`earthengine.admin`, reads and copies) — neither can do the other's
-  job, so do not merge them. `yyang@`'s ADC was verified to read all four PDG source buckets,
-  which is the §4b step-6 precondition checked ahead of the copy rather than four days into it.
-  `computing/README.md` is the host-registry SSoT and `computing/control_node.md` the setup guide.
-- **Destination infrastructure provisioned (§4b steps 1–4, 6).** The three buckets exist with the
-  right locations — `rts-arctic-us` (US multi-region), `-usw1` (US-WEST1), `-usc1` (US-CENTRAL1) —
-  so every copy leg is same-location and pays no egress; UBLA on all three; all empty. The
-  Coldline@30d lifecycle is on `-usw1` **scoped to `imagery/`**, and verified *absent* on the other
-  two, which is the point: `inference/`'s 41.5 M ~2.5 KB objects must never age into a class that
-  bills a 128 KiB minimum. Artifact Registry repo `rts` (docker, us-west1) created. **The step-6
-  write test passed early** — pulled forward from `rts-ops` to the desk since what it tests is the
-  identity, not the host: `normalization_stats.json` copied PDG → new bucket under `yyang@`'s ADC
-  with matching MD5, then deleted. Only the `rts-ops` VM create is left, and it is blocked.
-- **Day-1 audit done:** the master's 762 GB of local disk is mostly mirrored or regenerable.
-  The real payload is **~7 GB** of unmirrored 2022 tile lists plus one **189 GB** judgement
-  call on the closed v2.1 MAE corpus. `pdg_migration.md` §3b.
-- **`rts-ops` exists and is reachable — §4b is complete.** The IAP blocker was real and is
-  cleared. Two traps came out of it, both now in `computing/control_node.md` §1a: **`roles/editor`
-  does not carry `iap.tunnelInstances.accessViaIAP` but `roles/owner` does** — so the box would
-  have been created unreachable, and anyone checking from an owner's seat would see it working and
-  conclude there was nothing to grant; and **`posixAccounts[0]` returns the wrong OS Login
-  username** here (`ext_…`, correct for PDG, wrong for an in-org project), which surfaces as
-  `Permission denied (publickey)` and reads like a key fault that it is not. `yyang@` was given
-  owner and used it to grant `rtsmapping@` the one narrow `roles/iap.tunnelResourceAccessor` —
-  deliberately not a second owner, since `yyang@`'s ADC is what the bulk copy and Earth Engine run
-  under. `rts-ops` is Ubuntu 22.04.5, 2 vCPU / 7 GB / 194 GB, no external IP, `ssh rts-ops` verified.
-- **A `--no-address` VM has no egress, and the runbook never said so.** The fresh box could reach
-  **nothing** — not GitHub, PyPI or apt, and *not `storage.googleapis.com`*, which would have
-  stopped the Phase-B copy dead, since `rts-ops` must reach the GCS API to orchestrate it even
-  though the bytes move server-side. Fixed in two layers: **Private Google Access** (free, subnet
-  flag) restores the copy path, and **Cloud NAT** (~$32/mo, egress-only so the no-inbound posture
-  is unchanged) restores GitHub/PyPI/apt. GCS prefers PGA, so the copy carries no NAT data charge.
-  `pdg_migration.md` §4b step 5a.
-- **`rts-ops` is provisioned bar the credentials.** Checkout at `/opt/rts/RTSmapping_v2` tracking
-  **`main`** and never to be branch-switched (§4a), Docker 29.1.3, shared venv at `/opt/rts/venv`,
-  `rts-dataprep:v1` built and smoke-tested. `status.py` renders the campaign matrix and both
-  alerters run clean under `--dry-run`. A shared box also needed an explicit `rts` group — OS Login
-  gives each user a private uid/gid and puts nobody in `google-sudoers`, so **Heidi must be added
-  to it on her first login**. Outstanding and human-only: the user ADC on the box, the Slack
-  webhook file, and the two cron entries. `pdg_migration.md` §5b.
-- **Gate row 5 PASSES (2026-08-28).** `yyang@`'s ADC is on the box (mode 600, quota project
-  `abruptthawmapping`, reads all three PDG buckets), and with the state seeded from the mirror
-  `status.py` reproduces the real campaign grid — 2022 `s2_export` ▶10 %, 2019 ▶3 %, matching the
-  master. `run_stage.py` correctly refused `s2_index` naming `s2_export` as the missing
-  prerequisite, and `drive.py` walked to the same point and recognised the detached export rather
-  than restarting it. Rebooted at 08:45:23: Docker, ADC, venv, checkout, state and IAP all intact.
-- **`gcloud` CLI and ADC are different credentials, and §4's copy method conflated them.** On a GCE
-  VM the CLI defaults to the attached service account and ignores ADC, so on the same box at the
-  same moment `gcloud storage ls` on a PDG bucket returned **403** while Python's
-  `google.cloud.storage` returned **200**. Since the runbook specifies `gcloud storage cp`/`rsync`
-  for the 34.5 TB, the copy would have failed on every PDG read. **The box needs a second login**
-  (`gcloud auth login` as `yyang@`) — not a `CLOUDSDK_AUTH_ACCESS_TOKEN` export, whose token dies
-  in an hour. That is the last thing standing between here and Phase B. `pdg_migration.md` §5c.
-- **The state mirror is write-only by design** — `_mirror()` uploads, `load()` reads local, there is
-  no restore path. Seeding `rts-ops` means pulling the four year files down, which is safe only
-  while cron is off: two live alerters would double-announce every open incident against their own
-  `alerts_seen.json`. **Install cron at Phase-C cutover, not before**, and re-sync state then.
-- **Open with the user:** whether to keep the 189 GB MAE corpus. Still blocked on Heidi: a Planet
-  delivery SA key for the new bucket, and licence confirmation.
-- **Live-checkout hazard, recorded:** branching on the master pulled `interannual_inference/`
-  out from under cron for 40 min; the alerter announced 23 min late and the 2019 S2 export
-  died in that window on an unrelated transient EE 403 (restarted, resumed at 55/1799).
-  `rts-ops` will get a checkout that is never branch-switched. `pdg_migration.md` §4a.
+**Done and verified**
+
+- **`ARCHITECTURE` is the control node; `rts-ops` is built.** Two identities by design — CLI
+  `rtsmapping@` provisions, ADC `yyang@` reads and copies. `rts-ops` runs Ubuntu 22.04 with the
+  checkout at `/opt/rts/RTSmapping_v2` tracking **`main`, never branch-switched** (§4a), Docker,
+  a shared venv, `rts-dataprep:v1`, and both ADCs. Reboot-tested. **Gate row 5 PASSES.**
+- **The bulk copy runs on Storage Transfer Service, not `gcloud rsync`.** The runbook's method
+  assumed a week and a 2-vCPU box for 47 M object operations, and assumed we hold no
+  `setIamPolicy` in PDG — true at *project* level, **false at bucket level**, which is exactly
+  what STS needs. Five of seven legs verified byte-exact by
+  `scripts/verify_migration_parity.py`; `planet-quads` (34.8 of 36.5 TB) and `inference-cogs`
+  (4.4 M of 42.3 M objects) still running.
+- **Images, EE assets, and the master's local-only data are all across.** Three images in the new
+  registry. All **nine** EE assets copied with `ee.data.copyAsset` (byte-faithful, no re-ingest)
+  with per-asset ACLs mirrored, so `RTS_Sentinel_ROI` stays private and the other eight are public
+  again. The 6.93 GiB of unmirrored 2022 tile lists and the never-audited 21 GB `south_t65` build
+  are uploaded and verified (5,374 = 5,374).
+- **Nothing is renamed — only the bucket changes.** Planet's prefix is *written into* the order
+  CSV and read back by `list_delivered()` to skip ordered quads, so renaming would mean
+  regenerating Heidi's CSV mid-loop. Instead the Coldline rule was widened to `imagery/`,
+  `global_quarterly/`, `S2_RGB/`, with `inference/` still excluded. **Heidi's change is now one
+  `--bucket` flag** — the "Planet delivery SA key" was never blocked on her or on Planet:
+  `planet-orders@` is our own SA and just needed a binding on the new bucket.
+- **MAE corpus (189 GB): dropped**, per user. Rationale and rebuild path recorded beside the
+  sat-7B precedent in `computing/artifact_inventory.md`.
+
+**Two false alarms worth remembering**
+
+- **`roles/editor` does not carry IAP tunnel access; `roles/owner` does.** So `rts-ops` would have
+  been created unreachable, and anyone checking from an owner's seat sees IAP working and concludes
+  there is nothing to grant.
+- **EE "restricted mode" does not block asset work.** Every call warns, which looked like it might
+  sink the map; a test `INGEST_TABLE` reached `SUCCEEDED` and all eight copies went through. It
+  binds *batch compute* — the S2 exports — not asset operations. Related trap: `getTaskStatus()`
+  reported `UNKNOWN` for a job that had already succeeded; `listOperations()` told the truth.
+
+**Left before Monday**
+
+- `inference-cogs` to finish (the 42.3 M-object leg), then final parity.
+- **The S2 delta-sync, timed late.** Object counts match exactly (14,780) but bytes differ by
+  780 MB — the live export rewriting cells. Needs the export stopped, re-synced, re-verified;
+  that is what gate row 1 means by the *frozen* measurement.
+- Review app cutover on `rts-review` — **reviewers must be told a new URL**, since the bare IP
+  `8.229.247.193` is a PDG static address and cannot transfer. Two old deployments to retire, the
+  VM *and* the still-running Cloud Run service.
+- Heidi repoints 2019 acquisition; the remaining §5 gate rows; then teardown.
+
+> **The §1 inventory table is not a checklist — it has been wrong three times.** It omits
+> `ee_staging/` and `interannual_inference/`, says four EE assets when there are nine, and
+> undercounts `pdg-planet-data` by 2 TB. Verify against live listings.
 
 Prior: **2022 pilot passed; interannual run under way — `interannual_inference/` (branch `interannual-campaign`,
 2026-08-24).** The acquisition machinery built in August works: 2022 is downloaded, indexed and
