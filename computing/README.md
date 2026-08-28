@@ -59,3 +59,4 @@ Setup: [control_node.md](control_node.md).
 | Where does artifact X live? | [artifact_inventory.md](artifact_inventory.md) |
 | Day-to-day on a VM — env, file transfer | [vm_instruction.md](vm_instruction.md) |
 | Why did everything move in Sept 2026? | [pdg_migration.md](pdg_migration.md) |
+| What is the exact order of the final cutover? | [cutover_runbook.md](cutover_runbook.md) |
