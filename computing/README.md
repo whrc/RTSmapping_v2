@@ -19,10 +19,10 @@ inventory.
 | Codename | Kind | Where | Function | Status |
 |---|---|---|---|---|
 | **`ARCHITECTURE`** | Office PC (Windows) | Woodwell office | **Control node** — code editing, `gcloud compute` lifecycle, VSCode Remote-SSH origin. Never runs unattended work. | **active — configured 2026-08-27** |
-| `rts-ops` | `e2-standard-2`, no external IP (IAP) | `abruptthawmapping` / us-west1-a | Unattended loops: Planet acquisition, S2 export driver, cron alerters. Shared with Heidi. | **active — created 2026-08-27**; checkout/Docker/venv/image done, ADC + webhook + cron outstanding ([pdg_migration.md §5b](pdg_migration.md)) |
+| `rts-ops` | `e2-standard-2`, no external IP (IAP) | `abruptthawmapping` / us-west1-a | Unattended loops: Planet acquisition, cron alerters. Shared with Heidi. | **active — created 2026-08-27**; fully provisioned 2026-08-28 — checkout, Docker, both venvs, ADC, Slack webhook, acquisition alert cron ([pdg_migration.md §5b](pdg_migration.md)) |
 | `rts-review` | `e2-small`, static IP **34.83.225.204**, `:80` public | `abruptthawmapping` / us-west1-a | Polygon-rating app for the review campaign | **active — deployed 2026-08-28**; reviewers not yet cut over |
-| ~~`a100-8x-train`~~ | `a2-ultragpu-8g`, 8× A100-80GB | PDG / us-central1-a | Training, pan-Arctic inference, and — by accretion — every other running process | retiring 2026-09-06 (PDG funding ends 09-07) |
-| ~~`rts-review-vm`~~ | `e2-small`, `8.229.247.193` | PDG / us-west1-a | Rating app, superseded by `rts-review` | retiring 2026-09-06 |
+| ~~`a100-8x-train`~~ | `a2-ultragpu-8g`, 8× A100-80GB | PDG / us-central1-a | Training, pan-Arctic inference, and — by accretion — every other running process | **retiring 2026-08-31** — all PDG access closes then, a week before the funding cliff; idle since 2026-08-28 (S2 export abandoned, Planet loop stopped) |
+| ~~`rts-review-vm`~~ | `e2-small`, `8.229.247.193` | PDG / us-west1-a | Rating app, superseded by `rts-review` | **retiring 2026-08-31** — blocked until reviewers are told the new URL |
 | ~~`ml-training-vm`~~ | single A100-40GB | PDG / us-west1-b | Production training before the 8×A100 landed | deleted 2026-06-24 |
 | ~~`gpu-vm-l4`~~ | NVIDIA L4 | PDG / us-west1-a | Dev/test box | deleted |
 | ~~`rts-infer-usw1` fleet~~ | 3–4× `g2-standard-96` (24–32× L4) | PDG / us-west1 | 2025 South inference fleet | torn down after the South run |

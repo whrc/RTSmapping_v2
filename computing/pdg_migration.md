@@ -551,7 +551,7 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 | 8 | Public EE map renders from the new assets and the new usc1 mirror | — |
 | 9 | Master drained — nothing durable local-only, `/mnt/nvme_scratch` included | — |
 | 10 | Billing — no `rts-*` resource left in PDG; `abruptthawmapping` line items as expected | — |
-| 11 | Docs true — the [README.md](README.md) registry matches `gcloud compute instances list` | — |
+| 11 | Docs true — the [README.md](README.md) registry matches `gcloud compute instances list` | **PASS** 2026-08-28 — both projects enumerated. `abruptthawmapping`: `rts-ops`, `rts-review`. PDG: `a100-8x-train`, `rts-review-vm`, plus `download-vm` and two `gke-water-cluster-*` nodes that the registry already flags **not ours — do not touch** (verified: no labels, no metadata, bare Ubuntu, predates our work in that zone). Registry corrected for the compressed deadline: both PDG rows now retire **08-31**, not 09-06, and `rts-ops` is recorded as fully provisioned. |
 
 ## 6. Teardown (irreversible — only after §5)
 
