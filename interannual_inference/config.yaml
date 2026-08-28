@@ -15,22 +15,22 @@ years: [2022, 2019, 2020, 2021, 2023, 2024]
 
 paths:
   work: /mnt/outputs/interannual_inference
-  state_mirror: gs://rts-mapping-v2-usw1/interannual_inference/state
+  state_mirror: gs://rts-arctic-usw1/interannual_inference/state
   local_inference: /mnt/outputs/inference
 
   # Planet basemap quads, as delivered by the Orders API (raw, un-renamed layout).
-  planet_bucket: pdg-planet-data
-  planet_prefix: global_quarterly/{year}/q3/
+  planet_bucket: rts-arctic-usw1
+  planet_prefix: imagery/planet_q3/{year}/
 
   # Sentinel-2 composites — the NDVI source read on the fly at inference.
-  s2_bucket: rts-mapping-v2-usw1
-  s2_prefix: S2_RGB/{year}_south
+  s2_bucket: rts-arctic-usw1
+  s2_prefix: imagery/s2_composites/{year}_south
 
-  inference_base: gs://rts-mapping-v2-usw1/inference/{year}q3_south
+  inference_base: gs://rts-arctic-usw1/inference/{year}q3_south
 
   # The model is frozen, so every year runs the SAME weights the delivered 2025
   # map was made with. Shared, not copied per year — that is the point.
-  packages: gs://rts-mapping-v2-usw1/inference/2025q3_south/packages
+  packages: gs://rts-arctic-usw1/inference/2025q3_south/packages
 
   # Written by Heidi's order loop on the acquisition VM.
   acquisition_status: /mnt/outputs/planetscope-download/status/{year}.json
@@ -53,7 +53,7 @@ expect:
 
 docker:
   # GCS billing for bucket listings/writes. NOT the Earth Engine project — see ee_projects.
-  project: pdg-project-406720
+  project: abruptthawmapping
 
   # Earth Engine BATCH-COMPUTE project, per year.
   #
@@ -96,7 +96,7 @@ docker:
     2023: abruptthawmapping
     2024: abruptthawmapping
 
-  train_image: us-west1-docker.pkg.dev/pdg-project-406720/pdg-artifact-registry/rts-train:v2
+  train_image: us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 
 # Google account each year's export runs under — THE throughput lever.

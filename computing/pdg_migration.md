@@ -1,11 +1,35 @@
 # PDG wind-down — migration to `abruptthawmapping` (Sept 2026)
 
-**Status: IN PROGRESS.** Runbook, decision record, and the parity evidence that gates
-deletion. Started 2026-08-27.
+**Status: IN PROGRESS — DEADLINE MOVED IN.** Runbook, decision record, and the parity
+evidence that gates deletion. Started 2026-08-27.
 
-GCP funding for `pdg-project-406720` ends **2026-09-07**. Everything this project runs on
-lives there. This document records what moved, where it went, why, and what was checked
-before anything was deleted.
+> ### The deadline is now **Monday 2026-08-31**, not 09-07
+>
+> **All PDG access closes 2026-08-31** (user, 2026-08-28) — a week earlier than the funding
+> cliff this plan was built around, and storage bills against PDG until then. The §4 phase
+> dates (B 28 Aug–1 Sep, C 1–3 Sep, … G 6 Sep) are **void**; everything compresses into
+> ~72 hours. Two consequences that change the method, not just the dates:
+>
+> 1. **The bulk copy moves to Storage Transfer Service.** §4's "Copy method" specifies
+>    `gcloud storage cp/rsync` from `rts-ops` — a 2-vCPU box driving ~47 M object operations,
+>    chosen when there was a week. It also assumed we hold no `setIamPolicy` in the
+>    org-managed PDG project. **That is true at project level and false at bucket level**:
+>    `yyang@` *and* `rtsmapping@` both hold `storage.buckets.setIamPolicy` on all four PDG
+>    source buckets (verified 2026-08-28), which is exactly what STS needs. STS is managed,
+>    parallel, resumable, survives a VM reboot, and takes `rts-ops` off the critical path
+>    entirely — including its outstanding `gcloud auth login` (§5c). Grants:
+>    `computing/grant_sts_access.ps1`.
+> 2. **Scope must be triaged, not just accelerated.** The S2 exports cannot finish regardless
+>    — 22.9 M EECU-s per year against a 3.6 M/month allowance — so what matters by Monday is
+>    that delivered cells are copied and the driver resumes against the new bucket, not that
+>    any year completes.
+>
+> Measured 2026-08-28: `pdg-planet-data` **36.5 TB**, `rts-mapping-v2-usw1` **20.8 TB**,
+> `rts-mapping-v2-usc1` 0.28 TB, `rts-mapping-v2` 0.27 TB — **~57.6 TB total**.
+
+GCP funding for `pdg-project-406720` ends 2026-09-07, but access is being cut on 08-31.
+Everything this project runs on lives there. This document records what moved, where it went,
+why, and what was checked before anything was deleted.
 
 > **Abort position:** every step is a *copy*, never a move. Until §6 runs, the PDG originals
 > are intact and the migration can be abandoned with no loss. Only §6 is irreversible.
