@@ -32,12 +32,27 @@ if (-not $exists) {
     gcloud iam service-accounts create rts-review-app --project=$PROJECT `
         --display-name="RTS review campaign app" --quiet | Out-Null
     Write-Host "  created $sa"
+    # A new service account is not immediately visible to Cloud Storage. Binding it
+    # straight away fails with "Service account ... does not exist" - which is a
+    # propagation lag, not a real error (observed 2026-08-28). Wait for it to resolve.
+    Write-Host "  waiting for IAM propagation..." -NoNewline
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Seconds 2
+        gcloud iam service-accounts describe $sa --project=$PROJECT --format="value(email)" 2>$null | Out-Null
+        if ($?) { Write-Host " visible after $(($i+1)*2)s"; break }
+        Write-Host "." -NoNewline
+    }
 } else {
     Write-Host "  $sa already exists"
 }
 foreach ($role in @("roles/storage.objectViewer", "roles/storage.objectCreator")) {
-    gcloud storage buckets add-iam-policy-binding gs://rts-arctic-usw1 `
-        --member="serviceAccount:$sa" --role=$role --quiet | Out-Null
+    # Retry: propagation can still lose the first binding attempt.
+    for ($i = 0; $i -lt 5; $i++) {
+        gcloud storage buckets add-iam-policy-binding gs://rts-arctic-usw1 `
+            --member="serviceAccount:$sa" --role=$role --quiet 2>$null | Out-Null
+        if ($?) { break }
+        Start-Sleep -Seconds 5
+    }
     Write-Host "  $sa -> $($role.Replace('roles/storage.','')) on rts-arctic-usw1"
 }
 

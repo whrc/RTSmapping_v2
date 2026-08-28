@@ -167,7 +167,10 @@ deliberately dropped in the 2026-07-16 cleanup, with the rationale recorded in
 `artifact_inventory.md`. The corpus is the same shape of decision at 189 GB — a closed
 programme's input, reproducible from data we are keeping. Coldline would cost ~$0.76/month,
 so this is not really about money; it is about whether a rebuild is ever wanted.
-**Left for the user; not assumed either way.**
+**DECIDED 2026-08-28: dropped.** Not copied; it dies with PDG access on 08-31. Rationale and the
+rebuild path are recorded alongside the sat-7B precedent in
+[artifact_inventory.md](artifact_inventory.md). The epoch-20/40/60 MAE checkpoints stay on GCS, so
+a length-ablation revisit remains possible without the corpus.
 
 ## 4. Runbook
 
@@ -482,6 +485,45 @@ gcloud storage rm gs://rts-arctic-usw1/_writetest.json
 
 A refusal here means the identity is wrong, and is much cheaper to discover now than four
 days into a 34.5 TB copy.
+
+## 4c. Earth Engine assets — migrated 2026-08-28
+
+All **nine** assets (not the four §1 recorded) now live under
+`projects/abruptthawmapping/assets/`.
+
+**Use `ee.data.copyAsset`, not re-ingestion.** The runbook says "re-ingest", which would mean
+rebuilding each asset from its shapefile/GeoTIFF in GCS. `copyAsset` duplicates within Earth
+Engine's own storage instead: no GCS source, no ingestion task per asset, and the copy is
+byte-faithful rather than a re-derivation. All eight remaining assets copied in one pass.
+
+| Asset | Type | Bytes | Public |
+|---|---|---|---|
+| `south_likelihood_95m` | IMAGE | 138,985,514 | yes |
+| `south_mask` | IMAGE | 103,130,889 | yes |
+| `south_rts_candidates` | TABLE | 64,443,796 | yes |
+| `south_rts_high_confidence` | TABLE | 38,401,207 | yes |
+| `south_rts_t65` | TABLE | 25,951,444 | yes |
+| `south_rts` | TABLE | 20,044,157 | yes |
+| `south_rts_centroids` | TABLE | 6,055,213 | yes |
+| `south_density_10km` | IMAGE | 5,574,368 | yes |
+| `RTS_Sentinel_ROI` | TABLE | 5,363 | **no** — private in PDG, kept private |
+
+ACLs were read from each PDG source and mirrored, rather than blanket-set: eight were public and
+are public again; `RTS_Sentinel_ROI` was private and stays private.
+
+**"Restricted mode" does not block ingestion or copying.** `abruptthawmapping` has exceeded its
+noncommercial EECU allowance and every EE call warns about it, which looked like it might sink the
+map. It does not: a test `INGEST_TABLE` submitted and reached `SUCCEEDED`, and all eight copies
+went through. The restriction is on *batch compute* (the S2 exports), not asset operations.
+
+**The legacy task API lies about ingestion.** `ee.data.getTaskStatus()` reported `UNKNOWN`
+indefinitely for a job that had already succeeded. Use `ee.data.listOperations()` — it showed
+`INGEST_TABLE SUCCEEDED` correctly. Do not conclude an ingest has stalled from `getTaskStatus`.
+
+Repointed to match: `ee_south_app.js`, `ee_south_viewer.js`, `ee_qc_rater.js`,
+`build_ee_qc_rater.py`, `ingest_ee_app_assets.py` and `test_build_ee_qc_rater.py` — asset paths to
+`abruptthawmapping`, and the `loadGeoTIFF` chip/probability prefixes to `gs://rts-arctic-usc1/`.
+That last one still matters for the reason §2 gives: `loadGeoTIFF` reads US-CENTRAL1 only.
 
 ## 5. Verification — the gate before deletion
 

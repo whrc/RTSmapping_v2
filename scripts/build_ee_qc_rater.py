@@ -29,7 +29,7 @@ from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CHIP_PREFIX = ("gs://rts-mapping-v2-usc1/ee_mirror/2025q3_south/"
+DEFAULT_CHIP_PREFIX = ("gs://rts-arctic-usc1/ee_mirror/2025q3_south/"
                        "products/qc_chips/rgb_chips/")
 
 _TEMPLATE = """\

@@ -47,6 +47,18 @@ Companion to `infrastructure.md §4` (bucket facts) — this doc is the *artifac
 | **2025 inference inputs** (tile list, quad index, S2 index, grid scripts+logs, domain overlay) | `gs://rts-mapping-v2/RTS_MODEL_V2/inference_inputs/` (2026-07-16) | PDG / US | local `/mnt/outputs/inference/` (top-level files) | `tiles_2025q3_domain_full.csv` (3.4 GB, 41.57M tiles) + `quad_index_2025q3.csv`. |
 | **Banks products** | `gs://rts-mapping-v2-usw1/inference/banks/products/` | PDG / us-west1 | — (local `out/`, `probs_local/` deleted 2026-07-16 after byte-parity check) | Incl. `banks_rts_parallel.gpkg` (uploaded 2026-07-16). Intermediate `blocks/` regenerable from `banks/probs/`. |
 
+### Deliberately NOT archived (2026-08-28, PDG migration, user decision)
+
+| What | Why it's gone | If ever needed again |
+|---|---|---|
+| `v2.1/PRETRAIN_CORPUS` (**189 GB**) — the 295,429-tile MAE corpus | The v2.1 SSL programme is **closed in the negative** (arctic MAE *harmed* the encoder: 0.8139 vs 0.9191 baseline, 0/3 seeds positive — `docs/experiment_ledger_v21.md` Finding A). Its only consumer is a dead programme. Local-only on `a100-8x-train`, so it dies with PDG access on 2026-08-31 | Rebuild from the v1.0 training data (migrated to `gs://rts-arctic-us/`) plus the corpus builder. Deterministic given the same inputs and seed |
+
+Same shape of decision as the sat-7B checkpoints below, and taken the same way: a closed
+programme's input, reproducible from data we are keeping. Note this was **not** a cost decision —
+Coldline would have been ~$0.76/month. It is a judgement that a rebuild is unlikely to be wanted,
+and the 30 minutes of a 72-hour window were better spent elsewhere. The epoch-20/40/60 MAE
+*checkpoints* remain on GCS, so a length-ablation revisit is still possible without the corpus.
+
 ### Deliberately NOT archived (deleted 2026-07-16, user decision)
 
 | What | Why it's gone | If ever needed again |

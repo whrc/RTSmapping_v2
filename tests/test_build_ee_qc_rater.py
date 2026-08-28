@@ -25,15 +25,15 @@ def test_rater_embeds_features_and_chip_uris(tmp_path):
     gdf.to_file(f, driver="GPKG")
     out = tmp_path / "ee_qc_rater.js"
     build_rater(str(f), str(out),
-                chip_prefix="gs://rts-mapping-v2-usc1/ee_mirror/2025q3_south/products/qc_chips/rgb_chips/")
+                chip_prefix="gs://rts-arctic-usc1/ee_mirror/2025q3_south/products/qc_chips/rgb_chips/")
     js = out.read_text()
     m = re.search(r"var FEATURES = (\[.*?\]);", js, re.S)
     assert m, "no FEATURES block"
     feats = json.loads(m.group(1))
     assert [ft["id"] for ft in feats] == [7, 9]
     assert feats[0]["chips"] == [
-        "gs://rts-mapping-v2-usc1/ee_mirror/2025q3_south/products/qc_chips/rgb_chips/t100_200.tif",
-        "gs://rts-mapping-v2-usc1/ee_mirror/2025q3_south/products/qc_chips/rgb_chips/t100_201.tif"]
+        "gs://rts-arctic-usc1/ee_mirror/2025q3_south/products/qc_chips/rgb_chips/t100_200.tif",
+        "gs://rts-arctic-usc1/ee_mirror/2025q3_south/products/qc_chips/rgb_chips/t100_201.tif"]
     assert feats[0]["cls"] == "high"
     # polygon ring must be lon/lat (WGS84), not metres
     assert all(abs(x) <= 180 and abs(y) <= 90 for x, y in feats[0]["ring"])

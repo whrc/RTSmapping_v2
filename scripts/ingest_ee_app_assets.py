@@ -11,12 +11,12 @@ the property names the app reads; change it here and in the app together.
 Usage:
     python scripts/ingest_ee_app_assets.py --kind table \
         --source /outputs/.../south_rts_candidates.gpkg \
-        --asset  projects/pdg-project-406720/assets/south_rts_candidates \
+        --asset  projects/abruptthawmapping/assets/south_rts_candidates \
         --staging gs://rts-mapping-v2-usw1/inference/2025q3_south/ee_staging
 
     python scripts/ingest_ee_app_assets.py --kind image \
         --source gs://.../density_10km_expected_m2.tif \
-        --asset  projects/pdg-project-406720/assets/south_density_10km \
+        --asset  projects/abruptthawmapping/assets/south_density_10km \
         --pyramiding MEAN --nodata -1
 """
 

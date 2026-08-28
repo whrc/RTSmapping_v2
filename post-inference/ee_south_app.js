@@ -42,10 +42,10 @@
 // ============================================================
 
 // ---------- assets (all public) ----------
-var DENSITY   = ee.Image('projects/pdg-project-406720/assets/south_density_10km');
-var CAND      = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts_candidates');
-var T65       = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts_t65');
-var CENTROIDS = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts_centroids');
+var DENSITY   = ee.Image('projects/abruptthawmapping/assets/south_density_10km');
+var CAND      = ee.FeatureCollection('projects/abruptthawmapping/assets/south_rts_candidates');
+var T65       = ee.FeatureCollection('projects/abruptthawmapping/assets/south_rts_t65');
+var CENTROIDS = ee.FeatureCollection('projects/abruptthawmapping/assets/south_rts_centroids');
 
 // ---------- generated: scripts/build_ee_app_stats.py — do not hand-edit ----------
 // Sources: south_rts_attributes.parquet, south_rts_t65.gpkg, region_log.json,

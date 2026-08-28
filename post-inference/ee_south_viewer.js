@@ -15,7 +15,7 @@
 //                     loadGeoTIFF also only reads from buckets in US-CENTRAL1 (a
 //                     hard EE restriction - the source shards live in US-WEST1,
 //                     gs://rts-mapping-v2-usw1/...). They're mirrored read-only at
-//                     gs://rts-mapping-v2-usc1/ee_mirror/2025q3_south/products/
+//                     gs://rts-arctic-usc1/ee_mirror/2025q3_south/products/
 //                     (US-CENTRAL1) purely so this script can read them; that
 //                     mirror is not a product deliverable, just an EE-readable copy.
 //
@@ -29,10 +29,10 @@
 // ============================================================
 
 // --- RTS polygons ---
-var rts = ee.FeatureCollection('projects/pdg-project-406720/assets/south_rts');
+var rts = ee.FeatureCollection('projects/abruptthawmapping/assets/south_rts');
 
 // --- Binary mask (thr 0.65) ---
-var mask = ee.Image('projects/pdg-project-406720/assets/south_mask');
+var mask = ee.Image('projects/abruptthawmapping/assets/south_mask');
 
 // --- Probability: live mosaic of the 1,633 source shards ---
 // The shard grid is sparse (only cells with real detections/data exist), so
@@ -40,7 +40,7 @@ var mask = ee.Image('projects/pdg-project-406720/assets/south_mask');
 // digits) the columns run in contiguous stretches. Encoded as
 // "row:lo-hi,single,lo-hi,...|row:...|..." and expanded below with regex,
 // instead of spelling out all 1,633 ids - same data, ~19x less text.
-var probPrefix = 'gs://rts-mapping-v2-usc1/ee_mirror/2025q3_south/products/probability_cog_shards/probability_';
+var probPrefix = 'gs://rts-arctic-usc1/ee_mirror/2025q3_south/products/probability_cog_shards/probability_';
 var probEncoded =
   '0000:20-35,40,42,55-57,84-87,92-93,95-104,112-116|' +
   '0001:22-35,43,54-57,83-85,93-104,112-117|' +
