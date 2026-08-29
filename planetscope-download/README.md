@@ -45,19 +45,38 @@ for object names only instead of full metadata. And the retry policy is
 
 ## Prerequisites
 
-- **VM access.** `gcloud compute ssh a100-8x-train --zone us-central1-a --project pdg-project-406720`.
-  Needs a `roles/compute.osLogin` binding on your account — we've requested it. You do not need sudo.
-- **Your two keys**, typed when prompted. Nothing is written to disk.
+- **VM access.** The box moved on 2026-08-28: it is now `rts-ops` in `abruptthawmapping`, and
+  `a100-8x-train` is deleted along with the rest of PDG.
+
+  ```bash
+  gcloud compute ssh rts-ops --zone=us-west1-a --project=abruptthawmapping --tunnel-through-iap
+  ```
+
+  **`--tunnel-through-iap` is required** — `rts-ops` has no external IP, so plain `ssh` cannot
+  reach it. You already hold `roles/owner` on the project, which carries both OS Login and IAP
+  access, so nothing needs granting.
+
+  Your Linux username changed too, from `ext_hrodenhizer_woodwellclimate_` to
+  **`hrodenhizer_woodwellclimate_org`** — the `ext_` prefix is gone because you are in-org on the
+  new project and were out-of-org on PDG. If a stale entry sends the old name it shows up as
+  `Permission denied (publickey)`.
+- **Your two keys**, typed when prompted. Nothing is written to disk. **Both are unchanged** by the
+  migration: `planet-orders@` was always our own service account, and it now has write access on
+  the new delivery bucket.
 
 ## Quick start
 
 ```bash
-tmux new -s planet                              # so the run survives you disconnecting
-cd /home/ext_yyang_woodwellclimate_org/RTSmappingDL   # the shared checkout, not your home dir
-./planetscope-download/run_year.sh 2022
+tmux new -s planet                    # so the run survives you disconnecting
+cd /opt/rts/RTSmapping_v2             # the shared checkout, not your home dir
+./planetscope-download/run_year.sh 2019
 # checks its environment, then prompts for PL_BM_API_KEY and PDG_PL_ORDERS_KEY
 # Ctrl-b then d  -> detach; the run keeps going
 ```
+
+Delivery goes to `gs://rts-arctic-usw1` — the default since 2026-08-28, so **no `--bucket` flag**.
+2019 resumes at 215,443 / 308,686: it lists what is already delivered and skips it, so nothing is
+re-ordered.
 
 The repo is a **shared checkout you can read but not write**, so nothing is
 written into it. Outputs go to `/mnt/outputs/planetscope-download/`

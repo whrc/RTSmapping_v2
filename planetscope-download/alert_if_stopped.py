@@ -122,8 +122,10 @@ def main() -> int:
                  f"last quad `{s['last_quad_id']}`, quiet for {age / 60:.0f} min.\n"
                  f"Most likely an expired Planet key (only Heidi can restart it) or a "
                  f"VM reboot. To resume:\n"
-                 f"```\ntmux new -s planet\n"
-                 f"cd /home/ext_yyang_woodwellclimate_org/RTSmappingDL\n"
+                 f"```\ngcloud compute ssh rts-ops --zone=us-west1-a "
+                 f"--project=abruptthawmapping --tunnel-through-iap\n"
+                 f"tmux new -s planet\n"
+                 f"cd /opt/rts/RTSmapping_v2\n"
                  f"./planetscope-download/run_year.sh {year}\n```\n"
                  f"Delivered quads are skipped, so it picks up where it stopped.\n"
                  f"Last log lines:\n```\n{log_tail(year)}\n```")
