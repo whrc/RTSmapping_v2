@@ -535,6 +535,50 @@ Repointed to match: `ee_south_app.js`, `ee_south_viewer.js`, `ee_qc_rater.js`,
 `abruptthawmapping`, and the `loadGeoTIFF` chip/probability prefixes to `gs://rts-arctic-usc1/`.
 That last one still matters for the reason §2 gives: `loadGeoTIFF` reads US-CENTRAL1 only.
 
+## 4d. The inventory was wrong a fourth time — `usc1/staging/`, caught during teardown
+
+**2026-08-29.** §1's inventory was already noted as wrong three times. It was wrong a fourth, and
+this one was found with the delete already running.
+
+`gs://rts-mapping-v2-usc1/staging/` held **2,661 objects / 265 GB** of Banks Island Planet quads
+(`staging/banks/quads/global_quarterly_2025q3_mosaic_*.tif`). The destination held **zero**. The
+seven-leg pair list only ever named `ee_mirror/` for that bucket, so every parity run — all of which
+passed — was answering a question that never included this prefix. **A prefix-scoped check cannot
+find data outside its own prefixes**, and nothing in the gate compensated for that.
+
+It survived because `gcloud storage rm --recursive` works through buckets in the order the script
+lists them and was still grinding through `usw1`'s 42 M objects. Copied out (23.5 GiB/s, same-region
+rewrite) and verified: **2,661 = 2,661 objects, 265,077,801,178 = 265,077,801,178 bytes**.
+
+**The fix for the class of error, not just the instance:** re-ran parity with **no prefix at all**,
+comparing whole bucket to whole bucket —
+
+```bash
+python scripts/gcs_parity.py --src gs://rts-mapping-v2-usc1 --dst gs://rts-arctic-usc1
+#   source 6,722 objects  279,068,274,113 bytes
+#   dest   6,722 objects  279,068,274,113 bytes   PARITY PASS
+```
+
+`rts-mapping-v2` was always compared this way (its pair used an empty prefix), which is why it needed
+no rescue.
+
+### `usw1` could no longer be enumerated — so it was confirmed a different way
+
+`S2_RGB/` and `ee_staging/` were already deleted, so a whole-bucket comparison was no longer
+possible. Cloud Monitoring keeps the history the bucket no longer can:
+
+| `storage.googleapis.com/storage/v2/total_bytes` | bytes |
+|---|---|
+| `type: live-object` | 20,875,696,884,709 |
+| `type: soft-deleted-object` | 359,324,933,372 |
+| **sum of the four migrated legs** | **20,876,507,422,915** |
+
+Live bytes match the migrated legs to **810 MB — 0.004 %** — and that residual is the S2 export
+rewriting composites between the hourly metric sample and the parity run, the same drift measured
+directly at 823 MB. **There was no fifth prefix.** The 359 GB of soft-deleted objects is what that
+same rewriting left behind, and is exactly what disabling soft-delete before the deletes disposed of
+rather than billing for another week.
+
 ## 5. Verification — the gate before deletion
 
 Nothing in §6 runs until every row passes. *(To be filled in as the migration proceeds.)*
