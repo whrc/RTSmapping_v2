@@ -756,6 +756,39 @@ underscore apart, holding different projects' models. The same trick cleared
 `RTS_v6_tcvis` / `s2-tcvis-final-large` trained on `pd-dgx-a100`, i.e. **AWI's DARTS model** in PDG's
 Ray harness, not ours.
 
+### Closing it properly: rank by bytes, not by name
+
+The structural walk and the name sweep both have the same weakness — they depend on *someone
+having named something recognisably*. `Woodwell_sent2_…` was caught only because a human happened
+to put the institution in the folder name. Had it been `test2/`, nothing would have flagged it.
+
+So the bucket was finally closed on the one property that cannot be hidden: **size**. A full walk
+of all 1,562,015 objects, aggregated by depth-2 prefix — `pdg-storage-default` holds **3.60 TB**,
+and **556 prefixes are ≥1 GB**. Strike out everything unmistakably PDG's (MAPLE, Landsat,
+clowder, the lake/water/viz families, `landsattrend`) and **exactly ten** remain — every one of
+them already adjudicated:
+
+| Prefix | GB | Verdict |
+|---|---|---|
+| `sentinel2/Woodwell_sent2_74-84N_cloudmask_summer_2024` | 511.0 | **ours — rescued** |
+| `workflows_optimization/rts_ray_pipeline` | 5.3 | AWI's DARTS checkpoints |
+| `working/RTS_PlanetScope_4BandRGB_1024_Banks_clean_v2.zip` | 4.9 | **ours — rescued** |
+| `working/infrastructure.zip` | 1.9 | PDG — TALO masks |
+| `working/iwp_mask_rcnn_vitdet_1024input.zip` | 1.2 | PDG — ice-wedge polygons |
+| `sentinel2/…T07WFR_SR.tif.tif` | 1.1 | **ours — rescued** |
+| `working/vit_sem_seg_1024input_13400itr.pth` | 1.1 | PDG — infrastructure model |
+| `working/rts_vit_sem_seg_1024inputs_Banks.zip` | 1.0 | **ours — rescued** |
+| `working/rts_vit_sem_seg_1024inputs.zip` | 1.0 | **ours — rescued** |
+| `working/vit_sem_seg_1024input_13400itr.zip` | 1.0 | PDG — infrastructure model |
+
+**Zero unaccounted.** Our 511 GB was the *second-largest object group in the entire bucket* and
+five inventories walked past it. Sorting by bytes would have found it on day one.
+
+> **The check to run first, next time.** Rank every prefix by total size and adjudicate the top of
+> the list. It is one pass, it needs no knowledge of naming conventions, no repo, and no memory of
+> what was created — and it degrades gracefully: what it cannot see is small, and what is small is
+> cheap to lose. Name and structure sweeps are the follow-up, not the opener.
+
 ### What actually works: open every prefix, don't read its name
 
 Five inventories, five misses, all the same shape — *a prefix listed and never opened*. The fix is
@@ -771,9 +804,16 @@ loose, subs = [b for page in it.pages for b in page], sorted(it.prefixes)   # th
 That walk is what surfaced both `working/` and `sentinel2/…74-84N…`. A name-regex sweep of all **1,562,015** object
 names (`rts|slump|thaw|banks|arctic|planetscope|abrupt`) was run alongside it as a cross-check and
 returned six prefixes: the three `working/` archives, `rts_ray_pipeline` (AWI's), and two PDG
-`Pan-Arctic …_freq.png` lake plots. It **did not return the 511 GB** — not one of those 398 objects
-is named anything but `Lat74_Lon-102.tif`, and the only tell was the *folder* name. A name sweep
-would have cleared this bucket a sixth time. **Structure first, names second.**
+`Pan-Arctic …_freq.png` lake plots. It **did not return the 511 GB**.
+
+> **Why it missed, corrected.** The first reading of this was that the sweep *could not* see the
+> folder — that only the directory name gave it away. That is wrong, and worth correcting because it
+> points at the wrong lesson. `blob.name` is the **full path**, so
+> `sentinel2/Woodwell_sent2_74-84N_…/Lat74_Lon-102.tif` was in scope all along. The sweep missed it
+> because the **pattern was too narrow** — no `woodwell`, no `sent2`, no `sentinel`. The keyword list
+> had been built from this repo's vocabulary, and the whole point of that folder is that it was made
+> outside this repo. A keyword sweep can only find what you already think of; that is its real limit,
+> not an inability to see directories.
 
 ## 6. Teardown (irreversible — only after §5)
 
