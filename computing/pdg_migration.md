@@ -395,7 +395,7 @@ Two independent layers, and they fix different things:
 | Layer | Covers | Cost | State |
 |---|---|---|---|
 | **Private Google Access** (subnet flag) | `*.googleapis.com`, `*.pkg.dev` — GCS, OAuth, Artifact Registry | **free** | **enabled 2026-08-27** |
-| **Cloud NAT** (router + gateway) | everything else — GitHub, PyPI, apt, Docker | ~$32/mo + $0.045/GB | **not created — needs a human** |
+| **Cloud NAT** (router + gateway) | everything else — GitHub, PyPI, apt, Docker | ~$32/mo + $0.045/GB | **created** — `rts-ops-router` / `rts-ops-nat`, us-west1, `AUTO_ONLY` over all subnet ranges; verified live 2026-09-01 |
 
 ```powershell
 # Layer 1 — free, and the one the copy actually depends on. Already applied.
@@ -422,7 +422,7 @@ is essentially the whole cost.
 | Item | Where | State |
 |---|---|---|
 | Repo checkout | `/opt/rts/RTSmapping_v2` | done — tracks **`main`** @ `9d438db`, **never branch-switch it** (§4a) |
-| Shared group | `rts` (gid 1002) | done — OS Login gives each user a private uid/gid and puts nobody in `google-sudoers`, so a shared box needs an explicit group. **Heidi must be added on her first login:** `sudo usermod -aG rts <her-oslogin-user>` |
+| Shared group | `rts` (gid 1002) | done — OS Login gives each user a private uid/gid and puts nobody in `google-sudoers`, so a shared box needs an explicit group. **Heidi was never added, and does not need to be** — see the note below |
 | Docker | apt `docker.io` 29.1.3 | done |
 | Shared venv | `/opt/rts/venv` (Python 3.10.12) | done — same dependency floors as `requirements.txt`; no torch, the box has no GPU |
 | `rts-dataprep:v1` | local image, 1.14 GB | done — built from `computing/Dockerfile.dataprep`, EE + geo imports smoke-tested |
@@ -432,6 +432,28 @@ is essentially the whole cost.
 | **Cron entries** | `/etc/cron.d/planetscope-acquisition` | done 2026-08-28 — acquisition alerter installed and dry-run clean. The interannual one is deliberately **not** installed: the S2 export is abandoned (cutover §2) and the campaign has nothing to alert on yet |
 | **Acquisition venv** | `/mnt/outputs/planetscope-venv` | done 2026-08-28 — geopandas 1.1.4 / shapely 2.1.2; the box had none, so Heidi could not have run there |
 | **Acquisition work dir** | `/mnt/outputs/planetscope-download/{data,status,logs}` | done 2026-08-28 — restored from the master (see §3b) |
+
+**Audit 2026-09-01 — three drifts between this table and the live box, none breaking.**
+
+- **The `rts` group has one member (`rtsmapping@`), and Heidi is not in it.** She has nonetheless
+  been running 2019 for 24 h. The acquisition work dirs are `drwxrwsrwt` — 1777 plus setgid — so
+  anyone can create files, the group stays `rts`, and the sticky bit stops users deleting each
+  other's. `status/2019.json` is mode 666 and still owned by `rtsmapping@` because she rewrites it
+  in place rather than recreating it. The `usermod -aG rts` step above is therefore **not** a
+  prerequisite for acquisition, and `/opt/rts/RTSmapping_v2` stays `rwxrwsr-x` root:rts — she can
+  read the checkout and cannot write it, which is the arrangement you want.
+- **The acquisition cron runs as `root`, not as `$U`.** Harmless here: `alert_if_stopped.py` reads
+  local status files and posts to Slack, and touches no GCS. It would matter for the interannual
+  alerter, which does need an ADC — install that one as `$U`.
+- **The per-year ADC scheme in `interannual_inference/config.yaml` is not provisioned.**
+  `accounts.2019` points at `/mnt/outputs/adc-rtsmapping/application_default_credentials.json`,
+  which **does not exist**; `/mnt/outputs/adc-heidi/` exists but holds only `logs/`,
+  `active_config` and `configurations/` — an `application_default_login` that was started
+  2026-08-28 08:29 and never completed. Only the default ADC
+  (`~/.config/gcloud/`, `yyang@`) is real, and it works — it lists the four state objects under
+  `gs://rts-arctic-usw1/interannual_inference/state/`. **This is a Phase-0 prerequisite, not a
+  migration gap**: the S2 export is abandoned and no year needs a second account until the
+  campaign restarts. Create them with the `CLOUDSDK_CONFIG=` form above before it does.
 
 ### 5c. `gcloud` CLI and ADC are different credentials — the copy needs both
 
