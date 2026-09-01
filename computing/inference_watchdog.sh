@@ -13,7 +13,7 @@
 #     inert during dev (set the sentinel at launch, it self-clears at completion).
 #
 # Usage (on the master, backgrounded):
-#   RUN_BASE=gs://rts-mapping-v2-usw1/inference/2025q3_south \
+#   RUN_BASE=gs://rts-arctic-usw1/inference/2025q3_south \
 #   nohup bash computing/inference_watchdog.sh > /mnt/outputs/watchdog.log 2>&1 &
 set -euo pipefail
 

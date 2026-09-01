@@ -21,7 +21,7 @@ ways to run it:
         import build_arcgis_project as bap
         sys.argv = ["build_arcgis_project.py",
                     "--products-dir", r"D:\rts_qc\banks",
-                    "--products-uri", "gs://rts-mapping-v2-usw1/inference/banks/products/"]
+                    "--products-uri", "gs://rts-arctic-usw1/inference/banks/products/"]
         bap.main()
         ```
      — this adds layers to the *currently open* project/map.
@@ -40,7 +40,7 @@ project's buckets).
 
 Usage:
     python build_arcgis_project.py --products-dir D:\\rts_qc\\banks ^
-        --products-uri gs://rts-mapping-v2-usw1/inference/banks/products/
+        --products-uri gs://rts-arctic-usw1/inference/banks/products/
 """
 
 from __future__ import annotations

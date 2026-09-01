@@ -1,10 +1,12 @@
 # Computing Infrastructure
 
-> ⚠️ **MIGRATION IN PROGRESS (2026-08-27 → 2026-09-06).** PDG funding ends **2026-09-07** and
-> everything below is moving to `abruptthawmapping`. Sections 1–6 still describe the *PDG*
-> state and are being rewritten as each leg completes — read them alongside
-> [pdg_migration.md](pdg_migration.md), which owns the old→new path map and the current
-> status. The **machine inventory has moved out of this doc** to [README.md](README.md).
+> ✅ **MIGRATION COMPLETE — 2026-09-01.** Everything now runs in `abruptthawmapping`; nothing of
+> ours remains in `pdg-project-406720`. Access to PDG closed **2026-08-31**, a week earlier than the
+> 09-07 funding cliff this doc was originally written against. **§4 (buckets) is current.** The
+> narrative in §1–§3 and §5–§8 still describes the *PDG* arrangement and is kept as the record of
+> why things are shaped the way they are — read it as history, not as instructions, and take live
+> paths from §4. [pdg_migration.md](pdg_migration.md) owns the old→new path map (rule: the bucket
+> changes, the prefix does not). The **machine inventory** lives in [README.md](README.md).
 
 **Single source of truth for compute facts**: GCP projects, storage buckets, regions, quota,
 and the data storage map. This doc is *facts*; the step-by-step
@@ -95,11 +97,15 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 | Bucket | Project | Purpose | Notes |
 |--------|---------|---------|-------|
-| `gs://abrupt_thaw/` | abruptthawmapping (non-PDG) | Current home of v2-alpha training data under `RTS_MODEL_V2/DATA/` | Reading from PDG VMs crosses projects → egress. |
-| `gs://rts-mapping-v2/` | PDG | Compute-adjacent **training** data, outputs, artifacts, deployment packages | Region **US (multi-region)** — verified 2026-06-15. |
-| `gs://pdg-planet-data/` | PDG | **2025 Planet basemap quads** (pan-arctic inference input) | Region **US-WEST1 (single)**. The us-central1 master **reads the 309,100 domain quads (RGB `gcs_path`) directly cross-region** — the write-path fix (2026-07-07) removed the need to stage them (see region note). |
-| `gs://rts-mapping-v2-usc1/` | PDG | (was: transient co-location staging) | **us-central1 (single region)** — created 2026-07-06 for the co-located run. **NOTE 2026-07-07: the co-location plan is withdrawn** (bottleneck was the write path, not reads). This bucket now holds only a **stale Banks-quad staging slice (~250 GB) that can be deleted**; no longer on the launch path. |
-| `gs://rts-mapping-v2-usw1/` | PDG | **Sentinel-2 imagery** (`S2_RGB/<year>_<region>/` cells) — NDVI source; **primary inference I/O** (shard queue + probability COG outputs) | **us-west1 (single region)** — created **2026-06-24**. NDVI is computed on-the-fly from these (B8/B4) at read time (no pre-compute/stage). Banks products live under `inference/banks/`. |
+| `gs://abrupt_thaw/` | abruptthawmapping | Original/legacy data; v2-alpha training source under `RTS_MODEL_V2/DATA/` | US multi-region. |
+| `gs://rts-arctic-us/` | abruptthawmapping | Compute-adjacent **training** data, run/MLflow mirrors, `label_sources/`, deployment packages, migration archives | **US (multi-region)**. *(was `gs://rts-mapping-v2/`)* |
+| `gs://rts-arctic-usw1/` | abruptthawmapping | **Planet basemap quads** (`global_quarterly/<y>/q3/`), **Sentinel-2 imagery** (`S2_RGB/<y>_<region>/`), **primary inference I/O** (`inference/…`), `rescued_pdg/` | **us-west1 (single region)**. NDVI is computed on-the-fly from B8/B4 at read time. Banks products under `inference/banks/`. *(was `gs://rts-mapping-v2-usw1/` + `gs://pdg-planet-data/`, now merged into one bucket)* |
+| `gs://rts-arctic-usc1/` | abruptthawmapping | `ee_mirror/`, `staging/` | **us-central1 (single region)**. *(was `gs://rts-mapping-v2-usc1/`)* |
+
+Planet and S2 now share one us-west1 bucket, which removes the cross-project read that shaped the
+2026-07 co-location debate below. Coldline lifecycle applies to `imagery/`, `global_quarterly/` and
+`S2_RGB/`; `inference/` is deliberately excluded — 41.5 M ~2.5 KB objects would each bill a 128 KiB
+minimum.
 
 **Region / throughput — CORRECTED 2026-07-07 (supersedes the 2026-07-06 "move the data to us-central1"
 plan).** The pan-Arctic inference bottleneck was **not** read locality — it was the **output write**. On

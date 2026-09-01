@@ -7,7 +7,7 @@ per data/data.md §3. Does NOT read raster contents.
 See data/datacheck.md §1 for the full specification.
 
 Usage:
-    python scripts/check_data_format.py --bucket gs://rts-mapping-v2/training/v1.0
+    python scripts/check_data_format.py --bucket gs://rts-arctic-us/training/v1.0
 """
 
 import argparse
@@ -580,7 +580,7 @@ def main() -> None:
     parser.add_argument(
         "--bucket",
         required=True,
-        help="GCS bucket URL (e.g. gs://rts-mapping-v2/training/v1.0)",
+        help="GCS bucket URL (e.g. gs://rts-arctic-us/training/v1.0)",
     )
     args = parser.parse_args()
 

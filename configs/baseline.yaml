@@ -20,10 +20,10 @@ data:
   version: "1.0"
 
   # data_root can be any URI rasterio understands:
-  #   gs://rts-mapping-v2/training/v1.0            (our bucket; requires GOOGLE_APPLICATION_CREDENTIALS)
+  #   gs://rts-arctic-us/training/v1.0             (our bucket; requires GOOGLE_APPLICATION_CREDENTIALS)
   #   /data/training/v1.0                          (gcsfuse mount inside Docker)
   #   ./tests/fixtures/v1.0                        (synthetic fixtures for local pytest)
-  data_root: "gs://rts-mapping-v2/training/v1.0"
+  data_root: "gs://rts-arctic-us/training/v1.0"
 
   # Directory/file names inside data_root. Keep these fixed — change data_root, not these.
   rgb_dir: "PLANET-RGB"
@@ -39,7 +39,7 @@ data:
 
   # Where compute_normalization_stats.py writes output.
   # Will also be copied alongside each checkpoint (travels with model — see training.md §4).
-  normalization_stats_path: "gs://rts-mapping-v2/training/v1.0/normalization_stats.json"
+  normalization_stats_path: "gs://rts-arctic-us/training/v1.0/normalization_stats.json"
 
 # ---------------------------------------------------------------------------
 # Channels — RGB is fixed; EXTRA is user-declared.
@@ -69,7 +69,7 @@ channels:
 # ---------------------------------------------------------------------------
 splits:
   # Region boundaries for the spatial-block split.
-  regions_geojson: "gs://rts-mapping-v2/training/v1.0/circumpolar_subregions.geojson"
+  regions_geojson: "gs://rts-arctic-us/training/v1.0/circumpolar_subregions.geojson"
 
   # Target ratios; create_splits.py enforces the four priority-ordered constraints
   # (see data/data.md §6): test ≥100 positives, val ≥2 ecoregions, train ≥70% positives, ±10% drift.

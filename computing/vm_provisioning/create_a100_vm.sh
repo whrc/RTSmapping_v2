@@ -4,7 +4,7 @@
 # PREREQS:
 #   1. gcloud must be authed as YOU (not the VM's compute SA, which lacks create perms):
 #        gcloud auth login           # browser/device flow
-#        gcloud config set project pdg-project-406720
+#        gcloud config set project abruptthawmapping
 #   2. Paste YOUR exact create command into create_cmd() below — get it from the GCP
 #      console create-VM page → "Equivalent code" → gcloud — and replace its hard-coded
 #      --zone=... with  --zone="$ZONE"  so the loop can alternate zones.
@@ -26,7 +26,7 @@ MAX_ATTEMPTS="${MAX_ATTEMPTS:-0}"   # 0 = unlimited
 # ---------------------------------------------------------------------------
 create_cmd() {
   gcloud compute instances create "a100-8x-train" \
-    --project="pdg-project-406720" \
+    --project="abruptthawmapping" \
     --zone="$ZONE" \
     --machine-type="a2-ultragpu-8g" \
     --maintenance-policy="TERMINATE" \

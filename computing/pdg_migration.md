@@ -102,23 +102,33 @@ Nothing was stranded there; the doc was stale.
 Old paths are embedded in MLflow run metadata and in archived run configs, and are **not**
 rewritten. This table is how you read them.
 
+**The rule is: the bucket changes, the prefix never does.** Substitute the bucket name and every
+path below it is unchanged — verified against the live buckets 2026-09-01.
+
 | Old | New |
 |---|---|
+| `gs://rts-mapping-v2/…` | `gs://rts-arctic-us/…` |
 | `gs://rts-mapping-v2/training/…` | `gs://rts-arctic-us/training/…` |
-| `gs://rts-mapping-v2/label_sources/…` | `gs://rts-arctic-us/labels/…` |
-| `gs://rts-mapping-v2/RTS_MODEL_V2/…` | `gs://rts-arctic-us/experiments/v1.0/…` |
-| `gs://rts-mapping-v2/RTS_MODEL_V1_1/…` | `gs://rts-arctic-us/experiments/v1.1/…` |
-| `gs://rts-mapping-v2/RTS_MODEL_V21/…` | `gs://rts-arctic-us/experiments/v2.1/…` |
-| `gs://rts-mapping-v2/RTS_MODEL_V2_scale05/…` | `gs://rts-arctic-us/experiments/scale05/…` |
-| `gs://rts-mapping-v2/runs/…` | `gs://rts-arctic-us/experiments/v1.0/runs/…` |
+| `gs://rts-mapping-v2/label_sources/…` | `gs://rts-arctic-us/label_sources/…` |
+| `gs://rts-mapping-v2/RTS_MODEL_V2/…` | `gs://rts-arctic-us/RTS_MODEL_V2/…` |
+| `gs://rts-mapping-v2/RTS_MODEL_V1_1/…` | `gs://rts-arctic-us/RTS_MODEL_V1_1/…` |
+| `gs://rts-mapping-v2/RTS_MODEL_V21/…` | `gs://rts-arctic-us/RTS_MODEL_V21/…` |
+| `gs://rts-mapping-v2/RTS_MODEL_V2_scale05/…` | `gs://rts-arctic-us/RTS_MODEL_V2_scale05/…` |
+| `gs://rts-mapping-v2/runs/…` | `gs://rts-arctic-us/runs/…` |
 | `gs://pdg-planet-data/global_quarterly/<y>/q3/…` | `gs://rts-arctic-usw1/global_quarterly/<y>/q3/…` *(prefix unchanged — see below)* |
 | `gs://rts-mapping-v2-usw1/S2_RGB/<y>_<region>/…` | `gs://rts-arctic-usw1/S2_RGB/<y>_<region>/…` *(prefix unchanged — see below)* |
 | `gs://rts-mapping-v2-usw1/inference/…` | `gs://rts-arctic-usw1/inference/…` *(prefixes unchanged below the bucket)* |
 | `gs://rts-mapping-v2-usc1/ee_mirror/…` | `gs://rts-arctic-usc1/ee_mirror/…` *(unchanged below the bucket)* |
 
-**REVISED 2026-08-28 — nothing is renamed now; only the bucket changes.** The original map
-renamed Planet to `imagery/planet_q3/` and S2 to `imagery/s2_composites/`. With the deadline at
-08-31 that rename costs more than it buys:
+**REVISED 2026-08-28 — nothing is renamed now; only the bucket changes.** The original map renamed
+Planet to `imagery/planet_q3/`, S2 to `imagery/s2_composites/`, and the model trees to
+`experiments/v1.0/` etc. With the deadline at 08-31 that rename cost more than it bought:
+
+> **The table above was left describing the abandoned rename until 2026-09-01** — it still sent
+> readers to `gs://rts-arctic-us/experiments/v1.0/` and `…/labels/`, **neither of which exists**.
+> A path map is the one thing in this document that gets used after everyone has forgotten the
+> migration, so it is now stated as a rule ("bucket changes, prefix does not") and checked against
+> the live bucket rather than against the plan.
 
 - **Planet's prefix is baked into the order CSV**, not just read from it —
   `planetscope-download/filter_to_domain.py` writes `delivery_location` as
@@ -665,12 +675,83 @@ nothing new has landed in PDG since the final sync. **Cleared for deletion.**
 tarballs (1.29 GB)** — ours, from the May and August image builds. Their outputs are already
 migrated and verified, and their inputs are in git, so they were arguably redundant; copied to
 `gs://rts-arctic-us/build_context_archive/source/` anyway and verified (7 = 7, byte-identical),
-because 1.3 GB is cheaper than relying on a reproducibility argument. `pdg-storage-default` was
-checked and is entirely PDG's own work (`LostLakes/`, `UAFmodeling/`, `viz_workflow/`, …) with
-nothing of ours.
+because 1.3 GB is cheaper than relying on a reproducibility argument. `pdg-storage-default` was checked here **on its top-level prefix
+names only, and that was not enough** — see §5d.
 
 **`planet-orders@pdg-project-406720`** may be deleted with everything else: our deliveries provably
 use the `abruptthawmapping` copy (§5b), and nothing of ours authenticates with the PDG one.
+
+## 5d. `pdg-storage-default` — the inventory was wrong a fifth time, and it was the expensive one
+
+§5c cleared this bucket by reading its **top-level prefix names** (`LostLakes/`, `UAFmodeling/`,
+`viz_workflow/`, …), all of which are plainly PDG's. Two of those prefixes had ours inside them.
+
+### The big one: 511 GB of Sentinel-2, one level down inside `sentinel2/`
+
+`sentinel2/Woodwell_sent2_74-84N_cloudmask_summer_2024/` — **398 GeoTIFFs, 511 GB**, COLDLINE,
+written 2025-11-26/28. Covering 74–82°N, which `data/s2_rgb_data.md` §2 names as this project's
+**`circumpolar_north_domain`**. It was **a previous S2 download attempt made outside this
+repository** (confirmed by Yili) — which is exactly why nothing found it:
+
+- it is not in the repo — no file, config or doc mentions it;
+- it is not in the migration's 7-leg pair list, which was built from the repo;
+- it does not match our `cell_id` convention (`Lat74_Lon-102.tif`, not `W1020_N0740`);
+- it is summer **2024**, while our north job is `S2_RGB/2025_north/` — already migrated, and
+  genuinely a different dataset, so its presence in the new bucket "explained" the north domain and
+  made this look redundant.
+
+Every one of those signals argued *against* it being ours, and all of them were about the **repo**,
+not about the **data**. Rescued to `gs://rts-arctic-usw1/rescued_pdg/` — same region, so the copy is
+server-side. Its 1.15 GB single-tile prototype (`sentinel2/…T07WFR_SR|SCL.tif.tif`, 2025-10-01, the
+surface-reflectance + scene-classification pair a cloudmask is built from) went with it.
+
+> **The rule this breaks.** Every other check in this migration keyed off the repo: the pair list,
+> the path map, the audit queries. That is sound for work the repo knows about and blind to work it
+> does not — and a solo research project accumulates a lot of the latter. **A bucket is not cleared
+> by "nothing in the repo points at it."**
+
+### The smaller one: three legacy RTS archives in `working/`
+
+| Object | Size | Verdict |
+|---|---|---|
+| `RTS_PlanetScope_4BandRGB_1024_Banks_clean_v2.zip` | 4.91 GB | **ours** — a *labelled training set* (`train_img/`, `README.md`, 1,637 members) |
+| `rts_vit_sem_seg_1024inputs.zip` | 1.04 GB | **ours** — RTS ViT semantic-segmentation run (`model_final.pth`, `metrics.json`) |
+| `rts_vit_sem_seg_1024inputs_Banks.zip` | 1.04 GB | **ours** — the same, Banks Island |
+| `vit_sem_seg_1024input_13400itr.zip` / `.pth` | 2.15 GB | **not ours** — unpacks to `vit_sem_seg/`**`infrastructure/`** |
+| `infrastructure.zip` | 1.90 GB | **not ours** — 1,510 `TALO_mask_*.TIF` infrastructure masks |
+| `iwp_mask_rcnn_vitdet_1024input.zip` | 1.23 GB | **not ours** — ice-wedge polygons |
+
+2024, from the detectron2/ViT work that preceded RTSmappingDL v2. Copied to
+`gs://rts-arctic-us/legacy_pdg_working/` and CRC32C-verified (`dE1hLA==`, `Lu6sxQ==`, `Wdx2YQ==`),
+**6.99 GB**.
+
+**Ownership was decided by reading the archives, not their names.** Four of the seven have names that
+suggest nothing either way; a zip's central directory is at the *end* of the file, so a `Range:`
+request for the last 200 KB lists every member without moving the other 11 GB. That is what separated
+`rts_vit_sem_seg_*` (ours) from `vit_sem_seg_1024input_13400itr` (infrastructure) — two names one
+underscore apart, holding different projects' models. The same trick cleared
+`workflows_optimization/rts_ray_pipeline/` (5.35 GB, and `rts` in the name): its checkpoints are
+`RTS_v6_tcvis` / `s2-tcvis-final-large` trained on `pd-dgx-a100`, i.e. **AWI's DARTS model** in PDG's
+Ray harness, not ours.
+
+### What actually works: open every prefix, don't read its name
+
+Five inventories, five misses, all the same shape — *a prefix listed and never opened*. The fix is
+cheap and should have been the first thing done. A delimiter walk costs one API call per prefix, so
+three levels of a 1.56 M-object bucket takes seconds rather than the two hours a full walk needs:
+
+```python
+it = client.list_blobs(bucket, prefix=prefix, delimiter="/",
+                       fields="items(name,size),prefixes,nextPageToken")
+loose, subs = [b for page in it.pages for b in page], sorted(it.prefixes)   # then recurse into subs
+```
+
+That walk is what surfaced both `working/` and `sentinel2/…74-84N…`. A name-regex sweep of all **1,562,015** object
+names (`rts|slump|thaw|banks|arctic|planetscope|abrupt`) was run alongside it as a cross-check and
+returned six prefixes: the three `working/` archives, `rts_ray_pipeline` (AWI's), and two PDG
+`Pan-Arctic …_freq.png` lake plots. It **did not return the 511 GB** — not one of those 398 objects
+is named anything but `Lat74_Lon-102.tif`, and the only tell was the *folder* name. A name sweep
+would have cleared this bucket a sixth time. **Structure first, names second.**
 
 ## 6. Teardown (irreversible — only after §5)
 
@@ -685,11 +766,43 @@ use the `abruptthawmapping` copy (§5b), and nothing of ours authenticates with 
 | `a100-8x-train` stopped | **done 2026-08-28** — `--discard-local-ssd=false`, so the t65 build survives on disk as well as in GCS |
 | Delete VMs, release `rts-review-vm-ip`, delete our three images | **done 2026-08-29** |
 | Delete `rts-mapping-v2`, `rts-mapping-v2-usc1` | **done** (usc1 2026-09-01, after the `staging/` rescue and a whole-bucket re-verify) |
-| Empty and delete `rts-mapping-v2-usw1` | **in progress 2026-09-01** — see the lifecycle note below |
+| Empty and delete `rts-mapping-v2-usw1` | **emptying, unattended** — the age-0 rule took it from **20.9 TB to 56 GB** in its first pass (`total_bytes`, 08-29 → 08-31), and a live count on 09-01 put it at **2,337,904 objects** left of the original ~42 M. No versioning and no retention policy on the bucket, so the rule reaches everything; it needs nobody and finishes whether or not we still hold access. Delete the empty bucket afterwards — an empty bucket costs nothing |
+| Rescue from `pdg-storage-default` | **done 2026-09-01** — **511 GB** of north-domain S2 (398/398, 0 missing, 0 differing) + its 1.15 GB prototype pair + 6.99 GB of legacy RTS archives, all CRC32C-verified (§5d) |
+| Final sweep of every other PDG surface | **done 2026-09-01** — see below |
 | `pdg-planet-data` released to PDG for deletion | **done 2026-09-01** — audited first (§5c); nothing of ours depends on it |
 
 Ordering trap worth restating: release the static IP **after** its VM is deleted, or the
 release is refused as in-use.
+
+**Final sweep, 2026-09-01 — what is left in PDG and who owns it.** Confirmed against each live
+service API, not the asset inventory (which lags deletions):
+
+| Surface | State |
+|---|---|
+| Instances | `download-vm`, `gke-water-cluster-*` ×2 — **none ours** |
+| Disks | the same three, plus one GKE PVC — **none ours** |
+| Addresses | one NAT auto-IP — **none ours**; `rts-review-vm-ip` released |
+| Cloud Run | **empty** |
+| Artifact Registry | `lake_drainage_test` only — our three images gone |
+| Firewall | no `rts-*` rule; `rts-review-allow-http` deleted |
+| Service accounts | `rts-review-app@` deleted; `planet-orders@pdg-…` deliberately left (§5b) |
+| Project IAM | no binding for any of our identities |
+| Cloud Functions, Dataproc, Cloud SQL | **APIs never enabled** — stronger than an empty list |
+| Earth Engine | **9 assets, all 9 present in `abruptthawmapping`** (re-listed live 09-01) |
+| Buckets | `pdg-planet-data` (only `global_quarterly/{2019,2022,2025}`, all migrated), `pdg-storage-default` (§5d, ours extracted), `_cloudbuild` (7 tarballs archived), `rts-mapping-v2-usw1` (emptying) |
+
+**Residue spot-check.** 601 objects sampled evenly across the 689,870 the purge had not yet reached
+were each looked up in `rts-arctic-usw1`: **0 missing, 0 differing**. This is *not* a second gate —
+§5 row 1 already compared all ~42 M objects with `missing = 0`, and the residue is a strict subset of
+that. It re-tests the one assumption behind the word "subset": that nothing has been written to the
+PDG bucket since. Nothing can be — the master is deleted, the EE queue cancelled, Cloud Run gone, and
+no service account retains write access.
+
+**One loose end that costs money, not data.** `rts-mapping-v2-usw1` still reports **394 GB of
+`soft-deleted-object`**, flat since 08-30. Disabling soft-delete stops *new* soft deletes but lets
+objects already in that state serve out their original 7-day window, so this clears itself around
+**2026-09-04**. Deleting the bucket purges it immediately. Nothing of ours is in there that is not
+already migrated — they are deleted copies of verified objects.
 
 **`teardown.ps1` stalled part-way through step 4** (2026-08-29) — `gcloud storage rm --recursive`
 died somewhere inside `usw1`'s 42 M objects, leaving `usc1` completely untouched. That stall is what

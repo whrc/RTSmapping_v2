@@ -3,7 +3,7 @@
 Per data/datacheck.md §2. Runs on a random 5% sample of tiles.
 
 Usage:
-  python scripts/check_data_content.py --bucket gs://rts-mapping-v2/training/v1.0
+  python scripts/check_data_content.py --bucket gs://rts-arctic-us/training/v1.0
   python scripts/check_data_content.py --bucket /data/training/v2.0  # gcsfuse mount
 """
 

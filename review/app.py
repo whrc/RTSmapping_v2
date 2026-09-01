@@ -20,7 +20,7 @@ browser.
 
 Configuration is entirely environment (Cloud Run env vars / Space secrets):
 
-    REVIEW_BUCKET       GCS bucket holding the campaign, e.g. rts-mapping-v2-usw1
+    REVIEW_BUCKET       GCS bucket holding the campaign, e.g. rts-arctic-usw1
     REVIEW_PREFIX       campaign state prefix, e.g. inference/2025q3_south/review
     REVIEW_CROP_PREFIX  crop archive prefix, e.g. .../internal/review_crops
     REVIEW_MANIFEST     gs:// URI of manifest.parquet

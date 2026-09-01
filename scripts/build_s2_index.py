@@ -5,7 +5,7 @@ CSV to window NDVI from the composites on the fly.
 
 Usage:
     python scripts/build_s2_index.py \
-        --bucket rts-mapping-v2-usw1 --prefix S2_RGB/2025_south \
+        --bucket rts-arctic-usw1 --prefix S2_RGB/2025_south \
         --output /mnt/outputs/inference/s2_index_2025_south.csv
 
 Needs GOOGLE_CLOUD_PROJECT set when running on bare ADC (the storage client

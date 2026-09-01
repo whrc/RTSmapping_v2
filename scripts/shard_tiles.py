@@ -19,7 +19,7 @@ invariant is that every tile lands in exactly one shard.
 Usage:
     python scripts/shard_tiles.py \
         --tile-list /mnt/outputs/inference/tiles_2025q3_domain_full.csv \
-        --output gs://rts-mapping-v2-usw1/inference/2025q3_south \
+        --output gs://rts-arctic-usw1/inference/2025q3_south \
         --shard-size 20000
 """
 

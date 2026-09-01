@@ -62,14 +62,23 @@ EPSG:3413); the export grid is clipped to them (already land/permafrost-only).
 
 ## 3. Storage layout
 
-Bucket: **`gs://rts-mapping-v2-usw1`** (PDG, us-west1 single-region; created 2026-06-24).
+Bucket: **`gs://rts-arctic-usw1`** (abruptthawmapping, us-west1 single-region). *Was
+`gs://rts-mapping-v2-usw1` in PDG until the 2026-09-01 migration; the prefix is unchanged.*
 
 ```
-gs://rts-mapping-v2-usw1/S2_RGB/<job>/<cell_id>*.tif
+gs://rts-arctic-usw1/S2_RGB/<job>/<cell_id>*.tif
    2025_south/   full circumpolar_south_domain   (1799 cells)   — inference
    2025_north/   full circumpolar_north_domain   ( 272 cells)   — inference
    2024_train/   domain/train_label_footprint.geojson (1063 cells, N+S label sites buffered 5 km, §6.1) — training
+   2019_south/, 2022_south/   interannual back-years (partial — the 2026-08 export was abandoned)
 ```
+
+**An earlier, separate north download exists outside this scheme.**
+`gs://rts-arctic-usw1/rescued_pdg/Woodwell_sent2_74-84N_cloudmask_summer_2024/` — 398 tif / 511 GB,
+summer **2024**, 74–82°N, named `Lat<lat>_Lon<lon>.tif` rather than by `cell_id`. It was made outside
+this repository and is **not** produced by, or readable through, the `cell_id` machinery below; it
+was rescued from PDG's shared bucket hours before that project was wiped (`pdg_migration.md` §5d).
+Do not confuse it with `2025_north/`, which is the job this document specifies.
 (`train_label_footprint.geojson` is a derived artifact — not committed; regenerate with:
 `gpd.read_file('domain/train_points.geojson').to_crs(3857).buffer(5000).union_all()` → save as GeoJSON.)
 ```
@@ -104,7 +113,7 @@ with rasterio.open("gs://.../S2_RGB/2025_south/W1500_N0740.tif") as ds:
 ```bash
 python scripts/export_s2_composites.py --year 2025 \
    --domain domain/circumpolar_south_domain.geojson \
-   --bucket rts-mapping-v2-usw1 --prefix S2_RGB/2025_south
+   --bucket rts-arctic-usw1 --prefix S2_RGB/2025_south
 ```
 Resumable: cells already present under the prefix are skipped; the launcher backs off when
 the GEE task queue is full. Run inside the `rts-train` Docker image (earthengine-api +

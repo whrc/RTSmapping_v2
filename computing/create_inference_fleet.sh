@@ -18,7 +18,7 @@
 # — keep for re-runs/products; the auto-stop watchdog does this at completion).
 #
 # Usage:
-#   N_VMS=3 RUN_BASE=gs://rts-mapping-v2-usw1/inference/2025q3_south \
+#   N_VMS=3 RUN_BASE=gs://rts-arctic-usw1/inference/2025q3_south \
 #   QUAD_INDEX=gs://.../quad_index_2025q3.csv \
 #   S2_INDEX=gs://.../s2_index_2025_south.csv \
 #   bash computing/create_inference_fleet.sh

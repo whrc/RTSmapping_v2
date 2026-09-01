@@ -124,7 +124,7 @@ def list_delivered(bucket_name: str, prefix: str, use_match_glob: bool) -> set[s
     once per invocation, so its cost is a slow resume, not a slow loop.
 
     Args:
-        bucket_name: Delivery bucket, e.g. "pdg-planet-data".
+        bucket_name: Delivery bucket, e.g. "rts-arctic-usw1".
         prefix: e.g. "global_quarterly/2022/q3/".
         use_match_glob: Also filter server-side to quad tifs. Unvalidated —
             GCS documents matchGlob as applying when delimiter is "/", which

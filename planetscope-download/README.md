@@ -1,7 +1,7 @@
 # PlanetScope basemap acquisition (2019–2024)
 
 Orders Planet Global Quarterly q3 basemap quads for the circumpolar-south
-domain and has them delivered straight into `gs://pdg-planet-data`.
+domain and has them delivered straight into `gs://rts-arctic-usw1`.
 
 **Heidi — start here.** This is your `circumpolar_planet_basemaps` workflow
 ported into this repo, with the changes you asked for in the PR #61 review
@@ -197,7 +197,7 @@ restarts inherit them without asking you again. Two consequences worth knowing:
 Ours, not yours — listed so you can see where the numbers you record go:
 
 ```bash
-python scripts/build_quad_index.py --bucket pdg-planet-data \
+python scripts/build_quad_index.py --bucket rts-arctic-usw1 \
     --prefix global_quarterly/<year>/q3/ \
     --output /mnt/outputs/inference/quad_index_<year>q3.csv \
     --expect-quads <the count step 2 printed>

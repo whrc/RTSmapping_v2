@@ -3,7 +3,7 @@
 > **Implementation status (2026-06-12).** Phase-1 single-scale pipeline implemented and
 > smoke-tested end-to-end on real 2025-Q3 quads: `inference/{quad_index,tiles,predictor,writer}.py`
 > + `scripts/{build_quad_index,generate_tile_grid,inference,merge_predictions,vectorize_predictions}.py`.
-> §3.1 correction discovered at implementation: the 2025 data in `gs://pdg-planet-data` is **not**
+> §3.1 correction discovered at implementation: the 2025 data in `gs://rts-arctic-usw1` is **not**
 > pre-cut tiles but Planet **quad deliveries** — 4096×4096 uint8 RGBA quads on the zoom-15 mosaic
 > grid (2048×2048 grid over EPSG:3857; alpha band = NoData; per-quad UDM2 + metadata; a quad may
 > appear under several order UUIDs). Tiles are therefore 512×512 **windowed reads** that may
@@ -55,14 +55,14 @@ embarrassingly parallel + resumable).
 | Region | **us-central1 master** reading us-west1 buckets directly (corrected 2026-07-07; the rows below are the *superseded* us-west1 L4-fleet design — SSoT `computing/infrastructure.md` §4). |
 | VM fleet | **The 8-A100 master alone** (launched 2026-07-07). An in-region L4/spot fleet would ~2.7× throughput (reads become in-region) but is **optional** — the master reads us-west1 cross-region. *(Historical: 4× `g2-standard-96` = 32× L4.)* |
 | Throughput / wallclock | **MEASURED + TUNED: ~24 tiles/s/A100** (3-model ensemble, cross-region reads, **num_workers=16**; ~217 t/s aggregate) → **~2.3 d** for the **41.57M** tiles on the 8-A100 master. *(8 workers was I/O-bound at ~12 t/s/~5 d; the ~61 idle vCPUs let `--num-workers 8→16` ~double it by hiding cross-region read latency, near the in-region ~33 t/s ceiling. The write fix first lifted 2.8→~12. SSoT: `computing/infrastructure.md` §region/throughput.)* |
-| Storage | `gs://rts-mapping-v2-usw1/inference/2025q3_south/` (single-region **us-west1**, co-located with `pdg-planet-data`/`S2_RGB` → egress-free) — outputs, deployment packages, queue markers. (Supersedes the earlier planned `woodwell-rts-inference-arts-south` — one fewer bucket; see `computing/artifact_inventory.md`.) |
+| Storage | `gs://rts-arctic-usw1/inference/2025q3_south/` (single-region **us-west1**; Planet quads and `S2_RGB` now live in this same bucket → egress-free) — outputs, deployment packages, queue markers. (Supersedes the earlier planned `woodwell-rts-inference-arts-south` — one fewer bucket; see `computing/artifact_inventory.md`.) |
 | Orchestration | **Self-balancing GCS shard-claim queue** (decided 2026-06-25; `inference/claim.py` + `scripts/shard_tiles.py` + `scripts/run_inference_worker.py`). The domain tile list is spatially sorted + split into many contiguous shards (`shards/*.csv` + `index.json`); each worker (one per GPU, **8 on the A100 master + 8 per L4 VM**) atomically claims the next free shard (`if_generation_match=0`), so the heterogeneous A100+L4 fleet auto-balances. Done markers are the source of truth; stale claims are reclaimed → preemption/stragglers just resume. **Fork-safety (2026-07-07):** the DataLoader uses a `forkserver` start method (`runner._make_loader`) so workers don't inherit the parent's gRPC/CUDA threads — the fix for the probabilistic Banks GPU-0 fork deadlock. A per-shard **stall watchdog** (`runner._start_stall_watchdog`, `inference.stall_timeout_s=900`) `os._exit(3)`s a worker that wedges so its claim goes stale + is reclaimed, and a **host supervisor** (`scripts/launch_south_inference.sh`, one worker/GPU) restarts any non-zero exit with a crash-loop guard → a silent single-GPU failure self-heals. |
 | Collaboration | PDG workflow optimization team (Luigi/Todd) |
 
 ### 2.2 Storage Structure
 
 ```
-gs://rts-mapping-v2-usw1/inference/2025q3_south/   # single-region us-west1 (co-located with pdg-planet-data + S2_RGB)
+gs://rts-arctic-usw1/inference/2025q3_south/   # single-region us-west1 (global_quarterly/ + S2_RGB/ share this bucket)
 ├── packages/                         # the 3 ensemble deployment packages (built 2026-06-26)
 │   └── seed{42,43,44}/
 │       ├── weights.pth               # EMA weights only (see training.md §4.3)
@@ -81,7 +81,7 @@ gs://rts-mapping-v2-usw1/inference/2025q3_south/   # single-region us-west1 (co-
 ├── merged/                           # post-inference: merged probability rasters (§4.3)
 └── vectors/                          # post-inference: vectorized polygons (§9.3)
 ```
-Inputs read from elsewhere (not under this prefix): 2025 Planet quads `gs://pdg-planet-data/global_quarterly/2025/q3/`; S2 composites for NDVI `gs://rts-mapping-v2-usw1/S2_RGB/2025_south/`.
+Inputs read from elsewhere (not under this prefix): 2025 Planet quads `gs://rts-arctic-usw1/global_quarterly/2025/q3/`; S2 composites for NDVI `gs://rts-arctic-usw1/S2_RGB/2025_south/`.
 
 This section owns the post-calibration deployment-package layout. MLflow-side artifacts produced during training (per-epoch metrics, figures, `run_summary.md`, etc.) are spec'd in `training/experiments.md §1.3`; on-disk checkpoint payloads (`best_deployment.pth`, `resume_latest-*.pth`) in `training.md §4.3`.
 
@@ -135,7 +135,7 @@ Replaces the earlier ~3.4M/~7.5M projected estimates with the actual scan of the
 
 | Parameter | Value (measured) |
 |-----------|------------------|
-| Quad index | **309,100 quads** under `gs://pdg-planet-data/global_quarterly/2025/q3/` (`scripts/build_quad_index.py` → `/mnt/outputs/inference/quad_index_2025q3.csv`) |
+| Quad index | **309,100 quads** under `gs://rts-arctic-usw1/global_quarterly/2025/q3/` (`scripts/build_quad_index.py` → `/mnt/outputs/inference/quad_index_2025q3.csv`) |
 | Raw coverage extent | 45.5–76°N, all longitudes; **land-focused** — Planet visual basemaps omit open ocean, so the quad grid is already land-only |
 | Inference domain | `domain/circumpolar_south_domain.geojson` (= permafrost ∩ Planet, per `domain/inference_domain.md`; EPSG:3413) — **20.68M km²**; parent permafrost region (`circumpolar_domain.geojson`) = 21.34M km² |
 | **Tile count** (stride 344, domain-masked) | **41,567,572 tiles** (`scripts/generate_tile_grid.py` → `scripts/mask_tiles_to_domain.py` centroid-in-domain → `tiles_2025q3_domain_full.csv`) |
@@ -158,7 +158,7 @@ mirroring how RGB is mosaicked from Planet quads:
 
 | Item | Value |
 |------|-------|
-| Source | Bulk Jul–Sep `s2_sr_composite` (`data/extra_channels`), bands B4,B3,B2,B8, EPSG:3857, 10 m, COG — exported by `scripts/export_s2_composites.py` to `gs://rts-mapping-v2-usw1/S2_RGB/2025_south/` |
+| Source | Bulk Jul–Sep `s2_sr_composite` (`data/extra_channels`), bands B4,B3,B2,B8, EPSG:3857, 10 m, COG — exported by `scripts/export_s2_composites.py` to `gs://rts-arctic-usw1/S2_RGB/2025_south/` |
 | Index | `scripts/build_s2_index.py` → `inference/s2_index.py` (cell bounds + GCS path; one-time GCS scan) |
 | Reader | `inference.tiles.read_ndvi_tile`: window intersecting cells, `NDVI=(B8−B4)/(B8+B4)` (band 1 / band 4), bilinear-resample 10 m → tile grid, mosaic; no-coverage → NaN |
 | Consistency | Same composite recipe + NDVI formula as training (`s2_image`); NDVI is scale-invariant so the /10000 cancels. Stacked as channel 4 and normalized via the shared `apply_norm` — NaN → 0, identical to training EXTRA (CLAUDE Rule 3) |

@@ -207,5 +207,5 @@ is a bad trade. The webhook file is shared, so there is still only one secret.
 | `prototype_earthsearch_diff.py` | prototype behind those two docs; re-derives their numbers |
 
 State lives at `/mnt/outputs/interannual_inference/state/<year>.json` (mirrored to
-`gs://rts-mapping-v2-usw1/interannual_inference/state/`), logs at
+`gs://rts-arctic-usw1/interannual_inference/state/`), logs at
 `/mnt/outputs/interannual_inference/logs/<year>/<stage>.log`. Neither is in the repo.

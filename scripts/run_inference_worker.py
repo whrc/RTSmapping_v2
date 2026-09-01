@@ -13,7 +13,7 @@ Run 8 of these per VM (one per L4/A100):
     for g in $(seq 0 7); do
       CUDA_VISIBLE_DEVICES=$g python scripts/run_inference_worker.py \
         --config configs/deployment.yaml \
-        --base gs://rts-mapping-v2-usw1/inference/2025q3_south \
+        --base gs://rts-arctic-usw1/inference/2025q3_south \
         --quad-index gs://.../quad_index_2025q3.csv \
         --s2-index   gs://.../s2_index_2025_south.csv \
         --package gs://.../pkgs/seed42 --package gs://.../pkgs/seed43 \

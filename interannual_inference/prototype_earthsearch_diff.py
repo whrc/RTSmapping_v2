@@ -110,7 +110,7 @@ def composite(feats, crs, transform, w, h):
     return R, N, len(reds)
 
 def main(cell, year, off_x, off_y, size):
-    gs=f"/vsigs/rts-mapping-v2-usw1/S2_RGB/{year}_south/{cell}.tif"
+    gs=f"/vsigs/rts-arctic-usw1/S2_RGB/{year}_south/{cell}.tif"
     with rasterio.open(gs) as src:
         # centre the window if the requested offset would fall outside the raster
         if off_x < 0 or off_y < 0 or off_x+size > src.width or off_y+size > src.height:

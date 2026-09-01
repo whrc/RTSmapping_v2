@@ -28,214 +28,63 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**SE-PC2 decomposition + SAM2 re-run honestly (branch `pc2-and-sam2-investigation`, 2026-07-29/30).**
-Two loose ends closed, plus a silent infrastructure bug found and fixed.
+**PDG migration complete (2026-08-26 → 09-01).** 60.19 TB / 47,553,531 objects, four buckets, the
+rating app, three Docker images and the EE assets behind the published map, all moved off
+`pdg-project-406720` before its access closed on 2026-08-31. Runbook `computing/pdg_migration.md`;
+teardown `computing/teardown.ps1`.
 
-**PC2 — CLOSED NEGATIVE.** SE_PCA had only ever been trained as an atomic 3-band pack (0.8736/0.8571),
-and the 8-band QC showed **SE_PCA2 is the only SE band tracking NDVI** (Spearman −0.765), so the pack's
-mediocre score could have been PC2 carrying signal while PC1/PC3 diluted it. Five arms tested that:
-PC1 **0.8720** · PC2 **0.8640** · PC3 **0.8776** (pack 0.8736) · NDVI+PC2 **0.8865** · NDVI+PC3 **0.8653**
-(NDVI-alone 0.8879, all seed 42). Three negatives: no single PC is the carrier (all within ±0.010 of the
-pack, inside G), PC2 alone does not match NDVI, and PC2+NDVI ties NDVI-alone. The −0.765 correlation is a
-shared **response** to exposed soil, not shared **information**. `EXTRA=[NDVI]` unchanged. Single seed by
-design — every arm is at or below its comparator, so a 3-seed confirm would spend 10 runs re-establishing
-a consistent null.
+**The gate closed at 11 of 11.** Row 1 compared *every* object rather than a sample — `planet`
+5,000,891 obj / 39.46 TB and `s2` 14,780 / 20.72 TB byte-identical, `inference` `missing = 0` in all
+2,161 chunks with the 5,381-object surplus reconciling to the byte. Row 3 anchored the frozen model
+to `model_checkpoint_sha` recorded in production manifests on 2026-07-07, not to the copy. Row 7 cut
+reviewers over with zero verdict loss — the new app was already *ahead* of the old, so the runbook's
+prescribed old→new sync would have been the wrong instinct and was correctly a no-op. Row 8 was
+verified against the published bundle after the first publish silently served the old script at
+HTTP 200: **EE Apps publish from a saved script path, not the editor buffer.**
 
-**SAM2 — 0.5558 → 0.9030 (3-seed), still loses to EffB5 0.9218.** The recorded "non-competitive" was
-right in direction and wrong by an order of magnitude, and every reason attached to it was false. The old
-run used the **pre-lock recipe** (`boundary_handling: none` changes the *val labels*, so 0.5558 vs 0.9218
-was never like-for-like), and three premises in its config were disproved by direct audit: Hiera *does*
-expose `.blocks` (16, one level under timm's `features_only` wrapper) so LLRD was always possible; it
-*does* expose `.patch_embed` so NDVI was always possible; and the weights *did* load (202/202 tensors,
-never verified before). An 11-cell factorial then attributed the recovery: **encoder LR is the whole story
-(~+0.34** — flat 1.0× → gentle uniform 0.1×; the original destroyed the encoder every epoch after
-unfreeze, hitting `pixel_iou=0.0` twice), **LLRD is NOT the fix (−0.028**, contrary to expectation),
-**normalization is real (+0.068** ImageNet vs z-score, vs +0.019 for DINOv3), and **NDVI is an interaction
-not a main effect** (+0.0055 under gentle LR, **−0.044** under LLRD — pairing NDVI only with LLRD, as the
-battery first did, would have concluded NDVI harms SAM2). A 24-cell frozen-feature probe
-(`scripts/probe_frozen_features.py`) additionally showed **Hiera does not improve with scale** and that
-**512 beats its native 896**, killing the resolution hypothesis. Key caveat recorded: probe AP does *not*
-predict trained score — use it for triage only. **EffB5 stays deployed**; family E closed for a defensible
-reason rather than a broken run. Full attribution: `docs/experiment_ledger.md` §E-SAM2.
-
-**Infra bug (silent data loss).** `run_gpu_pool.sh` had passed a **host** path as the container's
-`--out-dir`/`MLFLOW_TRACKING_URI` since the NVMe-mode commit; in default (non-NVMe) mode that path does not
-exist inside the container, so every run wrote into its ephemeral layer and `docker run --rm` destroyed it
-on exit. The only symptom was one `tee: No such file or directory` line at startup. Cost **3 completed
-SAM2 runs (~25 GPU-h)**; 7 in-flight runs were recovered with `docker cp`. Fixed by adding `HOTROOT_C`
-(container view) alongside `HOTROOT` (host view), verified by writing through the container and reading
-back on the host. **Anything launched via the pool between that commit and 2026-07-29 lost its artifacts.**
-
-Prior: **C1–C4 hypothesis-test battery COMPLETE — 23 runs, manuscript CSV shipped (2026-07-25).** The
-capacity-vs-representation-vs-labels battery (design: `docs/future_work/experiments_hypothesis_test.md`)
-ran back-to-back on 8×A100 (~40 h, **all 23 `status=completed`, 0 crashes**) on the hardened configs.
-Deliverable **`outputs/metric_robustness.csv`** (`scripts/export_metric_robustness.py`): 45 per-seed rows +
-30 mean/std aggregates over 15 conditions, secondary metrics (IoU/F1/obj-P/R/F1) read from the MLflow store
-at each run's pr-auc `best_epoch`. Ledger: **23 rows added** (fam B/D/E), `sync_experiments.py` zero-drift.
-Computed 3-seed means (pr-AUC geomean, gate G=0.0112): **C1** ViT-L-RGB locked 0.9177 ≈ EffB5+NDVI 0.9218
-(Δ within σ); NDVI-effect +0.044 for EffB5 but +0.0014 for ViT-L. **C2** capacity B0 0.860 → B3 0.906 →
-B5 0.912 → B7 0.903 (rise then flat/down). **C3** data budget — ViT-L+NDVI 25/50/100% = 0.865/0.870/0.919;
-EffB5+NDVI 25/50/75/100% = 0.793/0.855/0.884/0.912. The A/B/C outcome-classification (design §1) is left
-for the manuscript — the ledger/CSV state facts only. Engineering landed alongside: **permanent config
-validator** (loud-fails on unknown `early_stopping`/section keys; the silent-typo class that had voided
-`start_epoch` overrides) + 18 configs corrected + 4 tests; ViT-L `start_epoch=45` overfit-tail trim; boot
-disk resized **500 G→1 TB online** (no VM stop, A100 capacity preserved); all 8 local SSDs → **RAID0 2.9 TB
-`/mnt/nvme_scratch`** (provisioned, not yet wired into the pool — see *Now*).
-
-Prior: **v2.1 SSL-pretraining program CLOSED in the negative (branch `v2.1-pretraining`, 2026-07-18).** The full
-MAE program ran end to end: corpus (295,429 tiles, 4-ch RGB+NDVI south-only, ~188 GB), 80-epoch DINOv3-L
-MAE continue-pretrain on 8×A100 (92,320 steps, recon loss 1.016 → 0.0763), then the 3-seed arm-(c) gate.
-**Result: arctic MAE actively harms the encoder** — 0.8173/0.8155/0.8090, mean **0.8139** vs the arm-(b)
-sat493m baseline 0.9191 → **Δ −0.105, 0/3 seeds positive**, ≈9× G in the *negative* direction. Not a null,
-a regression. Comparison verified fair (flattened locked recipe field-by-field; `encoder_init` loaded
-318/318 tensors). Leading hypothesis: catastrophic forgetting — MAE pixel-reconstruction overwrites
-sat493m's discriminative features with reconstruction-oriented ones (arm-c peaks came *later*, ep45–50 vs
-ep35–40). **EffB5 remains the deployed encoder**; family-E encoder null now extended to domain-adapted ViT
-weights and closed. Epoch-20/40/60 MAE checkpoints kept on GCS if the length-ablation is ever revisited.
-Details: `docs/experiment_ledger_v21.md` (Finding A).
-
-Two engineering fixes landed alongside: (1) **early-stop floor lowered** `start_epoch` 101→65 in
-`configs/baseline.yaml` + the v2.1 base — locked-recipe peaks land ep35–50, so the 101 floor only burned
-compute (`max_epochs` deliberately left at 300: it sets the cosine LR horizon, so changing it would change
-the recipe); (2) **resume no longer overrides config** — `EarlyStopping.load_state_dict` was restoring
-`patience`/`min_delta`/`start_epoch` from the checkpoint, silently voiding the 101→65 change on the gate
-resume (all 3 seeds ran to ep105, not the expected ~ep90). It now restores observation state only and logs
-any config/checkpoint divergence; 3 regression tests added.
-
-Prior: **Disk-cleanup audit on the A100 master (2026-07-16).** Every durable artifact verified on / uploaded to
-GCS (run-mirror parity 123/123 incl. the previously unmirrored scale_ndvi + sat-7B runs; new prefixes
-`RTS_MODEL_V1_1/`, `RTS_MODEL_V2_scale05/eval/`, `RTS_MODEL_V2/inference_inputs/`, `training/v1.1_delta/`;
-full drift-refresh of all existing mirrors), then ~275G of verified GCS copies + regenerables deleted —
-root fs 94% → 37% used, scratch NVMes cleared. Two deliberate non-archives (5× 26G sat-7B dead-arm
-weights; `_archive/v2-alpha`) recorded with rationale in `computing/artifact_inventory.md` (the
-"where is everything" map, re-surveyed and re-dated).
-
-Prior: **South pan-Arctic inference + products delivered (2026-07-07 to 2026-07-11, see `docs/archive/` for
-full detail).** Full South inference run completed (2,079/2,079 shards, 41,567,572 tiles reconciled
-exactly, 3 quad-level coverage gaps ≈0.001%) after three fork/stall/crash-loop fixes shipped; post-
-inference pipeline delivered `south_rts.gpkg` (10,984 polygons / 238.08 km²) + probability/mask VRTs
-over 1,633 super-tile COGs. Master `a100-8x-train` freed for the manuscript-gap work below.
-
-Prior: **Pre-launch full audit (branch `audit-prelaunch`, `docs/inference_launch_audit.md`).** Comprehensive
-audit before the pan-Arctic inference launch, against two goals: (1) past decisions rest on solid facts,
-(2) model + machinery are scientifically & engineering sound. **Science side: clean** — every headline
-number re-derived from primary artifacts (3-seed 0.9218, ensemble 0.9393/T 0.512321, test 0.584/0.437/0.500,
-MMU-600 floor 0.159), splits spatially leakage-free (0 overlapping cross-split tiles), norm-stats/EMA
-weights/calibration chain all verified, v1.1-wash verdict sound; ledger sync zero-drift. **Machinery side:
-10 defects found, 6 blockers**, all in the fleet/execution path and only reachable by loading GCS packages
-+ booting a real L4 VM: gs:// packages unloadable, fleet-startup GPU-visibility bug, no `--shm-size` (every
-worker crashed), SA scopes/IAM (all writes 403), retired DLVM image family, `--metadata` comma parse, no
-docker on the image, `pretrained=True` HF-hub pull, heartbeat starvation, reboot non-idempotency. All fixed
-(8 commits) + `rts-infer:v1` rebuilt/pushed (digest `7772dbc7…`) + 2 IAM grants (our bucket + read on
-`pdg-planet-data`). **Headline benchmark: real L4 rate ~4.2 tiles/s (3-model ensemble, GPU-bound) → full run
-~2–5 days, NOT the plan's 12–29 h.** E9 smoke passed (Banks AOI, NDVI parity 0.95–0.97, detections sane,
-output uint8 ~8 KB vs float32 570 KB/tile). Also: S2 export was actually **1,797/1,799 done** (diary's 76%
-was stale), 2 cells relaunched (GEE PENDING); `s2_index` built + uploaded; drill VM stopped (not deleted).
-Prior: **data-v1.1 closed out (branch `data-v1.1`, ledger N + N-retrain).** Two deliverables: (1) the **Minimum
-Mapping Unit metric fix** — the real object-score win (test invisible floor 0.223→0.159, obj-F1 0.526→0.560
-at MMU600, precision invariant, no retrain); (2) the **v1.1 data-correctness retrain** (+28 restored pos,
-−49 black neg, vjn7 promotion) which came back an **ability WASH**: calibration-free test pixel PR-AUC
-0.9976≈0.9970 and fair val-optimal obj-F1 tie (v1.0 0.567/v1.1 0.562 val; 0.627 vs 0.607 test, ≈noise).
-The apparent val/object drops were confounds — a −29-black-negative val-set change and a calibration
-mismatch (v1.1's optimal threshold is 0.45, not the deployed 0.65). v1.1 does show a **tighter val−test gap
-(0.045 vs 0.060)** and a **precision lean**, both mild positives, but not enough to beat v1.0.
-**Decision: keep v1.0 deployed; retain v1.1 (cleaner labels + checkpoints) for the next real modeling
-change** (shipping it would need its own thr≈0.45 calibration). Prior: **Minimum Mapping Unit metric
-correction.** Object-wise scoring counted every GT
-component as a full object while predictions are size-filtered (deploy min_blob 2000) — so any GT
-`< min_blob*iou_thr = 600 px` was a structurally-guaranteed false negative and inflated the Finding-K
-invisible floor. Domain-expert re-diagnosis: 0–50 px = rasterization artefacts, 50–400 px = real but
-boundary-clipped slump tails (body off-tile). Fix = mark sub-Minimum-Mapping-Unit positives as ignore
-(255) uniformly via one shared `apply_min_mapping_unit` (data/label_cleaning.py), wired into the loader
-(`RTSDataset.min_mapping_unit_px`, loss + live metric) and the cached-npz scoring path
-(`object_scorecard.py`/`analyze_residual_errors.py` `--min-mapping-unit`); default off, **no retrain**.
-Free 3-seed re-score at the deploy point (self-check True): **obj-precision invariant** (0.793 val /
-0.768 test), obj-recall +3.2 pt val / +4.1 pt test, invisible floor 0.280→0.231 val, 0.223→0.159 test.
-6 new tests (`test_gt_mmu_scoring.py`), suite green. Track B (restore 28 positives + drop 49 black + promote
-`vjn7wxyufczs`) in progress. Prior: **multi-scale inference (§6.3/§7.3) + multiscale-poc merged** — the
-inference pipeline now does
-per-tile multi-scale fusion when `deployment.yaml.scales` has >1 entry (default stays `[1.0]`, deploy path
-unchanged): `InferenceTileDataset(scales=…)` reads each scale (scale s<1 = bbox expanded 1/s×, the §6.3
-context read; NDVI at the same expanded bbox), and `inference/runner.fuse_scale_probs` averages over valid
-scales on the 1× grid (§7.3; scale-s centre-cropped + upsampled), output NoData = the 1× footprint (§5.3).
-Mirrors the validated `evaluate_multiscale_poc._fuse`. **Capability only** — deploying `scales:[1.0,0.5]`
-stays a separate decision (calibration + §6.4 test gate; POC gate-3 fusion-recall failed). 7 new tests; full
-suite **338 green**. Also merged the **multiscale-poc** branch (family M: 0.5× re-stage + multi-root loader +
-3-seed joint training; gates 1+2 pass, gate-3 fail). Prior: v3 object-scorecard bias/variance diagnosis
-(F_in 14% / F_held 28% → bake-off; ledger K); inference Phases 1–3 (orchestration + packages + `rts-infer:v1`
-+ fleet scripts).
-
-<!-- NOW:BEGIN -->
-### Now
-**PDG migration essentially complete (branch `pdg-migration`). All access closes Monday 2026-08-31 —
-a week earlier than the funding cliff the plan was built for.** 60.19 TB / 47,553,531 objects across
-four buckets, plus the rating app, three Docker images and the EE assets behind the published map.
-Runbook: `computing/pdg_migration.md`; ordering: `computing/cutover_runbook.md`; teardown:
-`computing/teardown.ps1`.
-
-**The gate stands at 9 of 11.** Rows 1, 3, 4, 5, 7, 9, 11 PASS; row 2 superseded; rows 6 and 8 wait
-on two human actions; row 10 is by definition post-teardown.
-
-- **Row 1 — every object compared, never sampled.** `planet` 5,000,891 obj / 39.46 TB and `s2`
-  14,780 / 20.72 TB **byte-identical**, both measured only after their producers were genuinely
-  stopped. `inference` src 42,342,548 (exactly the STS job's `copied`) vs dst 42,347,929, with
-  **`missing = 0` in all 2,161 chunks** — and the 5,381-object surplus reconciles *to the byte*:
-  `t65_build/` (5,374) and the 2022 tile lists (2) were drained from the master's local disks so
-  they never existed in PDG, 5 objects are new-app review activity, and the 157,449 B residual is
-  precisely the size delta of the one rebuilt `rts-review.tar.gz`. Nothing in PDG is absent from the
-  new project, which is the only property deletion depends on.
-- **Row 3 — the frozen model is anchored to production, not to the copy.** Every shard manifest
-  recorded `model_checkpoint_sha` on 2026-07-07; all three migrated seeds match it, 2,079 manifests
-  agree on one ensemble, and the packages still carry the delivered calibration (0.65 / 0.512321).
-- **Row 7 — reviewers cut over, and the runbook was wrong twice.** The new app was already *ahead*
-  of the old (31 batches vs 30), so the prescribed `--overwrite-when=different` sync old→new would
-  have been the wrong instinct; diffing first showed nothing missing, nothing differing, and the
-  final sync was correctly a **no-op**. Also: submit is `POST /api/batch` and is idempotent (200,
-  not 409), and the check must not fabricate a verdict — `merge_review_verdicts.py` pools every
-  `verdicts/*.jsonl` into the verified inventory.
-
-**Two producers deliberately stopped.**
-- **S2 export abandoned** (user instruction). Killing the driver was not enough: it only *submits*
-  `Export.image.toCloudStorage` tasks, so **2,000 PENDING tasks** stayed queued and would have kept
-  writing into the dying bucket. All cancelled, 0 failures. Found en route: `abruptthawmapping` is in
-  Earth Engine **restricted mode**, which is why 1,999 tasks sat behind one RUNNING — the export was
-  never going to finish on this schedule. Anything resuming S2 must fix the EE quota first.
-- **Planet 2019 stopped** at 215,443 / 308,686 orders (69.8 %, 0 failed), because it was ordering
-  into a bucket that dies Monday. It resumes on `rts-ops` with the *same* keys and no `--bucket`
-  flag; `rts-ops` had no acquisition venv, work dir or alerting before 2026-08-28 and now has all
-  three.
-
-**Three findings that outlive the migration.**
-- **The drain audit measured the wrong thing.** It ordered by size, so it missed four small,
-  unreproducible trees: Heidi's acquisition state, the `file:///outputs/mlflow` tracking store (128 MB,
-  27 runs — real, since MLflow 2.x cannot use `gs://` as a tracking URI), `multiscale_poc_eval`
-  (1.9 GB of cached `probs_*.npz` the ledger cites as family-M evidence), and the two VM-creation
-  scripts, which existed **only on the VM they created**. "What is large" and "what is unreproducible"
-  are different questions, and only the second gates deletion.
+**Five findings that outlive the migration.**
+- **Every inventory was wrong, five times, the same way** — a prefix listed but never opened.
+  `usc1/staging/` (2,661 obj / 265 GB) was caught with the delete already running; `pdg-storage-default`
+  was cleared on its top-level names and hid three of our 2024 RTS archives in `working/` (§5d).
+  Never clear a bucket on its top-level prefix names.
 - **The parity gate had a hole exactly where it hurt.** GCS stores **no `md5Hash` for composite
-  objects**, so an MD5-only comparison saw `"" == ""` and passed the biggest objects on *size alone* —
-  a corrupt 3.6 GB copy of the right length would have sailed through. Found while hash-verifying t65
-  before discarding the local SSD. `gcs_parity.py` now falls back to CRC32C and reports rather than
-  passes when no checksum is shared; 25 tests.
+  objects**, so an MD5-only comparison saw `"" == ""` and passed the biggest objects on *size alone*.
+  `gcs_parity.py` now falls back to CRC32C and reports rather than passes when no checksum is shared;
+  25 tests.
+- **The drain audit measured the wrong thing** — it ordered by size, so it missed four small,
+  unreproducible trees (Heidi's acquisition state, the 128 MB MLflow store, `multiscale_poc_eval`, and
+  the two VM-creation scripts that existed only on the VM they created). "What is large" and "what is
+  unreproducible" are different questions; only the second gates deletion.
 - **A dead bucket path was visible to the public.** `ee_south_app.js:524` was not a comment but a
-  `ui.Label` advertising `gs://rts-mapping-v2-usw1/...` to every visitor. Row 4 had passed because it
-  swept live *defaults*; a user-facing string is neither a default nor historical prose, and nothing
-  was looking for that third category.
+  `ui.Label` advertising `gs://rts-mapping-v2-usw1/...` to every visitor.
+- **Killing a driver does not stop Earth Engine.** `Export.image.toCloudStorage` only *submits*;
+  2,000 PENDING tasks stayed queued writing into the dying bucket after the S2 driver was killed. All
+  cancelled, 0 failures. `abruptthawmapping` is in EE **restricted mode**, which is why 1,999 sat
+  behind one RUNNING — anything resuming S2 must fix that quota first.
 
-**Remaining — two human actions and one script.**
-1. **Publish the EE app**: paste `post-inference/ee_south_app.js` into the Code Editor under
-   `abruptthawmapping`, Save, Run, then Apps → `south-rts-map` → Update, and check the result
-   **incognito**. Closes row 8. Must happen before Monday: the PDG EE assets die with the project.
-2. **Heidi restarts 2019** on `rts-ops` (`run_year.sh 2019`). Closes row 6. Her run outlives PDG —
-   it is entirely in the new project.
-3. **Run `computing/teardown.ps1`.** Soft-delete is already cleared on all three buckets (each
-   carried the 7-day default, which keeps deleted objects billable for a week), the superseded Cloud
-   Run service is deleted, and both VMs are stopped — the A100 with `--discard-local-ssd=false`, so
-   t65 survives on disk as well as in GCS. What remains is the irreversible half.
+**Nothing of ours remains in PDG.** Every live service API re-checked 2026-09-01: no instance, disk,
+address, Cloud Run service, image, firewall rule or IAM binding of ours; Functions/Dataproc/Cloud SQL
+APIs were never enabled; all 9 PDG Earth Engine assets have counterparts in `abruptthawmapping`.
+`pdg-planet-data` is PDG's and **verified safe for them to delete** — all 5,000,891 objects present in
+`gs://rts-arctic-usw1`, 0 missing / 0 differing. `rts-mapping-v2-usw1` is emptying unattended under an
+age-0 lifecycle rule (20.9 TB → 56 GB in its first pass); it needs nobody and finishes whether or not
+we still hold access.
 
-`pdg-planet-data` is **handed back, not deleted** — it is PDG's bucket, and deleting our prefix would
-mean ~5 M destructive API calls in someone else's project for no saving of ours.
+### Now
+**Planet 2019 acquisition, running on `rts-ops` in the new project.** 267,548 / 308,686 (86.7 %),
+52,283 ordered, 2 failed, ~37 orders/min, ETA ~18 h. It is entirely inside `abruptthawmapping` and
+survives PDG's closure.
 
+One artefact worth knowing before it confuses someone again: on restart the displayed percentage
+**drops** — `list_delivered()` finds every already-delivered quad up front (215,263 here, logged at
+start), but `order_basemaps.py` increments `skipped` one row at a time as the loop walks the 308,686-row
+grid. Six minutes after the 08-31 restart it read 45.2 %; it caught up within the hour and `skipped`
+settled at exactly 215,263. Seeding `n_skipped` with `len(delivered)` at startup would fix the display
+— hold that change until 2019 finishes, because `/opt/rts/RTSmapping_v2` is the live checkout the run
+reads from (`pdg_migration.md` §4a).
+
+**Next**, once 2019 completes: build its quad index with `--expect-quads 308686`, then Phase 0 of the
+interannual run below.
 
 ### Future plans (inference phase — full plan in `.claude/plans/elegant-exploring-lemur.md`)
 1. **Phase 0** — finish the 2025_south S2 export (GEE-throttled), build + upload the `s2_index` (NDVI

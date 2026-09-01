@@ -5,7 +5,7 @@ training.gcsfuse cache is inert). Copy the per-tile rasters to local SSD once an
 point `data.data_root` at the local path so reads are local and the GPU saturates.
 
 Resumable (skips files already present with matching size). Run inside rts-train:v2
-with the user ADC mounted (the VM's default compute SA cannot read rts-mapping-v2).
+with the user ADC mounted (the VM's default compute SA cannot read rts-arctic-us).
 
 Usage: python scripts/stage_local.py [--workers 64] [--dst /outputs/v1.0/data_local]
 """

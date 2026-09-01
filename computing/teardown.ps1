@@ -58,17 +58,44 @@ foreach ($img in @("rts-train", "rts-infer", "rts-review")) {
 
 # ------------------------------------------------------------------ 4. the buckets
 # Irreversible, and the point of the exercise. 60 TB.
+#
+# `gcloud storage rm --recursive` is fine for the small buckets and WRONG for usw1: it
+# is a client-side loop making one DELETE per object, and it died part-way through
+# usw1's 42 M objects on 2026-08-29, leaving usc1 untouched. Use a lifecycle rule
+# there instead — GCS applies it server-side and asynchronously, so it completes
+# whether or not we still hold access, which is the whole point when access is about
+# to be revoked. Step 0 above must have run first, or this just moves 20 TB into a
+# week of soft-delete billing.
 Write-Host "`n=== 4. buckets ==="
-foreach ($b in @("rts-mapping-v2", "rts-mapping-v2-usw1", "rts-mapping-v2-usc1")) {
+foreach ($b in @("rts-mapping-v2", "rts-mapping-v2-usc1")) {
     Write-Host "  deleting gs://$b"
     gcloud storage rm --recursive "gs://$b" --quiet
 }
+Write-Host "  gs://rts-mapping-v2-usw1: age-0 lifecycle purge (server-side)"
+'{"rule":[{"action":{"type":"Delete"},"condition":{"age":0}}]}' | Out-File -Encoding utf8 purge.json
+gcloud storage buckets update gs://rts-mapping-v2-usw1 --lifecycle-file=purge.json
+# Then, once it reports empty (20.9 TB -> 56 GB in the first pass), remove the shell:
+#   gcloud storage rm gs://rts-mapping-v2-usw1
 
-# ------------------------------------------------------------------ 5. NOT ours
-# pdg-planet-data is PDG's bucket. Its funding lapses with the project regardless,
-# and deleting our global_quarterly/ prefix would mean ~5 M destructive API calls in
-# someone else's project for no saving of ours. Hand it back to Luigi/Todd.
-Write-Host "`n=== 5. pdg-planet-data: NOT deleted, handed back ==="
+# ------------------------------------------------------------------ 5. NOT ours to delete
+# pdg-planet-data is PDG's bucket, and still theirs to delete — but the original
+# reasoning here ("hand it back, they keep it") was wrong about the facts. PDG is
+# deleting EVERYTHING, so the question is not who deletes it but whether our copy is
+# complete. It is: all 5,000,891 objects verified present in gs://rts-arctic-usw1,
+# 0 missing / 0 differing (pdg_migration.md 5c). Nothing is lost when it goes.
+Write-Host "`n=== 5. pdg-planet-data: theirs to delete, and verified safe to delete ==="
+
+# ------------------------------------------------------------------ 5b. the one that hid
+# pdg-storage-default is PDG's shared bucket and looked entirely theirs by its
+# top-level prefix names. `working/` held three of ours one level down. Rescued
+# 2026-09-01, CRC32C-verified. See pdg_migration.md 5d.
+Write-Host "`n=== 5b. rescued from pdg-storage-default/working/ ==="
+foreach ($f in @("RTS_PlanetScope_4BandRGB_1024_Banks_clean_v2.zip",
+                 "rts_vit_sem_seg_1024inputs.zip",
+                 "rts_vit_sem_seg_1024inputs_Banks.zip")) {
+    gcloud storage cp "gs://pdg-storage-default/working/$f" `
+        "gs://rts-arctic-us/legacy_pdg_working/$f" --project=abruptthawmapping
+}
 
 # ------------------------------------------------------------------ 6. verify
 Write-Host "`n=== 6. verification — nothing rts-* should remain ==="

@@ -13,8 +13,8 @@ Usage:
         --config configs/deployment.yaml \
         --tile-list tiles.csv \
         --quad-index quad_index_2025q3.csv \
-        --package gs://rts-mapping-v2/models/rts-v2-seed42 \
-        --output gs://rts-mapping-v2/inference/2025-Q3/tiles
+        --package gs://rts-arctic-us/models/rts-v2-seed42 \
+        --output gs://rts-arctic-us/inference/2025-Q3/tiles
 """
 
 from __future__ import annotations

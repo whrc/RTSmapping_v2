@@ -12,7 +12,7 @@ Usage:
     python scripts/ingest_ee_app_assets.py --kind table \
         --source /outputs/.../south_rts_candidates.gpkg \
         --asset  projects/abruptthawmapping/assets/south_rts_candidates \
-        --staging gs://rts-mapping-v2-usw1/inference/2025q3_south/ee_staging
+        --staging gs://rts-arctic-usw1/inference/2025q3_south/ee_staging
 
     python scripts/ingest_ee_app_assets.py --kind image \
         --source gs://.../density_10km_expected_m2.tif \

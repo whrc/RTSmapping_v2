@@ -9,7 +9,7 @@ the appendix for reference but is *not* part of the submission.
 
 This document lives in the repo at `deliverables/README.md` (source of truth)
 and is published verbatim at
-`gs://rts-mapping-v2-usw1/inference/2025q3_south/products/README.md`.
+`gs://rts-arctic-usw1/inference/2025q3_south/products/README.md`.
 
 ---
 
@@ -17,9 +17,9 @@ and is published verbatim at
 
 | File | Size | What it is |
 |---|---|---|
-| `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/probability_wmts_z10/` (+ `probability_wmts_z10.vrt`) | 12 GB, 80,159 COGs (one per tile) | **RTS probability, full resolution.** Calibrated model scores over the whole domain, re-tiled so each file is exactly one WMTS WebMercatorQuad zoom-10 tile (§2). uint8; **pixel value = probability × 250; 255 = NoData** (`prob = pixel / 250.0`). EPSG:3857 @ 4.777 m/px. |
-| `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/south_rts_candidates.gpkg` | 206 MB | **RTS polygon inventory.** 60,167 polygons vectorized at threshold 0.30 with no minimum mapping unit; every polygon classified by the QC-calibrated `rts_class` (§4). This is the *only* vector file: `rts_class = 'high_confidence'` (19,068 polygons / 529.7 km²) is the conservative "fact map" (a model-probability tier with QC-measured precision — not human-verified); the rest are candidate/marginal pools for recall-sensitive uses. |
-| `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/region_log.json` | <1 KB | Machine-readable run provenance (canvas geometry, resolution, thresholds, tile counts). |
+| `gs://rts-arctic-usw1/inference/2025q3_south/products/probability_wmts_z10/` (+ `probability_wmts_z10.vrt`) | 12 GB, 80,159 COGs (one per tile) | **RTS probability, full resolution.** Calibrated model scores over the whole domain, re-tiled so each file is exactly one WMTS WebMercatorQuad zoom-10 tile (§2). uint8; **pixel value = probability × 250; 255 = NoData** (`prob = pixel / 250.0`). EPSG:3857 @ 4.777 m/px. |
+| `gs://rts-arctic-usw1/inference/2025q3_south/products/south_rts_candidates.gpkg` | 206 MB | **RTS polygon inventory.** 60,167 polygons vectorized at threshold 0.30 with no minimum mapping unit; every polygon classified by the QC-calibrated `rts_class` (§4). This is the *only* vector file: `rts_class = 'high_confidence'` (19,068 polygons / 529.7 km²) is the conservative "fact map" (a model-probability tier with QC-measured precision — not human-verified); the rest are candidate/marginal pools for recall-sensitive uses. |
+| `gs://rts-arctic-usw1/inference/2025q3_south/products/region_log.json` | <1 KB | Machine-readable run provenance (canvas geometry, resolution, thresholds, tile counts). |
 
 ## 2. Raster tiling — answers to your questions
 
@@ -144,7 +144,7 @@ class; the `area_m2_t*` attributes quantify shrinkage at stricter cuts.
 ## 5. Appendix — full product family (not part of the submission)
 
 Everything else under
-`gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`, for reference
+`gs://rts-arctic-usw1/inference/2025q3_south/products/`, for reference
 (facts and caveats in the repo's `post-inference/south_products.md`):
 
 | File | Size | One-liner |
@@ -164,5 +164,5 @@ thr-0.65 mask, fully derivable from `probability_wmts_z10` or `south_rts.gpkg`) 
 `qc_chips/` (raw QC chip mosaic, superseded once `qc_rater.html` embedded its own crops)
 were deleted as unused/redundant. `rgb_chips.vrt` + `rgb_chips/` (RGB context chips,
 license-restricted PlanetScope derivative — **not for redistribution**) was moved to
-`gs://rts-mapping-v2-usw1/inference/2025q3_south/internal/` — it must never live inside
+`gs://rts-arctic-usw1/inference/2025q3_south/internal/` — it must never live inside
 `products/`, the folder this document hands to external archives.

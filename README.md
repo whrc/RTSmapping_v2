@@ -32,7 +32,7 @@ of truth: always read the relevant doc before implementing (see [CLAUDE.md](CLAU
 ## Deployed products
 
 The 2025 Q3 pan-Arctic South run produced a tiered product family in
-`gs://rts-mapping-v2-usw1/inference/2025q3_south/products/` — catalog SSoT:
+`gs://rts-arctic-usw1/inference/2025q3_south/products/` — catalog SSoT:
 [post-inference/south_products.md](post-inference/south_products.md).
 
 - **High-confidence map**: `south_rts_high_confidence.gpkg` — 19,068 polygons / 529.7 km², QC-calibrated

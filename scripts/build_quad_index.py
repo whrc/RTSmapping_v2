@@ -5,7 +5,7 @@ inference) reads the CSV.
 
 Usage:
     python scripts/build_quad_index.py \
-        --bucket pdg-planet-data --prefix global_quarterly/2025/q3/ \
+        --bucket rts-arctic-usw1 --prefix global_quarterly/2025/q3/ \
         --output /mnt/outputs/inference/quad_index_2025q3.csv \
         --expect-quads 309100
 
