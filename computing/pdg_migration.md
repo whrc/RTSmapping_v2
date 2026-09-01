@@ -594,7 +594,7 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 | 7 | Review app end-to-end on the new host — rater page, 301 batches / 60,167 items, a crop served, manifest still 404, claim → submit → idempotent retry → 409 | **PASS** 2026-08-28. Old app stopped first (the freeze), then the two stores diffed with `gcs_parity.py`: **nothing missing, nothing differing, 5 objects extra at the destination** — `claims/b00043-45`, `done/b00044`, `verdicts/b00044.jsonl`. The new deployment is strictly *ahead*: reviewers were cut over and one has already submitted a batch there. **So the final sync was correctly a no-op**, and a blind `--overwrite-when=different` would have been the wrong instinct — see the corrected cutover §4. Live checks against the new bucket: claim `b00046` (201 items) with the marker verified in `gs://rts-arctic-usw1/...`, reopen-submitted **409**, unknown batch **404**, reopen-held **200**, crop **200 / 28,856 B JPEG**. Claim marker then deleted so the batch returned to the queue rather than sitting blocked for `STALE_AFTER_S` = one week. **No verdict was fabricated** — `merge_review_verdicts.py` pools every `verdicts/*.jsonl` into the verified inventory, so a synthetic submission would have contaminated the science. Submit idempotency is covered by `test_submit_persists_and_is_idempotent`; what the migration needed to prove was that *this* deployment reads and writes *this* bucket, which the claim marker does. |
 | 8 | Public EE map renders from the new assets and the new usc1 mirror | **PASS** 2026-08-28 — verified against the **published bundle**, not the editor: `https://abruptthawmapping.projects.earthengine.app/javascript/south-rts-map-modules.json` now reads all four layers from `projects/abruptthawmapping/assets/{south_rts_t65,south_rts_centroids,south_rts_candidates,south_density_10km}`, carries `rts-arctic-usw1` and **zero** references to `rts-mapping-v2-usw1`. The one remaining `pdg-project-406720` is inside a header comment. All six referenced assets were separately confirmed `all_users_can_read`. **The first publish silently did not take** — the bundle still served the old script, because the Apps dialog republishes from the *saved script path*, not the editor buffer, so pasting into an unsaved tab re-publishes the script the app is already bound to. Checking the app returned HTTP 200 would have missed this entirely: fetch the bundle and grep it. |
 | 9 | Master drained — nothing durable local-only, `/mnt/nvme_scratch` included | **PASS** 2026-08-28, after a second sweep that looked for *unmirrored* rather than for *large*. Verified present: 2022 tile lists at `inference/2022q3_south/` (3.61 GB + 3.83 GB) and the t65 build at `products/t65_build/` — **5,374 objects, exactly the local file count**. The first audit's size-ordered walk had missed four small-but-unreproducible trees, all now drained: Heidi's acquisition state (§3b), the `file:///outputs/mlflow` tracking store (128 MB, 27 runs — real, not stale: MLflow 2.x cannot use `gs://` as a tracking URI), `multiscale_poc_eval` (1.9 GB of cached `probs_*.npz` the ledger cites as the family-M evidence, of which only the logs were mirrored), and the two VM-creation scripts, which existed **only on the VM they created** and are now in `computing/vm_provisioning/`. Home directories were never in the audit either; checked, and they hold only git checkouts. The 189 GB MAE corpus remains the one recorded, deliberate loss. |
-| 10 | Billing — no `rts-*` resource left in PDG; `abruptthawmapping` line items as expected | — |
+| 10 | Billing — no `rts-*` resource left in PDG; `abruptthawmapping` line items as expected | **SUBSTANTIALLY PASS** 2026-09-01 — PDG holds **no `rts-*` instance, disk, address, Cloud Run service or image**. `rts-review-vm-ip` released, our three images deleted with `lake_drainage_test` (not ours) untouched, `rts-mapping-v2` and `rts-mapping-v2-usc1` deleted. Only `rts-mapping-v2-usw1` remains, emptying under an age-0 lifecycle rule. `pdg-planet-data` is deliberately retained and handed back. Remaining PDG resources — `download-vm`, two `gke-water-cluster-*` nodes, `pdg-*` buckets — were all confirmed **not ours**. |
 | 11 | Docs true — the [README.md](README.md) registry matches `gcloud compute instances list` | **PASS** 2026-08-28 — both projects enumerated. `abruptthawmapping`: `rts-ops`, `rts-review`. PDG: `a100-8x-train`, `rts-review-vm`, plus `download-vm` and two `gke-water-cluster-*` nodes that the registry already flags **not ours — do not touch** (verified: no labels, no metadata, bare Ubuntu, predates our work in that zone). Registry corrected for the compressed deadline: both PDG rows now retire **08-31**, not 09-06, and `rts-ops` is recorded as fully provisioned. |
 
 ## 6. Teardown (irreversible — only after §5)
@@ -608,11 +608,32 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 | Cloud Run service `rts-review` (superseded 08-04, never torn down) | **done 2026-08-28** |
 | `rts-review-vm` stopped | **done 2026-08-28** — after verifying the new app was *ahead* of it |
 | `a100-8x-train` stopped | **done 2026-08-28** — `--discard-local-ssd=false`, so the t65 build survives on disk as well as in GCS |
-| Delete VMs, release `rts-review-vm-ip`, delete images, delete the three buckets | **pending — run `teardown.ps1`** |
+| Delete VMs, release `rts-review-vm-ip`, delete our three images | **done 2026-08-29** |
+| Delete `rts-mapping-v2`, `rts-mapping-v2-usc1` | **done** (usc1 2026-09-01, after the `staging/` rescue and a whole-bucket re-verify) |
+| Empty and delete `rts-mapping-v2-usw1` | **in progress 2026-09-01** — see the lifecycle note below |
 | `pdg-planet-data` handed back to Luigi/Todd | pending (a conversation, not a command) |
 
 Ordering trap worth restating: release the static IP **after** its VM is deleted, or the
 release is refused as in-use.
+
+**`teardown.ps1` stalled part-way through step 4** (2026-08-29) — `gcloud storage rm --recursive`
+died somewhere inside `usw1`'s 42 M objects, leaving `usc1` completely untouched. That stall is what
+bought the time to find the `usc1/staging/` gap in §4d, so it was a fortunate failure, but it is a
+bad way to delete tens of millions of objects: it is a client-side loop making one DELETE call per
+object over hours, and anything that interrupts the client loses the rest.
+
+**Use a lifecycle rule for the large bucket instead.** GCS applies it server-side and asynchronously,
+so it completes whether or not we still hold access — which matters when the whole point is that
+access is about to be revoked:
+
+```powershell
+'{"rule":[{"action":{"type":"Delete"},"condition":{"age":0}}]}' > purge.json
+gcloud storage buckets update gs://rts-mapping-v2-usw1 --lifecycle-file=purge.json
+```
+
+Soft-delete must already be off (§6 step 0), or the purge just moves 20 TB into a week of
+soft-delete billing. Verified 0 on both buckets before applying. The rule empties the bucket; the
+empty bucket itself costs nothing and can be removed by anyone who still has access.
 
 ### The original sequence
 
