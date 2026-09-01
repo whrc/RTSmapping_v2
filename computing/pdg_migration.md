@@ -789,6 +789,26 @@ five inventories walked past it. Sorting by bytes would have found it on day one
 > what was created — and it degrades gracefully: what it cannot see is small, and what is small is
 > cheap to lose. Name and structure sweeps are the follow-up, not the opener.
 
+### The sweep re-run with the list it should have had — zero new findings
+
+Same 1,562,015 full object paths, pattern widened to add `woodwell|whrc|yili|yang|sent2|sentinel|
+s2_|peel|herschel|tuktoyaktuk|yukon|permafrost|basemap|quad`. **12 prefixes, 0 new.** Everything of
+ours it returned had already been rescued hours earlier:
+
+| Prefix | GB | |
+|---|---|---|
+| `sentinel2/Woodwell_sent2_74-84N_…` | 511.00 | ours — rescued *(now matches on `sentinel`)* |
+| `working/RTS_PlanetScope_4BandRGB_1024_Banks_clean_v2.zip` | 4.91 | ours — rescued |
+| `sentinel2/…T07WFR_SR.tif.tif` + `…_SCL.tif.tif` | 1.15 | ours — rescued |
+| `working/rts_vit_sem_seg_1024inputs{,_Banks}.zip` | 2.08 | ours — rescued |
+| `workflows_optimization/rts_ray_pipeline` | 5.35 | AWI's DARTS |
+| `viz_workflow/output`, `viz_workflow/lakes` | 2.62 | PDG's — matched `Quad` on **`WGS1984Quad`**, the OGC tile-matrix set behind the Permafrost Discovery Gateway. Ours is `WebMercatorQuad`/EPSG:3857 and lives in our own bucket |
+| `workflows_optimization/lake_drainage`, `pdg_clowder_data/Lake_Drainage_Pipeline` | ~0 | PDG's — matched `Arctic` on `Pan-Arctic …_freq.png` |
+
+Two independent methods — **rank by size**, and **grep every full path with a vocabulary that
+includes the institution, not just the project** — now agree exactly, and both agree with the
+targeted work. That is the closure: `pdg-storage-default` holds nothing of ours.
+
 ### What actually works: open every prefix, don't read its name
 
 Five inventories, five misses, all the same shape — *a prefix listed and never opened*. The fix is
@@ -851,7 +871,7 @@ service API, not the asset inventory (which lags deletions):
 | Project IAM | no binding for any of our identities |
 | Cloud Functions, Dataproc, Cloud SQL | **APIs never enabled** — stronger than an empty list |
 | Earth Engine | **9 assets, all 9 present in `abruptthawmapping`** (re-listed live 09-01) |
-| Buckets | **All three of ours are deleted.** What remains is PDG's own: `pdg-planet-data` (only `global_quarterly/{2019,2022,2025}`, all migrated), `pdg-storage-default` (§5d, ours extracted), `_cloudbuild` (7 tarballs archived) |
+| Buckets | **All three of ours are deleted.** What remains is PDG's own, and all three were closed out by evidence rather than by assumption: `pdg-planet-data` (only `global_quarterly/{2019,2022,2025}`, every object verified present in the new bucket), `pdg-storage-default` (§5d — closed twice over, by size census and by widened full-path sweep, 0 unaccounted), `_cloudbuild` (7 tarballs, archived) |
 
 **Residue spot-check.** 601 objects sampled evenly across the 689,870 the purge had not yet reached
 were each looked up in `rts-arctic-usw1`: **0 missing, 0 differing**. This is *not* a second gate —
