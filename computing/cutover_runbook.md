@@ -194,9 +194,11 @@ Follow [pdg_migration.md](pdg_migration.md) §6 exactly. The two easy mistakes:
 
 - **Disable soft-delete before deleting buckets.** 7-day retention means deleted objects keep
   billing, which is the opposite of the point.
-- **`pdg-planet-data` is handed back, not deleted.** It is PDG's bucket; deleting our
-  `global_quarterly/` prefix would mean ~5.5 M destructive API calls in someone else's project for
-  no saving of ours. Tell Luigi/Todd it is theirs to dispose of.
+- **`pdg-planet-data` is theirs to delete — and verified safe to delete.** Written originally as
+  "hand back, do not delete", assuming PDG would keep it. They are deleting everything, so the
+  question became whether our copy is complete: audited 2026-09-01, **0 missing / 0 differing**
+  across 5,000,891 objects (`pdg_migration.md` §5c). Still not ours to delete; nothing lost when
+  they do.
 
 ## 7. If the deadline arrives with work outstanding
 
