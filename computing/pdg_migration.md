@@ -788,7 +788,7 @@ would have cleared this bucket a sixth time. **Structure first, names second.**
 | `a100-8x-train` stopped | **done 2026-08-28** — `--discard-local-ssd=false`, so the t65 build survives on disk as well as in GCS |
 | Delete VMs, release `rts-review-vm-ip`, delete our three images | **done 2026-08-29** |
 | Delete `rts-mapping-v2`, `rts-mapping-v2-usc1` | **done** (usc1 2026-09-01, after the `staging/` rescue and a whole-bucket re-verify) |
-| Empty and delete `rts-mapping-v2-usw1` | **emptying, unattended** — the age-0 rule took it from **20.9 TB to 56 GB** in its first pass (`total_bytes`, 08-29 → 08-31), and a live count on 09-01 put it at **2,337,904 objects** left of the original ~42 M. No versioning and no retention policy on the bucket, so the rule reaches everything; it needs nobody and finishes whether or not we still hold access. Delete the empty bucket afterwards — an empty bucket costs nothing |
+| Empty and delete `rts-mapping-v2-usw1` | **DONE 2026-09-01** — the age-0 rule took it from **20.9 TB to 56 GB** in its first pass (`total_bytes`, 08-29 → 08-31); a live count at 17:45 UTC showed **2,337,904 objects** left of the original ~42 M, and by 18:54 UTC the rule had finished and the empty bucket was deleted. `describe` now returns **404**. No versioning and no retention policy, so the rule reached everything — it needed nobody, which was the point of choosing it over a client-side `rm` loop |
 | Rescue from `pdg-storage-default` | **done 2026-09-01** — **511 GB** of north-domain S2 (398/398, 0 missing, 0 differing) + its 1.15 GB prototype pair + 6.99 GB of legacy RTS archives, all CRC32C-verified (§5d) |
 | Final sweep of every other PDG surface | **done 2026-09-01** — see below |
 | `pdg-planet-data` released to PDG for deletion | **done 2026-09-01** — audited first (§5c); nothing of ours depends on it |
@@ -811,7 +811,7 @@ service API, not the asset inventory (which lags deletions):
 | Project IAM | no binding for any of our identities |
 | Cloud Functions, Dataproc, Cloud SQL | **APIs never enabled** — stronger than an empty list |
 | Earth Engine | **9 assets, all 9 present in `abruptthawmapping`** (re-listed live 09-01) |
-| Buckets | `pdg-planet-data` (only `global_quarterly/{2019,2022,2025}`, all migrated), `pdg-storage-default` (§5d, ours extracted), `_cloudbuild` (7 tarballs archived), `rts-mapping-v2-usw1` (emptying) |
+| Buckets | **All three of ours are deleted.** What remains is PDG's own: `pdg-planet-data` (only `global_quarterly/{2019,2022,2025}`, all migrated), `pdg-storage-default` (§5d, ours extracted), `_cloudbuild` (7 tarballs archived) |
 
 **Residue spot-check.** 601 objects sampled evenly across the 689,870 the purge had not yet reached
 were each looked up in `rts-arctic-usw1`: **0 missing, 0 differing**. This is *not* a second gate —
@@ -820,11 +820,10 @@ that. It re-tests the one assumption behind the word "subset": that nothing has 
 PDG bucket since. Nothing can be — the master is deleted, the EE queue cancelled, Cloud Run gone, and
 no service account retains write access.
 
-**One loose end that costs money, not data.** `rts-mapping-v2-usw1` still reports **394 GB of
-`soft-deleted-object`**, flat since 08-30. Disabling soft-delete stops *new* soft deletes but lets
-objects already in that state serve out their original 7-day window, so this clears itself around
-**2026-09-04**. Deleting the bucket purges it immediately. Nothing of ours is in there that is not
-already migrated — they are deleted copies of verified objects.
+**The soft-delete tail closed itself.** `rts-mapping-v2-usw1` was carrying **394 GB of
+`soft-deleted-object`**, flat since 08-30: disabling soft-delete stops *new* soft deletes but lets
+objects already in that state serve out their original 7-day window, which would have billed until
+about 2026-09-04. Deleting the bucket purged it immediately, so that tail is gone too.
 
 **`teardown.ps1` stalled part-way through step 4** (2026-08-29) — `gcloud storage rm --recursive`
 died somewhere inside `usw1`'s 42 M objects, leaving `usc1` completely untouched. That stall is what

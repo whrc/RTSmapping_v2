@@ -66,9 +66,10 @@ HTTP 200: **EE Apps publish from a saved script path, not the editor buffer.**
 address, Cloud Run service, image, firewall rule or IAM binding of ours; Functions/Dataproc/Cloud SQL
 APIs were never enabled; all 9 PDG Earth Engine assets have counterparts in `abruptthawmapping`.
 `pdg-planet-data` is PDG's and **verified safe for them to delete** — all 5,000,891 objects present in
-`gs://rts-arctic-usw1`, 0 missing / 0 differing. `rts-mapping-v2-usw1` is emptying unattended under an
-age-0 lifecycle rule (20.9 TB → 56 GB in its first pass); it needs nobody and finishes whether or not
-we still hold access.
+`gs://rts-arctic-usw1`, 0 missing / 0 differing. **All three of our PDG buckets are now deleted** —
+`rts-mapping-v2-usw1`, the last and largest, emptied itself under an age-0 lifecycle rule (20.9 TB →
+56 GB in one pass, then 2,337,904 → 0) and was removed 2026-09-01; `describe` returns 404. Choosing a
+server-side rule over a client-side `rm` loop is what let it finish unattended.
 
 ### Now
 **Planet 2019 acquisition, running on `rts-ops` in the new project.** 267,548 / 308,686 (86.7 %),
