@@ -597,6 +597,48 @@ Nothing in §6 runs until every row passes. *(To be filled in as the migration p
 | 10 | Billing — no `rts-*` resource left in PDG; `abruptthawmapping` line items as expected | **SUBSTANTIALLY PASS** 2026-09-01 — PDG holds **no `rts-*` instance, disk, address, Cloud Run service or image**. `rts-review-vm-ip` released, our three images deleted with `lake_drainage_test` (not ours) untouched, `rts-mapping-v2` and `rts-mapping-v2-usc1` deleted. Only `rts-mapping-v2-usw1` remains, emptying under an age-0 lifecycle rule. `pdg-planet-data` is deliberately retained and handed back. Remaining PDG resources — `download-vm`, two `gke-water-cluster-*` nodes, `pdg-*` buckets — were all confirmed **not ours**. |
 | 11 | Docs true — the [README.md](README.md) registry matches `gcloud compute instances list` | **PASS** 2026-08-28 — both projects enumerated. `abruptthawmapping`: `rts-ops`, `rts-review`. PDG: `a100-8x-train`, `rts-review-vm`, plus `download-vm` and two `gke-water-cluster-*` nodes that the registry already flags **not ours — do not touch** (verified: no labels, no metadata, bare Ubuntu, predates our work in that zone). Registry corrected for the compressed deadline: both PDG rows now retire **08-31**, not 09-06, and `rts-ops` is recorded as fully provisioned. |
 
+## 5b. Project-wide audit — everything of ours in PDG, 2026-09-01
+
+Earlier sweeps checked the resource types the migration happened to touch. This one enumerates the
+**whole project** and works backwards, which is the only way to find things nobody remembered
+creating:
+
+```bash
+gcloud asset search-all-resources --scope=projects/pdg-project-406720     --query="name:(rts OR mapping OR slump OR thaw OR infer OR review OR planet)"
+```
+
+Five hits, and two were orphans no earlier sweep had looked for:
+
+| Item | Verdict |
+|---|---|
+| `rts-review-allow-http` (firewall) | **ours, orphaned** — its VM was deleted 08-29 and the rule outlived it. **Deleted 09-01** |
+| `rts-review-app@pdg-project-406720` (service account) | **ours, superseded** by the same-named SA in the new project. **Deleted 09-01** |
+| `rts-mapping-v2-usw1` (bucket) | purging under the age-0 lifecycle rule |
+| `pdg-planet-data` (bucket) | deliberately retained and handed back |
+| `planet-orders@pdg-project-406720` (service account) | **left alone — ownership ambiguous.** Our deliveries provably use `planet-orders@abruptthawmapping` (see below), and this one dies with the project. Deleting another team's identity on a guess buys nothing |
+
+Swept and **empty or none of ours**: snapshots, custom images, BigQuery datasets, Pub/Sub topics,
+Secret Manager (API never enabled), Vertex AI notebooks, Cloud Run, instance templates, instance
+groups, disks, addresses. The 30 firewall rules include exactly one of ours; the instance
+templates/groups are all `gke-water-cluster-*`.
+
+**Earth Engine is not in the asset inventory** and had to be walked separately — it matters most,
+because EE assets die with the project rather than with a bucket. All **9** assets under
+`projects/pdg-project-406720/assets` have a counterpart in `projects/abruptthawmapping/assets`:
+`RTS_Sentinel_ROI`, `south_density_10km`, `south_likelihood_95m`, `south_mask`, `south_rts`,
+`south_rts_candidates`, `south_rts_centroids`, `south_rts_high_confidence`, `south_rts_t65`. Zero
+missing.
+
+> **Do not use `search-all-resources` to confirm a deletion.** It still listed the firewall and the
+> service account minutes after both were deleted and the deletions were confirmed — the index
+> refreshes on a lag. Use it to *find* things; confirm with the live per-service API.
+
+**Which `planet-orders@` is actually delivering.** Both projects have one, which is a trap worth
+naming: if Heidi's key belonged to the PDG copy, her run would break the moment PDG closes. It does
+not. Only `planet-orders@abruptthawmapping` holds `storage.objectUser` on `gs://rts-arctic-usw1`,
+and deliveries are landing there (+37,900 quads, §5 row 6) — so the key in use is the
+new-project one, whose user-managed key dates from 2023-02-08 and long predates PDG.
+
 ## 6. Teardown (irreversible — only after §5)
 
 **Gate cleared 2026-08-28** — §5 row 1 PASS, every leg compared object-by-object with
