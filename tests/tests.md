@@ -840,6 +840,10 @@ policy is exercised without waiting on real back-off (`time.sleep` is patched ou
 | `test_connection_errors_are_retried` | transport exceptions are retried like transient statuses | real |
 | `test_order_payload_matches_the_2025_delivery_shape` | quad id, COG `file_format` tool, delivery bucket/prefix, and a non-None timeout on every call | real — payload drift would change delivered filenames |
 | `test_progress_counts_and_writes_status` | counters and `pct_done` are right; the status file lands | real |
+| `test_prior_deliveries_are_counted_from_the_first_tick` | `n_skipped` is seeded from the listing, so a resume's `pct_done` starts at the truth | real — regression; accumulating it per row showed 68.7% → 45.2% on the 2026-08-31 resume and was read as data loss |
+| `test_seen_advances_the_watchdog_without_double_counting` | `seen()` bumps `last_active` / `last_quad_id` but does not re-count a seeded quad | real — the seeding fix must not starve the stall watchdog, which kills a run that goes quiet |
+| `test_retry_sweep_does_not_claim_the_year_status_file` | `--retry-failed` writes `{year}_retry.json`, not `{year}.json` | real — regression; a 2-quad sweep overwrote 2019's record on 2026-09-02 |
+| `test_the_alerter_ignores_a_retry_sweep_file` | the alerter's `[0-9][0-9][0-9][0-9].json` glob skips a sweep file | real — this glob is the whole mechanism; it announced "`--expect-quads 2`" against a true 308,459 |
 | `test_status_write_failure_does_not_kill_the_run` | an unwritable status path is warned, not raised | real — monitoring must not take down the job |
 | `test_watchdog_timestamp_advances_on_progress` | `last_active` is bumped per completed quad | real — wires the loop to the watchdog |
 | `test_filter_to_domain_clips_and_derives_columns` | the R→geopandas port drops out-of-domain quads and derives `delivery_location` | real — a wrong prefix mis-delivers the imagery |
