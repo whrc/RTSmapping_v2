@@ -855,6 +855,7 @@ policy is exercised without waiting on real back-off (`time.sleep` is patched ou
 | `test_finished_year_is_not_reported_stale` | a 100%-done year reads `complete`, not `STALE` | real — regression; a finished run stops heartbeating by design, and the false alarm sends the operator chasing a process that succeeded |
 | `test_incomplete_and_quiet_is_reported_stale` | an unfinished year gone quiet is flagged | real — the alarm that matters |
 | `test_live_run_is_flagged_neither` | a progressing run is unflagged | real — no false positives |
+| `test_failed_quads_are_counted_as_csv_rows_not_lines` | the failed-quad tally parses CSV rows, not physical lines | real — regression; `detail` holds Planet's multi-line 503 HTML, so 2 failures printed as "16 failed quads", and that line is a prompt to re-order |
 | `test_runtime_outputs_default_outside_the_repo` | `DEFAULT_WORK` / `DEFAULT_STATUS_DIR` are not under the checkout | real — regression; the shared checkout is read-only to collaborators, which broke Heidi's first run |
 | `test_psd_work_env_var_overrides_the_default` | `PSD_WORK` relocates runtime output | real — the documented escape hatch |
 | `test_silent_while_the_run_is_healthy` | no alert while ordering is progressing | real — a checker that chatters trains you to ignore it |
