@@ -317,6 +317,34 @@ def test_incomplete_and_quiet_is_reported_stale(tmp_path, capsys, monkeypatch):
     assert "STALE" in capsys.readouterr().out
 
 
+def test_failed_quads_are_counted_as_csv_rows_not_lines(tmp_path, capsys, monkeypatch):
+    """The `detail` column holds the server's response body, newlines and all.
+
+    Planet's 503s come back as multi-line HTML, so counting physical lines
+    over-reports badly: on 2026-09-02 two failed quads were announced as
+    "16 failed quads", which is a re-order prompt for work that is not needed.
+    """
+    _status(tmp_path, 2019, done=100, total=100, heartbeat_age_s=60)
+    (tmp_path / "failed_orders_2019.csv").write_text(
+        'quad_id,detail
+'
+        '1803-1563,"HTTP 503: <html>
+<head><title>503</title></head>
+<body>
+</html>"
+'
+        '1803-1564,"HTTP 503: <html>
+<head><title>503</title></head>
+<body>
+</html>"
+')
+    monkeypatch.setattr("sys.argv", ["check_status.py", "--status-dir", str(tmp_path)])
+    check_status.main()
+    out = capsys.readouterr().out
+    assert "2 failed quads" in out
+    assert "16 failed quads" not in out
+
+
 def test_live_run_is_flagged_neither(tmp_path, capsys, monkeypatch):
     _status(tmp_path, 2022, done=10, total=100, heartbeat_age_s=30)
     monkeypatch.setattr("sys.argv", ["check_status.py", "--status-dir", str(tmp_path)])

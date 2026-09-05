@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 from datetime import datetime, timezone
@@ -57,7 +58,13 @@ def main() -> int:
 
     failed = sorted(args.status_dir.glob("failed_orders_*.csv"))
     for f in failed:
-        n = max(sum(1 for _ in f.open()) - 1, 0)
+        # Rows, not lines. `detail` carries the server's response body verbatim,
+        # and Planet's 503s are multi-line HTML -- counting lines turned two
+        # failed quads into "16 failed quads" on 2026-09-02, which reads as a
+        # re-order prompt for work that does not need doing. newline="" is
+        # required for the csv module to reassemble those quoted newlines.
+        with f.open(newline="") as fh:
+            n = sum(1 for _ in csv.DictReader(fh))
         if n:
             print(f"\n{n} failed quad{'s' if n != 1 else ''} recorded in {f} — sweep up with:\n"
                   f"  python planetscope-download/order_basemaps.py --year {f.stem[-4:]} \\\n"
