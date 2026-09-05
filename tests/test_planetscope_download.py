@@ -147,6 +147,59 @@ def test_progress_counts_and_writes_status(tmp_path):
     assert (tmp_path / "2022.json").exists()
 
 
+def test_prior_deliveries_are_counted_from_the_first_tick(tmp_path):
+    """pct_done must not climb to the truth -- it must start there.
+
+    `skipped` used to be incremented per row as the loop walked the grid, so a
+    resume reported 0% and crept up to the real figure over the best part of an
+    hour. On 2026-08-31 that read as 68.7% -> 45.2% and looked like data loss.
+    Seeding the counter makes the first status file already correct.
+    """
+    p = order_basemaps.Progress(2019, 100, tmp_path / "2019.json", n_skipped=60)
+    assert p.snapshot()["pct_done"] == 60.0
+    p.record("ordered", "1-1")
+    assert p.snapshot()["n_skipped"] == 60
+    assert p.snapshot()["n_done"] == 61
+
+
+def test_seen_advances_the_watchdog_without_double_counting(tmp_path):
+    """Already-delivered rows still have to feed the stall watchdog.
+
+    They are seeded into `skipped` up front, so counting them again would double
+    them -- but a mostly-delivered year can walk for many minutes between orders,
+    and the watchdog kills the run if nothing reports in.
+    """
+    p = order_basemaps.Progress(2019, 100, tmp_path / "2019.json", n_skipped=60)
+    before = p.last_active[0]
+    p.seen("7-7")
+    assert p.snapshot()["n_skipped"] == 60      # not 61
+    assert p.last_quad_id == "7-7"
+    assert p.last_active[0] >= before
+
+
+def test_retry_sweep_does_not_claim_the_year_status_file(tmp_path):
+    """A --retry-failed sweep must not overwrite the year it is sweeping.
+
+    On 2026-09-02 a 2-quad sweep rewrote status/2019.json as
+    {"n_total": 2, "n_done": 2, "pct_done": 100.0}, destroying the year's record.
+    alert_if_stopped.py then announced 2019 complete and told us to build the
+    quad index with `--expect-quads 2` instead of 308,459.
+    """
+    assert order_basemaps.status_filename(2019, retry=False) == "2019.json"
+    assert order_basemaps.status_filename(2019, retry=True) == "2019_retry.json"
+
+
+def test_the_alerter_ignores_a_retry_sweep_file(tmp_path):
+    """The year glob is what stops a sweep masquerading as its year."""
+    (tmp_path / "2019.json").write_text('{"year": 2019, "n_total": 308686, "n_done": 1,'
+                                        ' "pct_done": 0.0, "n_ordered": 0, "n_skipped": 0,'
+                                        ' "n_failed": 0, "last_quad_id": "",'
+                                        ' "heartbeat_at": "2026-09-02T10:00:00+00:00"}')
+    (tmp_path / order_basemaps.status_filename(2019, retry=True)).write_text('{"bogus": true}')
+    matched = sorted(f.name for f in tmp_path.glob("[0-9][0-9][0-9][0-9].json"))
+    assert matched == ["2019.json"]
+
+
 def test_status_write_failure_does_not_kill_the_run(tmp_path):
     """Monitoring is not allowed to take down a five-day job."""
     bad = tmp_path / "nope"

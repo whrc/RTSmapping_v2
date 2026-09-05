@@ -66,12 +66,32 @@ BACKOFF_S = [30, 60, 120, 240]   # between the 5 attempts
 STATUS_EVERY_S = 60
 
 
+def status_filename(year: int, retry: bool) -> str:
+    """Name of the status file a run should write.
+
+    A ``--retry-failed`` sweep is not the year it sweeps. Writing it to
+    ``{year}.json`` overwrites the year's record with the sweep's own tiny total:
+    on 2026-09-02 a 2-quad sweep rewrote 2019 as ``n_total: 2, pct_done: 100.0``.
+    ``alert_if_stopped.py`` then read that, announced 2019 complete and said to
+    build the quad index with ``--expect-quads 2`` rather than 308,459. That
+    alerter globs ``[0-9][0-9][0-9][0-9].json``, so a suffixed name is enough to
+    keep a sweep from masquerading as its year.
+    """
+    return f"{year}_retry.json" if retry else f"{year}.json"
+
+
 class Progress:
     """Thread-safe counters plus the status file the supervisor and Heidi read."""
 
-    def __init__(self, year: int, n_total: int, status_path: Path):
+    def __init__(self, year: int, n_total: int, status_path: Path, n_skipped: int = 0):
         self.year, self.n_total, self.status_path = year, n_total, status_path
-        self.ordered = self.skipped = self.failed = 0
+        self.ordered = self.failed = 0
+        # Seeded, not accumulated. Quads already delivered are known up front from
+        # one listing, so counting them again as the loop reaches them would make
+        # pct_done climb to the truth over the best part of an hour instead of
+        # starting there -- which on 2026-08-31 read as a drop from 68.7% to 45.2%
+        # and looked exactly like data loss.
+        self.skipped = n_skipped
         self.last_quad_id = ""
         self.started = time.time()
         self.last_active = [time.time()]   # bumped for the stall watchdog
@@ -80,8 +100,23 @@ class Progress:
 
     def record(self, kind: str, quad_id: str) -> None:
         """Count one finished quad and refresh the status file if due."""
+        self._bump(quad_id, kind)
+
+    def seen(self, quad_id: str) -> None:
+        """Note an already-delivered quad the loop walked past, without counting it.
+
+        Those are seeded into ``skipped`` at construction, so counting them here
+        too would double them. They must still be reported: on a mostly-delivered
+        year the loop can run for many minutes between orders, and the stall
+        watchdog kills the run if nothing advances ``last_active``.
+        """
+        self._bump(quad_id, None)
+
+    def _bump(self, quad_id: str, kind: str | None) -> None:
+        """Advance the watchdog and the status file, counting ``kind`` if given."""
         with self._lock:
-            setattr(self, kind, getattr(self, kind) + 1)
+            if kind is not None:
+                setattr(self, kind, getattr(self, kind) + 1)
             self.last_quad_id = quad_id
             self.last_active[0] = time.time()
             due = time.time() - self._last_write > STATUS_EVERY_S
@@ -263,7 +298,11 @@ def main() -> int:
 
     failed_path = args.status_dir / f"failed_orders_{args.year}.csv"
     failed_path.parent.mkdir(parents=True, exist_ok=True)
-    progress = Progress(args.year, len(grids), args.status_dir / f"{args.year}.json")
+    # Counted after --limit is applied, so a limited debug run cannot report >100%.
+    n_prior = sum(1 for i in grids["id"] if i in delivered)
+    progress = Progress(args.year, len(grids),
+                        args.status_dir / status_filename(args.year, bool(args.retry_failed)),
+                        n_skipped=n_prior)
     stop_watchdog = start_stall_watchdog(
         progress.last_active, args.stall_timeout_s, f"orders {args.year}")
 
@@ -282,7 +321,7 @@ def main() -> int:
 
     def handle(row) -> None:
         if row["id"] in delivered:
-            progress.record("skipped", row["id"])
+            progress.seen(row["id"])
             return
         outcome, detail = place_order(session(), row, args.bucket, gcs_key)
         if outcome == "failed":
