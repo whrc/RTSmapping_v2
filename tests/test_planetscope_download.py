@@ -325,19 +325,19 @@ def test_failed_quads_are_counted_as_csv_rows_not_lines(tmp_path, capsys, monkey
     "16 failed quads", which is a re-order prompt for work that is not needed.
     """
     _status(tmp_path, 2019, done=100, total=100, heartbeat_age_s=60)
+    # Written with real embedded newlines inside the quoted field, because that
+    # is exactly what Planet's error bodies look like on disk.
     (tmp_path / "failed_orders_2019.csv").write_text(
-        'quad_id,detail
-'
-        '1803-1563,"HTTP 503: <html>
-<head><title>503</title></head>
+        '''quad_id,detail
+1803-1563,"HTTP 503: <html>
+<head><title>503 Service Temporarily Unavailable</title></head>
 <body>
 </html>"
-'
-        '1803-1564,"HTTP 503: <html>
-<head><title>503</title></head>
+1803-1564,"HTTP 503: <html>
+<head><title>503 Service Temporarily Unavailable</title></head>
 <body>
 </html>"
-')
+''')
     monkeypatch.setattr("sys.argv", ["check_status.py", "--status-dir", str(tmp_path)])
     check_status.main()
     out = capsys.readouterr().out
