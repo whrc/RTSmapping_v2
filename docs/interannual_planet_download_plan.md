@@ -300,8 +300,51 @@ that finding is `inference/inference.md` §5.4, which owns it.)*
 
 **2019 is the second year** and was stopped mid-run at 215,443 / 308,686 (69.8 %, 0 failed) on
 2026-08-28 — not a fault, but because it was ordering into `pdg-planet-data`, which is retired on
-2026-08-31. It resumes on `rts-ops` against `gs://rts-arctic-usw1` with the same two keys; see
-`computing/cutover_runbook.md` §3.
+2026-08-31. It resumed on `rts-ops` against `gs://rts-arctic-usw1` with the same two keys; see
+`computing/cutover_runbook.md` §3, and §5b below for how it finished.
+
+## 5b. Outcome — 2019 (completed 2026-09-02), and its 227-quad coverage gap
+
+**All 308,686 ordered, 0 outstanding failures.** The resumed leg ran 41.7 h at 37.4 orders/min:
+93,421 newly ordered, 215,263 already present, 2 failed after five attempts each. The two
+(`1803-1563`, `1803-1564`) were swept with `--retry-failed` at 10:21:50 and both delivered — the
+retry path works, and this is the first time it has been exercised.
+
+**Planet delivered 308,459 distinct quads from 1,850,759 objects — 227 short of what was ordered
+(0.074 %).** 2022's shortfall was **2** (0.0006 %), so 2019 is ~113× the pilot's rate and the gap
+needed explaining rather than absorbing.
+
+**It is a real coverage gap, not a lost delivery.** The two hypotheses have different shapes and the
+data is unambiguous:
+
+| Test | Result |
+|---|---|
+| Missing quads with ≥1 missing 4-neighbour | **215 / 227 = 94.7 %** — scattered order failures would sit near 0 % |
+| Geometry | diagonal stripes (`1127-1583, 1128-1581, 1129-1579, 1130-1577, 1131-1575, 1132-1573`) — col +1, row −2, the signature of an orbit track |
+| Spread | 136 distinct columns × 63 distinct rows, in clusters across the domain — not one contiguous blob, and not a time-localised burst |
+
+2019 flew a far smaller Dove constellation than 2022, and this is 60–74 °N; thin early-constellation
+basemap coverage is the expected result, and the geometry says so directly.
+
+**Ruled out — the migration.** The 2019 run ordered into `pdg-planet-data` until 08-31 16:39 and into
+`rts-arctic-usw1` after, and Planet delivers asynchronously, so a delivery landing in PDG after the
+final sync would have been stranded there. It did not happen: the 09-01 audit walked all **5,000,891**
+PDG objects live with **0 missing** (`computing/pdg_migration.md` §5c), and a direct set-difference of
+the two buckets' 2019 quad ids returned **0 in PDG but not in the destination**. For a quad to have
+slipped the window it would have needed a >22 h delivery lag.
+
+> **Downstream: 2019's `--expect-quads` is `308459`, not `308686`.** The reconciliation guard exists to
+> catch short deliveries, and here it would fire on a real and permanent gap. Carry the *delivered*
+> count, and expect 2020–2021 to sit between 2019 and 2022 as the constellation grew.
+
+**Bug found while reading this: `--retry-failed` clobbers the year's status file.**
+`order_basemaps.py:271` builds `Progress` from `len(grids)` and always writes
+`status/{year}.json`, so the 2-quad sweep overwrote 2019's record with
+`{"n_total": 2, "n_done": 2, "pct_done": 100.0}`. `alert_if_stopped.py` then read that, wrote
+`.done_2019` and posted a completion message saying **"build the quad index with
+`--expect-quads 2`"**. The year's real progress record is gone and the Slack instruction is wrong by
+five orders of magnitude. A retry sweep should write `status/{year}_retry.json` — the alerter globs
+`[0-9][0-9][0-9][0-9].json`, so that alone stops a sweep masquerading as its year.
 
 ## 6. Decisions
 
