@@ -19,7 +19,7 @@ backs off when the GEE task queue is full ("Too many tasks").
 Usage (inside rts-train Docker, ADC mounted):
   python scripts/export_s2_composites.py --year 2025 \
      --domain domain/circumpolar_south_domain.geojson \
-     --bucket woodwell-rts-inference-arts-south --prefix S2_RGB/2025_south \
+     --bucket rts-arctic-usw1 --prefix S2_RGB/2025_south \
      [--bands B4,B3,B2,B8] [--dlat 1 --dlon 3] [--scale 10] [--limit N] [--dry-run]
 """
 

@@ -1,7 +1,28 @@
 # Interannual imagery acquisition — routes and mitigations
 
-**For team discussion. Prepared 2026-08-26. One decision is open: which route we take for
-the Sentinel-2 download.**
+> ## DECIDED 2026-09-22 — **Route A. Earth Engine + Partner Tier.**
+>
+> The uplift was granted on `abruptthawmapping`, expiring **2027-09-22**, at a measured
+> **180,000,000,000 EECU-s/month** (see `ee_quota.md`). Problem one below — "we are out of
+> Earth Engine compute" — is solved, by five orders of magnitude.
+>
+> **Routes B, C, D and E are closed.** No Earth Search build (route C), no commercial quote
+> (D), no scope reduction (E). The "do not mix sources across years" rule in §5 now holds
+> trivially: every epoch comes from Earth Engine, on the same code path that produced the
+> delivered 2025 map, so there is no source boundary anywhere in the change signal.
+>
+> **Problem two — the QA60 gap — is untouched by this and remains open.** It is the reason
+> 2022 and 2023 are now last in `config.yaml: years`, behind the mask bake-off, while the
+> QA60-good years run first.
+>
+> One thing the tier newly makes affordable and we still **decline**: re-exporting all seven
+> epochs under a single new mask (~44,000 EECU-h, now trivial). The model was trained on
+> QA60-masked imagery, so changing the mask everywhere would introduce an inference-time
+> distribution shift against training in order to fix a problem confined to two years.
+> Reproduce-QA60 on 2022-2023 only, as §4 already decided, remains correct.
+
+**Prepared 2026-08-26 for team discussion, when the Sentinel-2 route was still open.**
+Kept as the record of how the decision was made and what the alternatives cost.
 
 ---
 
@@ -231,7 +252,7 @@ proven. Current evidence (MAE 0.009 typical, one unexplained outlier) is not str
 
 | Risk | Mitigation | Status |
 |---|---|---|
-| EE monthly compute exhausted | Partner Tier application; route decision | drafted / **open** |
+| EE monthly compute exhausted | Partner Tier granted 2026-09-22, expires 2027-09-22 | **resolved** |
 | QA60 empty 2022–2023 | Bake-off → reproduce-QA60 mask, those years only | decided, unbuilt |
 | 165 exported 2022 cells unmasked | Re-export once the mask is chosen | pending route |
 | Cells with no cloud-free scenes | Closest-year substitution + `source_year` | agreed, unbuilt |

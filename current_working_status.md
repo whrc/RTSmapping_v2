@@ -28,82 +28,100 @@ for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-ma
 ## Rolling progress
 
 ### Just completed
-**PDG migration complete (2026-08-26 → 09-01).** 60.19 TB / 47,553,531 objects, four buckets, the
-rating app, three Docker images and the EE assets behind the published map, all moved off
-`pdg-project-406720` before its access closed on 2026-08-31. Runbook `computing/pdg_migration.md`;
-teardown `computing/teardown.ps1`.
+**Earth Engine Partner Tier granted on `abruptthawmapping` (2026-09-22), expiring 2027-09-22.**
+This ends the constraint that made the interannual campaign a three-year project. Verified off the
+quota API rather than assumed — `monthly_eecu_usage_time` reads an effective
+**180,000,000,000 EECU-s/month = 50,000,000 EECU-hours**, which is **500x the documented Partner
+figure** (100,000 EECU-h) and 50,000x the Contributor tier we were on. The entire remaining S2
+requirement (~10,600 cells x 12,755 EECU-s ≈ 37,000 EECU-h) is **0.074% of one month**.
 
-**The gate closed at 11 of 11.** Row 1 compared *every* object rather than a sample — `planet`
-5,000,891 obj / 39.46 TB and `s2` 14,780 / 20.72 TB byte-identical, `inference` `missing = 0` in all
-2,161 chunks with the 5,381-object surplus reconciling to the byte. Row 3 anchored the frozen model
-to `model_checkpoint_sha` recorded in production manifests on 2026-07-07, not to the copy. Row 7 cut
-reviewers over with zero verdict loss — the new app was already *ahead* of the old, so the runbook's
-prescribed old→new sync would have been the wrong instinct and was correctly a no-op. Row 8 was
-verified against the published bundle after the first publish silently served the old script at
-HTTP 200: **EE Apps publish from a saved script path, not the editor buffer.**
+Route A of `interannual_inference/imagery_acquisition_plan.md` is taken; routes B–E are closed. No
+Earth Search build, no commercial quote, no scope reduction — and "do not mix sources across years"
+now holds trivially, since every epoch comes from the same EE code path that made the delivered map.
 
-**Five findings that outlive the migration.**
-- **Every inventory was wrong, five times, the same way** — a prefix listed but never opened.
-  `usc1/staging/` (2,661 obj / 265 GB) was caught with the delete already running; `pdg-storage-default`
-  was cleared on its top-level names and hid three of our 2024 RTS archives in `working/` (§5d).
-  Never clear a bucket on its top-level prefix names.
-- **The parity gate had a hole exactly where it hurt.** GCS stores **no `md5Hash` for composite
-  objects**, so an MD5-only comparison saw `"" == ""` and passed the biggest objects on *size alone*.
-  `gcs_parity.py` now falls back to CRC32C and reports rather than passes when no checksum is shared;
-  25 tests.
-- **The drain audit measured the wrong thing** — it ordered by size, so it missed four small,
-  unreproducible trees (Heidi's acquisition state, the 128 MB MLflow store, `multiscale_poc_eval`, and
-  the two VM-creation scripts that existed only on the VM they created). "What is large" and "what is
-  unreproducible" are different questions; only the second gates deletion.
-- **A dead bucket path was visible to the public.** `ee_south_app.js:524` was not a comment but a
-  `ui.Label` advertising `gs://rts-mapping-v2-usw1/...` to every visitor.
-- **Killing a driver does not stop Earth Engine.** `Export.image.toCloudStorage` only *submits*;
-  2,000 PENDING tasks stayed queued writing into the dying bucket after the S2 driver was killed. All
-  cancelled, 0 failures. `abruptthawmapping` is in EE **restricted mode**, which is why 1,999 sat
-  behind one RUNNING — anything resuming S2 must fix that quota first.
+**Three things replace EECU as the constraint**, and only the first is solved:
+- **Concurrency** — unmeasured under Partner. Was ~3 RUNNING/user under restricted mode; commercial
+  is ~20. That is the difference between 10.5 and 1.6 days per year of export. Measure it in the
+  first six hours of 2019 and record it in `ee_quota.md`. The **per-user 3,000-task queue depth is
+  unchanged by the tier**.
+- **The QA60 gap** — untouched. 2022 and 2023 have no cloud mask, the bake-off is undone, and the
+  165 cells already exported for 2022 are unmasked and must be discarded.
+- **GPU quota** — `abruptthawmapping` has **none**, and no request has been filed. See below.
 
-**Nothing of ours remains in PDG.** Every live service API re-checked 2026-09-01: no instance, disk,
-address, Cloud Run service, image, firewall rule or IAM binding of ours; Functions/Dataproc/Cloud SQL
-APIs were never enabled; all 9 PDG Earth Engine assets have counterparts in `abruptthawmapping`.
-`pdg-planet-data` is PDG's and **verified safe for them to delete** — all 5,000,891 objects present in
-`gs://rts-arctic-usw1`, 0 missing / 0 differing. **All three of our PDG buckets are now deleted** —
-`rts-mapping-v2-usw1`, the last and largest, emptied itself under an age-0 lifecycle rule (20.9 TB →
-56 GB in one pass, then 2,337,904 → 0) and was removed 2026-09-01; `describe` returns 404. Choosing a
-server-side rule over a client-side `rm` loop is what let it finish unattended.
+**Config changes this forced** (all in one commit, because `/opt/rts/RTSmapping_v2` is a live shared
+checkout):
+- `years` re-sequenced `[2022, …]` → **`[2019, 2020, 2021, 2024, 2022, 2023]`**. 2022 led while it
+  was the drift pilot — a choice made before the QA60 gap was found, which made it the one year that
+  could not start. **2019 leads now**: its Planet acquisition is complete, its QA60 is intact, and it
+  is the widest baseline against 2025, so it is the year that can run end-to-end first.
+- `expect.n_quads` scalar → **per-year map**, read via new `stages.expect_quads_for()`. Delivered
+  counts are genuinely year-dependent (2019 **308,459**, 2022 **309,107**) because the Dove
+  constellation grew across the archive. 2019 passed the 1% tolerance by 0.21%, but a thinner early
+  year would have tripped a guard built to catch *filename* regressions on real coverage.
+- `accounts` collapsed to one entry. This was a **live bug**, not just simplification: `accounts.2019`
+  pointed at `/mnt/outputs/adc-rtsmapping/application_default_credentials.json`, which does not exist,
+  and `adc_for()` falls back to `default` when a path is missing — so a run launched "under
+  rtsmapping" would silently have been yyang. Two accounts on one year is exactly what that config's
+  own rule forbids.
+- `inference_watchdog.sh` `MAX_HOURS` 48 → **144**. 48 was sized against the launch plan's 12–29 h
+  estimate; the benchmarked rate is ~4.2 tiles/s/L4, so a year is 2.2–4.8 days and 48 h would trip
+  mid-run on every fleet shape except a tuned 8×A100.
 
 ### Now
-**Planet 2019 acquisition, running on `rts-ops` in the new project.** 267,548 / 308,686 (86.7 %),
-52,283 ordered, 2 failed, ~37 orders/min, ETA ~18 h. It is entirely inside `abruptthawmapping` and
-survives PDG's closure.
+**Phase 0 verification, before any export is launched.** One of four checks is done: the tier is
+confirmed on the right project (EE tiers attach to a Cloud project, not an account — worth checking,
+since the uplift was described as belonging to "the yyang account"). Three remain, and they are
+cheap:
+1. Confirm restricted mode has lifted — submit ~20 cells and watch `ee.data.listOperations()`.
+   **`getTaskStatus()` lies**, returning `UNKNOWN` for jobs that have succeeded.
+2. **Measure concurrent RUNNING** over the first six hours. This now sets the schedule.
+3. **Test the Planet delivery key before committing a 5-day run to it.** The key on
+   `planet-orders@abruptthawmapping.iam.gserviceaccount.com` dates from **2023-02-08**. Place one
+   throwaway 2020 order and confirm the object lands under `global_quarterly/2020/q3/`.
 
-One artefact worth knowing before it confuses someone again: on restart the displayed percentage
-**drops** — `list_delivered()` finds every already-delivered quad up front (215,263 here, logged at
-start), but `order_basemaps.py` increments `skipped` one row at a time as the loop walks the 308,686-row
-grid. Six minutes after the 08-31 restart it read 45.2 %; it caught up within the hour and `skipped`
-settled at exactly 215,263. Seeding `n_skipped` with `len(delivered)` at startup would fix the display
-— hold that change until 2019 finishes, because `/opt/rts/RTSmapping_v2` is the live checkout the run
-reads from (`pdg_migration.md` §4a).
+Then: 2019 S2 export on `rts-ops` under `rts-dataprep:v1` (the only image with `earthengine-api`),
+and Planet 2020 in parallel — the two share no resource and `s2_export` has no prerequisites.
+**Install the interannual alerter cron**, deliberately left out while S2 was abandoned; there is
+something to alert on now. Remaining Planet: 2020, 2021, 2023, 2024 ≈ 22 days serial.
 
-**Next**, once 2019 completes: build its quad index with `--expect-quads 308686`, then Phase 0 of the
-interannual run below.
+**Nothing about the migration needs redoing for this.** The S2 destination
+(`gs://rts-arctic-usw1/S2_RGB/{year}_south`), the Planet destination and the EE project were all
+already correct in `config.yaml`. EE batch compute writes cross-region into us-west1 and GCS ingress
+is free — the same path already delivered 18.7 TiB for 2025_south. `gs://rts-arctic-usc1` stays
+us-central1 because EE's `loadGeoTIFF` reads US-CENTRAL1 buckets only; that is a read-into-EE path
+the export does not use, so **do not merge it away**.
 
-### Future plans (inference phase — full plan in `.claude/plans/elegant-exploring-lemur.md`)
-1. **Phase 0** — finish the 2025_south S2 export (GEE-throttled), build + upload the `s2_index` (NDVI
-   windowing) + domain↔S2 coverage audit with a residual-gap policy; build `scripts/inference_progress.py`
-   (terminal dashboard + Claude-watcher JSON).
-2. **Phase 1** — GCS shard-claim queue: `scripts/shard_tiles.py` (spatial-contiguous shards), `inference/
-   claim.py` (atomic claim/done/stale-reclaim), `scripts/run_inference_worker.py`; refactor `inference.py`
-   body into `run_inference(tiles_df, …)`; tests (atomic mutual-exclusion, reclaim, done-skip, exactly-once).
-3. **Phase 2** — rebuild `rts-infer:v1` (current code + cv2 baked + MLflow `<3.0` per requirements; push via
-   ADC); build the 3 per-seed deployment packages; create the output-bucket layout (hierarchical shard-scoped
-   prefixes, one manifest/shard).
-4. **Phase 3** — fleet provisioning (`create_inference_fleet.sh`, `rts-infer-{1..4}`) + pre-flight: L4 quota,
-   1-VM startup test, drift check, Banks Island RGB+NDVI end-to-end + multi-VM claim collision check +
-   kill/restart drill, benchmark → shard size + output dtype + ETA.
-5. **Phase 4** — launch 40 workers (explicit go), monitor + auto-stop watchdog (stops `rts-infer-*` only;
-   never the A100 master), end-of-run exactly-once coverage reconciliation; then stop (not delete) the L4 fleet.
-6. **Deferred (per user)**: post-inference vectorization → products (cut from retained prob COGs, no GPU rerun);
-   North S2-RGB model; v3 backlog (re-stage, MAE SSL, multi-scale — see ledger "Deferred to v3").
+### Future plans
+
+**Downstream is the real risk, and it is not a code problem.** ~178 TB of imagery will land in a
+project with **zero GPU quota and no credit**, billing to a card rather than the expired $70k PDG
+credit. Everything else is ready and verified: the frozen 3-seed ensemble is MD5-identical and
+anchored to the `model_checkpoint_sha` in production manifests (threshold 0.65, temperature
+0.512321); `rts-infer:v1` survived in the new Artifact Registry; and the whole execution path —
+`shard_tiles.py`, `claim.py`, `run_inference_worker.py`, `create_inference_fleet.sh`,
+`inference_watchdog.sh`, `assemble_region.py`, `vectorize_region.py` — is built, drilled and already
+repointed at `abruptthawmapping`.
+
+1. **File the GPU quota request now, concurrently with the export.** Requests take days to weeks and
+   cost nothing to hold; every day of S2 export is a free day of latency to hide them behind. Values
+   and rationale are in `computing/infrastructure.md`. **Ask for `PREEMPTIBLE_NVIDIA_L4_GPUS=32`
+   this time** — Spot is ~3× cheaper, the claim queue makes preemption safe, and budget was not a
+   constraint when Spot was last declined. It is now.
+2. **Run 2019 end-to-end to a delivered map** before starting 2020's inference. It exercises all
+   twelve stages against the new project for the first time, and produces the merge/vectorize
+   wallclock the cost model is missing — **no timing for either stage is recorded anywhere**.
+3. **Decide the per-year QC protocol before the first year reaches the gate**, not at it. 2025 South
+   was a 60,467-item census ≈ 134 person-hours. Six years of that is the largest cost in the
+   campaign and no quota grant touches it.
+4. **Revisit storage tiering at a checkpoint.** Acquiring hot is the decision taken; at full
+   footprint that is ~$3.5–3.8k/month. The existing policy — Coldline immediately, Archive once a
+   year's map is approved — takes it to roughly a tenth. `inference/` stays excluded regardless:
+   41.5M ~2.5 KB objects would each bill a 128 KiB minimum.
+5. **Deferred**: North S2-RGB model; v3 backlog (re-stage, MAE SSL, multi-scale — see ledger
+   "Deferred to v3").
+
+*(The previous Phases 0–4 inference plan that stood here was stale: that work shipped, and the 2025
+South run reconciled 2026-07-10.)*
 
 ---
 

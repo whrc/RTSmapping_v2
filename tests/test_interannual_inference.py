@@ -407,6 +407,30 @@ def test_fresh_heartbeat_is_never_stuck(cfg):
     assert alert.stuck(entry, {"done": 0}, {"done": 0, "at": 0.0}, cfg) is False
 
 
+def test_expect_quads_for_year_picks_that_years_delivered_count(cfg):
+    """Delivered quad counts are year-dependent: the Dove constellation grew across the
+    archive, so 2019 really did deliver 308,459 against 2022's 309,107."""
+    cfg["expect"]["n_quads"] = {"default": 309100, 2019: 308459, 2022: 309107}
+    assert S.expect_quads_for(2019, cfg) == 308459
+    assert S.expect_quads_for(2022, cfg) == 309107
+    assert S.expect_quads_for(2021, cfg) == 309100   # unmeasured year -> default
+
+
+def test_expect_quads_for_still_accepts_a_plain_int(cfg):
+    """A config that has not been migrated to the per-year map keeps working."""
+    cfg["expect"]["n_quads"] = 309100
+    assert S.expect_quads_for(2019, cfg) == 309100
+
+
+def test_quad_index_reconciles_against_the_years_own_count(cfg):
+    """A single scalar made this guard fire on real early-year coverage gaps rather than
+    on the filename regressions it exists to catch, so the year must reach the argv."""
+    cfg["expect"]["n_quads"] = {"default": 309100, 2019: 308459}
+    argv = S._quad_cmd(2019, cfg)
+    assert "308459" in argv
+    assert "309100" not in argv
+
+
 def test_adc_for_year_picks_that_years_account(cfg):
     """Concurrency is per USER, so the year->account map is the throughput lever."""
     cfg["accounts"] = {"default": "/adc/default.json", 2019: "/adc/rtsmapping.json"}

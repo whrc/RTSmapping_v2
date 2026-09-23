@@ -1,9 +1,34 @@
-# Earth Engine quota — the campaign's controlling constraint
+# Earth Engine quota — resolved 2026-09-22
+
+> ## RESOLVED. `abruptthawmapping` is on **Partner Tier**, expiring **2027-09-22**.
+>
+> The EECU wall that made this the campaign's controlling constraint is gone. Read off
+> the quota API, not inferred from the docs:
+>
+> ```
+> $ gcloud alpha services quota list --service=earthengine.googleapis.com \
+>     --consumer=projects/801926669176 --format=json   # monthly_eecu_usage_time
+> effectiveLimit  180,000,000,000 EECU-s/month  =  50,000,000 EECU-hours/month
+>                 (producerOverride; defaultLimit is int64 max)
+> ```
+>
+> That is **500x the documented Partner figure** (100,000 EECU-h) and **50,000x** the
+> Contributor tier this project was on. The whole remaining campaign — ~10,600 cells,
+> ~37,000 EECU-hours — is **0.074% of one month's allowance**.
+>
+> **What binds now, in order:** the **per-user 3,000-task queue depth** (unchanged by the
+> tier), **concurrent RUNNING** (was ~3 under restricted mode; unmeasured under Partner —
+> measure it and record it below), and the **expiry**. The allowance is monthly and does
+> **not** bank, so anything EE-dependent, including any future re-export, must land before
+> **2027-09-22**.
+>
+> The rest of this document is the measurement that justified the application. It is kept
+> because the per-cell cost is still the number every schedule estimate is built on.
 
 **Measured 2026-08-26.** The S2 export is the interannual run's critical path, and its
-ceiling is not concurrency — it is the **monthly EECU allowance of the Earth Engine
+ceiling was not concurrency — it was the **monthly EECU allowance of the Earth Engine
 noncommercial tier**. This document records the numbers, because every scheduling
-decision in the campaign follows from them.
+decision in the campaign followed from them.
 
 ## What the tiers actually give
 
@@ -74,14 +99,27 @@ It is on **Community**: 150 EECU-hours ≈ 42 cells/month, against a 1,799-cell 
 2025_south export that produced the delivered map is what exhausted it, and every export
 attempted there since has been running in deep restricted mode.
 
-## Near-term prediction (falsifiable)
+## Near-term prediction (falsifiable) — SUPERSEDED
 
-The EECU allowance is monthly. Around **2026-09-01** `abruptthawmapping` should reset to a
-fresh 1,000 EECU-hours, deliver roughly **280 cells quickly**, and then throttle again.
-If that does not happen, this model of the constraint is wrong and should be revisited.
+The prediction was: around **2026-09-01** `abruptthawmapping` resets to a fresh 1,000
+EECU-hours, delivers roughly **280 cells quickly**, then throttles again. It was never
+tested to conclusion — the Partner uplift landed on 2026-09-22 and moved the ceiling by
+five orders of magnitude, so the throttle it predicted can no longer occur. The model of
+the constraint (per-project monthly EECU, per-user concurrency and queue depth) was
+confirmed by the uplift behaving exactly as a per-project quota change.
 
-## Ask
+## Ask — GRANTED
 
-`interannual_inference/ee_partner_tier_request.md` — drafted, needs a human to submit
-via the [Earth Engine help page](https://www.earthengine.app/). Approval takes several
-weeks, so it is worth filing before the September allowance is spent, not after.
+`interannual_inference/ee_partner_tier_request.md` was submitted and **approved**:
+Partner Tier on `abruptthawmapping` (proj# 801926669176) for one year, **expiring
+2027-09-22**. See the banner at the top for the measured limit.
+
+## Still to measure
+
+**Concurrent RUNNING under Partner.** This is now the number that sets the schedule, and
+it is unmeasured. Under restricted mode it was ~3 per user; EE commercial is documented at
+~20. The difference is ~10.5 days/year versus ~1.6 days/year of export.
+
+Record here, from the first six hours of the 2019 export: steady-state RUNNING count, and
+cells/hour. Use `ee.data.listOperations()` — `ee.data.getTaskStatus()` returns `UNKNOWN`
+for jobs that have succeeded and must not be used for this.

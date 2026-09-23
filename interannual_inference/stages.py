@@ -96,6 +96,25 @@ def adc_for(year: int, cfg: dict) -> str:
     return str(Path(path).expanduser())
 
 
+def expect_quads_for(year: int, cfg: dict) -> int:
+    """Delivered quad count to reconcile a year's index against.
+
+    Year-dependent on purpose. The Dove constellation grew across the archive, so
+    early years genuinely cover less ground: 2019 delivered 308,459 against 2022's
+    309,107. 2019's shortfall against what was *ordered* (308,686) is real coverage,
+    not lost deliveries — 215 of the 227 missing quads have a missing 4-neighbour and
+    the gaps form orbit-track stripes.
+
+    As a single scalar this guard fired on that real coverage rather than on the
+    filename regressions it exists to catch. A plain int is still accepted so a config
+    that has not been migrated keeps working.
+    """
+    n = cfg["expect"]["n_quads"]
+    if isinstance(n, dict):
+        return int(n.get(year, n["default"]))
+    return int(n)
+
+
 def docker(image: str, argv: list[str], cfg: dict,
            extra: tuple[tuple[str, str], ...] = (), adc: str | None = None) -> list[str]:
     """Wrap `argv` in the standard project container invocation.
@@ -190,7 +209,7 @@ def _quad_cmd(year: int, cfg: dict) -> list[str]:
         "--bucket", cfg["paths"]["planet_bucket"],
         "--prefix", fmt(cfg["paths"]["planet_prefix"], year),
         "--output", f"/outputs/inference/quad_index_{year}q3.csv",
-        "--expect-quads", str(cfg["expect"]["n_quads"]),
+        "--expect-quads", str(expect_quads_for(year, cfg)),
         "--tolerance", str(cfg["expect"]["quad_tolerance"]),
     ], cfg)
 

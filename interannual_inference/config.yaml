@@ -9,9 +9,16 @@
 region: south
 quarter: q3
 
-# Ordered by campaign priority, not chronology: 2022 is the pilot, then the
-# earliest year (widest interannual baseline), then the rest.
-years: [2022, 2019, 2020, 2021, 2023, 2024]
+# Ordered by campaign priority, not chronology. QA60-good years first; 2022 and 2023
+# are held to the back because ESA stopped populating QA60 at processing baseline 04.00,
+# so their composites are silently UNMASKED and cannot be exported until the replacement
+# mask is chosen (interannual_inference/qa60_gap.md). 2019 leads: its Planet acquisition
+# is complete, its QA60 is intact, and it is the widest interannual baseline against 2025,
+# so it is the year that can run end-to-end first.
+#
+# (Superseded 2026-09-22. 2022 led while it was the drift pilot — a choice made before the
+# QA60 gap was found, which made it the one year that could NOT start.)
+years: [2019, 2020, 2021, 2024, 2022, 2023]
 
 paths:
   work: /mnt/outputs/interannual_inference
@@ -43,7 +50,22 @@ paths:
   drift_package: /outputs/inference/pkg_seed42
 
 expect:
-  n_quads: 309100          # 2025 measured; 2022 came in at 309,107
+  # DELIVERED quad counts, per year — never the ordered count. build_quad_index.py
+  # reconciles against what actually landed in the bucket.
+  #
+  # Year-dependent because the Dove constellation grew across the archive, so early
+  # years really do cover less ground. 2019 ordered 308,686 and Planet delivered
+  # 308,459; the 227-quad shortfall is real coverage (215 of them have a missing
+  # 4-neighbour, and the gaps form orbit-track stripes), not lost deliveries.
+  # Expect 2020-2021 to sit between 2019 and 2022.
+  #
+  # Was a single 309,100 scalar at tolerance 0.01: 2019 passed by 0.21%, but a thinner
+  # early year would have tripped the guard on real coverage rather than on the filename
+  # regressions it exists to catch. Read via stages.expect_quads_for().
+  n_quads:
+    default: 309100        # 2025 measured — the delivered map's own year
+    2019: 308459
+    2022: 309107
   quad_tolerance: 0.01
   n_s2_cells: 1799         # cells intersecting circumpolar_south_domain at 1x3 deg
   n_tiles: 41567572        # 2025 measured, full domain, stride 344
@@ -68,25 +90,37 @@ docker:
   #                                              "Too many tasks already in the queue".
   #   Concurrent RUNNING (~3)       PER USER     1,321 tasks pending across three other
   #                                              projects held 0 RUNNING for 20 min while
-  #                                              abruptthawmapping kept all 3 slots, and
-  #                                              2022's rate never moved off 6.6 cells/hr.
+  #                                              abruptthawmapping kept all 3 slots.
   #
   # Per-project quota being independent does NOT imply per-project concurrency.
   #
-  # And concurrency is not even the binding limit — the MONTHLY EECU ALLOWANCE is.
-  # Measured 2026-08-26: our export costs 12,755 EECU-s/cell, so one year (1,799 cells)
-  # needs 22.9M EECU-s, while abruptthawmapping's Contributor tier grants 3.6M/month
-  # (pdg-project-406720 is on Community: 540k/month, which is why ITS exports never ran).
-  # That is 6.4 months of quota per year of data, 38 months for six years.
-  # Partner tier (360M/month) fits the whole remaining campaign in 37% of one month and is
-  # the ONLY lever that changes the schedule. See interannual_inference/ee_quota.md.
+  # THE EECU WALL IS GONE (2026-09-22). abruptthawmapping was uplifted to Earth Engine
+  # Partner Tier for one year, EXPIRING 2027-09-22. Read off the quota API rather than
+  # assumed — `gcloud alpha services quota list --service=earthengine.googleapis.com
+  # --consumer=projects/801926669176`, metric monthly_eecu_usage_time:
+  #
+  #   effective limit  180,000,000,000 EECU-s/month  = 50,000,000 EECU-hours/month
+  #
+  # That is 500x the *documented* Partner figure (100,000 EECU-h) and 50,000x the
+  # Contributor tier this project was on. Against it, the whole remaining campaign
+  # (~10,600 cells x 12,755 EECU-s = ~37,000 EECU-h) is 0.074% of ONE month.
+  #
+  # So the binding constraints are now, in order: the PER-USER 3,000-task queue depth
+  # (unchanged by the tier), concurrent RUNNING (unmeasured under Partner — was ~3 under
+  # restricted mode), and the tier's EXPIRY. The allowance is monthly and does NOT bank,
+  # so anything EE-dependent — including any future re-export — must land before
+  # 2027-09-22. See interannual_inference/ee_quota.md.
+  #
+  # (Historical: this block used to argue at length that Partner Tier was the only lever
+  # that could change the schedule, against 6.4 months of Contributor quota per year of
+  # data. That was correct, it was acted on, and it is now settled.)
   #
   # Still a year->project map rather than one scalar: it stays honest about which project
   # ran which year, and an unmapped year fails fast instead of silently borrowing one.
   #
   # Do NOT add pdg-wg-* here. Those are other teams' working-group projects; our IAM
   # permits them but that is not a reason, and since parallelism buys nothing there is no
-  # benefit to spending ~20M EECU-seconds/year of someone else's quota.
+  # benefit to spending someone else's quota.
   # pdg-project-406720 is unusable: REGISTERED_NOT_COMMERCIALLY, batch exports never start.
   ee_projects:
     2022: abruptthawmapping
@@ -99,14 +133,25 @@ docker:
   train_image: us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 
-# Google account each year's export runs under — THE throughput lever.
+# Google account the export runs under.
 #
-# Concurrency is per USER, so a second account gets its OWN ~3 slots. Measured
-# 2026-08-25: with yyang already holding all 3, rtsmapping's tasks went RUNNING within
-# ONE SECOND and the project total went 3 -> 5, even though they were queued behind
-# 1,676 of yyang's pending tasks. More projects did nothing; more accounts multiply.
+# ONE ACCOUNT. Concurrency is per USER, so extra accounts each get their own ~3 RUNNING
+# slots — measured 2026-08-25, with yyang already holding all 3, rtsmapping's tasks went
+# RUNNING within ONE SECOND and the project total went 3 -> 5. That mattered enormously
+# when the project was quota-starved and every slot was a month of schedule.
 #
-# Four accounts ~= 12 concurrent ~= the campaign in ~16 days instead of ~64.
+# Collapsed to one account 2026-09-22, for two reasons:
+#   1. Under Partner Tier the EECU wall is gone (see docker.ee_projects), so the reason
+#      to spend a shared monthly grant faster is gone with it.
+#   2. The per-year paths were a live bug: accounts.2019 pointed at
+#      /mnt/outputs/adc-rtsmapping/application_default_credentials.json, which DOES NOT
+#      EXIST (audited 2026-09-01). adc_for() falls back to `default` when a path is
+#      missing, so a run "launched under rtsmapping" would silently have run as yyang —
+#      two accounts submitting the same year, which is exactly what the rule below forbids.
+#
+# Re-add per-year accounts ONLY if concurrent RUNNING is measured to still cap at ~3 under
+# Partner. If you do, create each credential FIRST and verify the file exists:
+#   CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> gcloud auth application-default login
 #
 # Already provisioned on abruptthawmapping, no IAM changes needed:
 #   yyang@       earthengine.admin  + serviceUsageConsumer
@@ -114,16 +159,10 @@ docker:
 #   ryoung@      earthengine.writer + serviceUsageConsumer   (Rob)
 #   hrodenhizer@ earthengine.admin  + owner                  (Heidi)
 #
-# Each path is that person's Google credential; anyone with sudo here can read it.
-# Create one with:
-#   CLOUDSDK_CONFIG=/mnt/outputs/adc-<name> gcloud auth application-default login
-#
 # NEVER put two accounts on the same year: the launcher skips DELIVERED cells but not
 # IN-FLIGHT ones, so they would submit duplicate tasks into the shared 3,000-slot queue.
 accounts:
   default: ~/.config/gcloud/application_default_credentials.json   # yyang@
-  2022: ~/.config/gcloud/application_default_credentials.json      # yyang@ — running
-  2019: /mnt/outputs/adc-rtsmapping/application_default_credentials.json  # rtsmapping@
 
 alerts:
   # Comfortably past the inference stall watchdog (900s) plus the supervisor's

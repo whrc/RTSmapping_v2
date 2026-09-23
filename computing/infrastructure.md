@@ -204,7 +204,34 @@ All VMs listed below are in the **PDG project** and are retiring with it. Daily 
   `gcloud compute instances …` and `gcloud compute ssh rts-… --command "…"` over **external IP**
   (IAP is not authorized, §8) — so no VSCode Remote-SSH target switch is needed to operate them.
 
-### Granted quota (us-west1, 2026-06-23)
+### GPU quota in `abruptthawmapping` — NONE. Nothing is granted. (2026-09-22)
+
+**This is the campaign's binding downstream constraint, and no request has been filed.**
+`pdg_migration.md` §2: *"`abruptthawmapping` has zero A100/L4 quota and no credit … No GPU quota
+requested. Inference is paused indefinitely."* Every GPU quota figure in the section below was
+**granted in `pdg-project-406720` and died with it**. Read it as history.
+
+Acquisition is unaffected — Planet ordering and the Earth Engine S2 export are server-side and need
+no GPU. But with Earth Engine now on Partner Tier (`interannual_inference/ee_quota.md`), S2 is no
+longer the critical path, and **GPU quota is the only thing standing between the acquired imagery
+and a map.** Quota requests take days to weeks and cost nothing to hold, so they should be filed
+*concurrently with* the export, not after it.
+
+What to request against `abruptthawmapping` (proj# 801926669176), for the L4 fleet in us-west1 —
+preferred over 8×A100 in us-central1 because it is in-region with the data and the same grant
+succeeded once before:
+
+| Quota | Region | Value | Note |
+|---|---|---|---|
+| `NVIDIA_L4_GPUS` | us-west1 | 32 | 24 is workable (4.8 d/year instead of 3.6 d) |
+| `CPUS` | us-west1 | 384 | 480 was the PDG grant; 288–384 if falling back to `g2-standard-48` |
+| **`PREEMPTIBLE_NVIDIA_L4_GPUS`** | us-west1 | **32** | **Ask this time.** Never granted in PDG (capped at 8), which is why `create_inference_fleet.sh:13` reads *"Spot is NOT viable"*. Spot is ~3× cheaper, and `inference/claim.py`'s create-only claims + `done` markers make preemption genuinely safe. Budget was not a constraint when Spot was declined — the credit covered it. It is now. |
+| `GPUS_ALL_REGIONS` | global | ≥ 40 | PDG had 360; the +40→400 top-up was denied and deemed irrelevant |
+
+If `g2-standard-96` stockouts recur — all three us-west1 zones were out at the 2026-07-05 audit — the
+fallback shape is 6–8× `g2-standard-48` for the same 24–32 L4.
+
+### Granted quota — HISTORICAL, `pdg-project-406720`, now gone (us-west1, 2026-06-23)
 
 For the inference fleet + S2 download VM: **`NVIDIA_L4_GPUS` 8→32** and **`CPUS` 246→480** (both
 granted in full). `GPUS_ALL_REGIONS` stays 360 (≫ the ~40 needed; the +40→400 ask was denied but is

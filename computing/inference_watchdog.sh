@@ -20,7 +20,11 @@ set -euo pipefail
 PROJECT="${PROJECT:-abruptthawmapping}"
 ZONE="${ZONE:-us-west1-a}"
 POLL_S="${POLL_S:-120}"
-MAX_HOURS="${MAX_HOURS:-48}"          # backstop: stop the fleet after this long no matter what
+MAX_HOURS="${MAX_HOURS:-144}"         # backstop: stop the fleet after this long no matter what
+# 48h was sized against the launch plan's 12-29h estimate. The BENCHMARKED rate is
+# ~4.2 tiles/s/L4 (GPU-bound, 3-model ensemble), so a year is 2.2-4.8 days depending on
+# fleet shape — 48h would trip mid-run on every shape except a tuned 8xA100. 144h (6d)
+# clears the slowest shape (24 L4 = 4.8d) with margin and still caps runaway cost.
 : "${RUN_BASE:?set RUN_BASE=gs://.../inference/2025q3_south}"
 
 SENTINEL="$RUN_BASE/run_active"

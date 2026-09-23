@@ -1,12 +1,25 @@
-# Earth Engine Partner Tier — application draft
+# Earth Engine Partner Tier — application (granted)
 
-**Status: DRAFT, not submitted.** Submit via the [Earth Engine help page](https://www.earthengine.app/)
-(Partner Tier application). Manual review, several weeks.
+> ## GRANTED 2026-09-22 — this application succeeded.
+>
+> Partner Tier on `abruptthawmapping` (proj# 801926669176), **one year, expiring
+> 2027-09-22**. Measured effective limit **180,000,000,000 EECU-s/month**, which is 500x
+> the 100,000 EECU-hours this application asked against. See `ee_quota.md` for the
+> verification command and what now binds instead.
+>
+> Kept as the record of what was asked for and on what grounds — useful if the tier needs
+> renewing before it expires.
 
-**Project:** `abruptthawmapping` (project number 801926669176), currently Contributor Tier.
 
-Sections marked **[CONFIRM]** need your input — they are institutional or impact claims I
-should not invent. Everything else is measured and is safe to send as written.
+**Status: SUBMITTED and GRANTED 2026-09-22.** Filed via the
+[Earth Engine help page](https://www.earthengine.app/) (Partner Tier application); manual
+review. To renew before 2027-09-22, the same route applies — allow several weeks.
+
+**Project:** `abruptthawmapping` (project number 801926669176), **now Partner Tier**
+(was Contributor when this was written).
+
+Sections marked **[CONFIRM]** were institutional or impact claims that needed a human to
+supply or verify before sending. Everything else was measured.
 
 ---
 
