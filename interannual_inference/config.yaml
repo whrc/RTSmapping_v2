@@ -9,16 +9,28 @@
 region: south
 quarter: q3
 
-# Ordered by campaign priority, not chronology. QA60-good years first; 2022 and 2023
-# are held to the back because ESA stopped populating QA60 at processing baseline 04.00,
-# so their composites are silently UNMASKED and cannot be exported until the replacement
-# mask is chosen (interannual_inference/qa60_gap.md). 2019 leads: its Planet acquisition
-# is complete, its QA60 is intact, and it is the widest interannual baseline against 2025,
-# so it is the year that can run end-to-end first.
+# Ordered by SCIENTIFIC VALUE PER EXPORT-DAY, because export time is the scarce resource.
 #
-# (Superseded 2026-09-22. 2022 led while it was the drift pilot — a choice made before the
-# QA60 gap was found, which made it the one year that could NOT start.)
-years: [2019, 2020, 2021, 2024, 2022, 2023]
+# Measured 2026-09-23: Earth Engine batch concurrency is 1 task project-wide even under
+# Partner Tier, giving ~2.2 cells/hour = ~35 days per year of data (ee_quota.md). At that
+# price the order is not a detail — each year costs over a month, so the series must be
+# useful at every prefix of this list, not only when it is complete.
+#
+# 2025 is already delivered, so:
+#   2019  widest baseline against 2025. Planet complete, QA60 intact -> can run today.
+#   2022  the midpoint. With 2019+2025 this is the first 3-epoch series that can show
+#         whether change is linear, which 2 epochs cannot. REQUIRES the QA60 mask bake-off
+#         (qa60_gap.md) — if that has not landed when 2019 finishes, swap 2024 forward.
+#   2024  immediately pre-2025; pins the recent end.
+#   2021, 2020, 2023  fill in the curve once the endpoints and midpoint exist.
+#
+# (Superseded twice. Originally 2022 led as the drift pilot — chosen before the QA60 gap
+# was found, which made it the one year that could NOT start. Then 2019-first with the
+# QA60-bad years simply pushed to the back, which was right about 2019 but left 2020 and
+# 2021 ahead of 2024 and 2022 — spending 70 export-days clustered at one end of the
+# series. The bake-off is days of our own analysis, not 35 days of export, so it should
+# not dictate an ordering that costs months.)
+years: [2019, 2022, 2024, 2021, 2020, 2023]
 
 paths:
   work: /mnt/outputs/interannual_inference

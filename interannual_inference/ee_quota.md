@@ -22,6 +22,11 @@
 > **not** bank, so anything EE-dependent, including any future re-export, must land before
 > **2027-09-22**.
 >
+> **BUT THE CAMPAIGN IS STILL BLOCKED — the uplift looks incomplete.** Measured 2026-09-23
+> over ~3 hours of live export: **concurrent RUNNING is 1**, project-wide, and the project
+> still reports `registrationState: REGISTERED_NOT_COMMERCIALLY`. See "Measured under
+> Partner" below. Do not read this banner as "solved".
+>
 > The rest of this document is the measurement that justified the application. It is kept
 > because the per-cell cost is still the number every schedule estimate is built on.
 
@@ -114,12 +119,56 @@ confirmed by the uplift behaving exactly as a per-project quota change.
 Partner Tier on `abruptthawmapping` (proj# 801926669176) for one year, **expiring
 2027-09-22**. See the banner at the top for the measured limit.
 
-## Still to measure
+## Measured under Partner (2026-09-23) — concurrency did NOT improve
 
-**Concurrent RUNNING under Partner.** This is now the number that sets the schedule, and
-it is unmeasured. Under restricted mode it was ~3 per user; EE commercial is documented at
-~20. The difference is ~10.5 days/year versus ~1.6 days/year of export.
+The 2019 export was launched under `rtsmapping@`, and 2020 under `yyang@` an hour later,
+specifically to test whether concurrency is per-user. It is not.
 
-Record here, from the first six hours of the 2019 export: steady-state RUNNING count, and
-cells/hour. Use `ee.data.listOperations()` — `ee.data.getTaskStatus()` returns `UNKNOWN`
-for jobs that have succeeded and must not be used for this.
+```
+09:59  PENDING  636  RUNNING 1                 (2019 only, rtsmapping@)
+10:36  PENDING 1741  RUNNING 1  SUCCEEDED 2
+11:58  PENDING 1738  RUNNING 1  SUCCEEDED 5
+12:06  PENDING 1999  RUNNING 1  SUCCEEDED 5    (2020 submitting under yyang@)
+12:39  PENDING 1999  RUNNING 1  SUCCEEDED 6
+```
+
+| | |
+|---|---|
+| Concurrent RUNNING, one account | **1** |
+| Concurrent RUNNING, **two accounts** | **1** — unchanged |
+| Throughput | 6 cells in 2.8 h = **2.2 cells/hour** |
+| Implied schedule | **~35 days per year of data, ~200 days for six** |
+| EECU actually consumable | ~49,000 EECU-s/h = ~35M/month against an allowance of 180,000,000,000 = **0.02%** |
+
+**Three conclusions.**
+
+1. **Concurrency is per PROJECT, not per user** — this overturns the 2026-08-25 finding that
+   a second account adds slots. Two accounts held 1 RUNNING between them. Multi-account is
+   not a lever any more, so collapsing `accounts` to one entry was right (for a reason that
+   was not the one given at the time).
+2. **It is worse than before the uplift.** Contributor-in-restricted-mode measured ~3
+   RUNNING for `yyang@` alone. We now get 1 across two accounts.
+3. **`registrationState` is still `REGISTERED_NOT_COMMERCIALLY`** —
+   `ee.data.getProjectConfig()` returns nothing else. This repo already records that string
+   as the reason pdg's *"batch exports never start"*. The EECU override landed
+   (`monthly_eecu_usage_time` = 180,000,000,000, a `producerOverride`) but no concurrency or
+   registration change came with it, and **no concurrency quota is exposed as a metric** —
+   `gcloud alpha services quota list` shows only EECU, `bigquery_slot_usage_time` and
+   `read_requests`. So concurrency is governed by internal tier state we cannot read or set.
+
+**The ask back to Google:** the quota override landed but the tier change appears not to
+have. Quote `registrationState: REGISTERED_NOT_COMMERCIALLY`, the
+`monthly_eecu_usage_time` override value, and that batch concurrency is 1 task project-wide
+with ~2,000 tasks queued.
+
+**Do not use `ee.data.getTaskStatus()`** for any of this — it returns `UNKNOWN` for jobs
+that have succeeded. `ee.data.listOperations()` is authoritative, and is **project-scoped,
+not user-scoped**: both accounts see the same task list.
+
+## Operational trap found the same day
+
+`scripts/export_s2_composites.py`'s own `MAX_ACTIVE_TASKS = 2000` blocked the 2020
+submission once 2019's queue plus 2020's reached 2,000 project-wide (`GEE task queue full
+(2000 active); backing off 30s`). It is a **client-side** guard counting **project-scoped**
+operations, so running two years concurrently makes each one throttle the other long before
+the real per-user 3,000 server ceiling. Raise it, or do not run two years at once.

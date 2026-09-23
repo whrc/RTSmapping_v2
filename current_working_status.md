@@ -68,28 +68,65 @@ checkout):
   mid-run on every fleet shape except a tuned 8×A100.
 
 ### Now
-**Phase 0 verification, before any export is launched.** One of four checks is done: the tier is
-confirmed on the right project (EE tiers attach to a Cloud project, not an account — worth checking,
-since the uplift was described as belonging to "the yyang account"). Three remain, and they are
-cheap:
-1. Confirm restricted mode has lifted — submit ~20 cells and watch `ee.data.listOperations()`.
-   **`getTaskStatus()` lies**, returning `UNKNOWN` for jobs that have succeeded.
-2. **Measure concurrent RUNNING** over the first six hours. This now sets the schedule.
-3. **Test the Planet delivery key before committing a 5-day run to it.** The key on
-   `planet-orders@abruptthawmapping.iam.gserviceaccount.com` dates from **2023-02-08**. Place one
-   throwaway 2020 order and confirm the object lands under `global_quarterly/2020/q3/`.
+**2019 Sentinel-2 export running, and the schedule has been re-planned around a hard limit
+we are not going to get lifted.** Decision 2026-09-23: accept concurrency as it is and work
+with it, rather than waiting on Google.
 
-Then: 2019 S2 export on `rts-ops` under `rts-dataprep:v1` (the only image with `earthengine-api`),
-and Planet 2020 in parallel — the two share no resource and `s2_export` has no prerequisites.
-**Install the interannual alerter cron**, deliberately left out while S2 was abandoned; there is
-something to alert on now. Remaining Planet: 2020, 2021, 2023, 2024 ≈ 22 days serial.
+**What Partner Tier actually delivered.** The EECU ceiling is genuinely gone —
+`monthly_eecu_usage_time` reads 180,000,000,000 EECU-s/month, a `producerOverride`, 500x the
+documented Partner figure. But **batch concurrency is 1 task, project-wide**, measured over
+three hours with two accounts and two years in flight. `ee.data.getProjectConfig()` still
+returns `registrationState: REGISTERED_NOT_COMMERCIALLY` — the string this repo already
+records as why pdg's batch exports never start. The tier change appears not to have landed
+with the quota change, and no concurrency quota is exposed as a metric, so it is internal
+state we can neither read nor set. Net effect: **we can consume 0.02% of the allowance.**
 
-**Nothing about the migration needs redoing for this.** The S2 destination
-(`gs://rts-arctic-usw1/S2_RGB/{year}_south`), the Planet destination and the EE project were all
-already correct in `config.yaml`. EE batch compute writes cross-region into us-west1 and GCS ingress
-is free — the same path already delivered 18.7 TiB for 2025_south. `gs://rts-arctic-usc1` stays
-us-central1 because EE's `loadGeoTIFF` reads US-CENTRAL1 buckets only; that is a read-into-EE path
-the export does not use, so **do not merge it away**.
+| | |
+|---|---|
+| Concurrent RUNNING, one account | 1 |
+| Concurrent RUNNING, **two** accounts | **1** — unchanged |
+| Throughput | 2.2 cells/hour -> **~35 days per year of data** |
+| Six years, serial | **~200 days** |
+
+**This overturned the multi-account finding.** 2026-08-25 measured concurrency as per-user
+(a second account's tasks went RUNNING within one second). 2026-09-23 measured 1 RUNNING
+across `rtsmapping@` and `yyang@` together. Concurrency is per **project**. Collapsing
+`accounts` to one entry was right, for a reason nobody had at the time. It is also *worse*
+than before the uplift, when `yyang@` alone held 3 slots.
+
+**Two changes follow, both landed:**
+- `export_s2_composites.py` `MAX_ACTIVE_TASKS` 2000 -> 2900. At 2000 this was a trap: the
+  count is project-scoped but the server ceiling is per-user, so a second year throttles
+  against the *first* year's backlog. 2020's driver sat in "queue full, backing off 30s"
+  indefinitely behind 2019's 1,738 pending. **Run one year at a time.**
+- `years` re-ordered to **[2019, 2022, 2024, 2021, 2020, 2023]**. When a year costs a month,
+  the series must be useful at every prefix of the list. 2019 is the widest baseline against
+  the delivered 2025; 2022 is the midpoint, and 2019+2022+2025 is the first 3-epoch series
+  that can show whether change is linear. The previous order spent 70 export-days on 2020
+  and 2021, clustered at one end.
+
+**The QA60 bake-off is now the priority analysis task**, because it gates 2022 — which
+should be second — and it is days of our own work, not 35 days of export. If it has not
+landed when 2019 finishes, swap 2024 forward.
+
+**Live state:** 2019 has 1,744 tasks queued under `rtsmapping@`, ~6 done. 2020's driver was
+stopped (it could not progress against the 2000 cap); its ~261 submitted tasks remain queued
+and will run — nothing was cancelled. **The 2019 run is unmonitored**: it was launched
+directly rather than through `drive.py`, so no stage state exists, and the interannual
+alerter cron is still not installed.
+
+**Blocked, needing a human:**
+- `main` merge/push is blocked by the permission classifier, so `/opt/rts/RTSmapping_v2` is
+  still at `b7c2500` and has none of these changes.
+- **Planet 2020** needs Heidi — `run_year.sh` requires `PL_BM_API_KEY` and
+  `PDG_PL_ORDERS_KEY`, prompted interactively and never stored. ~22 days for the four
+  remaining years, fully independent of S2.
+- **GPU quota** in `abruptthawmapping` is still zero and still unrequested.
+
+Also corrected: `pdg_migration.md` records per-user ADC as provisioned for `yyang@` on
+2026-08-28. It was not there. Only `rtsmapping@` had one; `adc-heidi` is an incomplete login
+with no credential file. `yyang@` ADC was created 2026-09-23. Same failure mode as the
+migration's own recurring lesson — recorded as done, never re-opened.
 
 ### Future plans
 

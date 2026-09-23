@@ -43,7 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("export_s2")
 
 DEFAULT_BANDS = ["B4", "B3", "B2", "B8"]   # RGB + NIR (NIR enables NDVI)
-MAX_ACTIVE_TASKS = 2000                    # GEE per-user running+pending task ceiling
+MAX_ACTIVE_TASKS = 2900                    # stay under the 3,000 per-user server ceiling
 
 
 def cell_id(lon0: float, lat0: float) -> str:
@@ -127,6 +127,17 @@ def _wait_for_task_slot(ee, poll: int = 30) -> None:
     check (each saw ~0 tasks of its own) and died server-side at 3,002. So the
     authoritative guard is the retry in `submit_with_backoff`, which reacts to the error
     the server actually raises; this check just avoids provoking it.
+
+    The limit was 2000 and that made this a TRAP when two years run at once. Because the
+    count is project-scoped but the server ceiling is per-user, a second year's submission
+    throttles against the FIRST year's backlog, not against its own. Measured 2026-09-23:
+    2019 (1,738 pending) plus 2020 reached 2,000 project-wide and 2020's driver sat in
+    "GEE task queue full (2000 active); backing off 30s" indefinitely, submitting only as
+    2019 drained — about two cells an hour. 2900 leaves headroom under the 3,000 server
+    ceiling while no longer self-throttling a single year's 1,799 cells.
+
+    None of this buys throughput. Batch concurrency is 1 task project-wide
+    (interannual_inference/ee_quota.md); queue depth only decides how much is waiting.
     """
     while True:
         active = [t for t in ee.data.listOperations()
