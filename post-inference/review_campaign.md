@@ -460,7 +460,9 @@ silent fallback.
 
 ### 10.3 Host in use: an open GCE VM
 
-**The campaign runs on `rts-review-vm` at <http://8.229.247.193/>, with no sign-in.** Cloud Run could
+**The campaign runs on `rts-review` at <http://34.83.225.204/>, with no sign-in.** (It ran on
+`rts-review-vm` at `8.229.247.193` until the 2026-08-28 migration; that VM and its PDG static IP
+are gone.) Cloud Run could
 not be opened — see §10.4: `--allow-unauthenticated` grants `roles/run.invoker` to `allUsers`, which
 is the same `run.services.setIamPolicy` that blocked the reviewer grants, and it was tried and
 refused. A VM's front door is a firewall rule rather than an IAM policy, which the operators *do*
@@ -473,7 +475,15 @@ Chosen by the user on 2026-08-04 with the trade-offs stated. What it costs:
 - **Attribution is self-declared** — the typed name, not a verified identity. κ and the audit trail
   are only as good as reviewers being honest about who they are, which for a 4-person internal team
   is fine; do not read more into the κ than that.
-- **No TLS.** A bare IP cannot hold a real certificate, so traffic is clear text.
+- **No TLS.** A bare IP cannot hold a real certificate, so traffic is clear text. **This is now
+  an availability risk, not just a confidentiality one** (found 2026-09-24): Chrome enables
+  HTTPS-Upgrade by default *in Incognito*, silently rewrites the URL to `https://`, and the app
+  has nothing on 443 — so the page fails with `ERR_TIMED_OUT` and looks like an outage rather
+  than a scheme problem. Verified: `https://` times out, `http://` returns 200. Incognito is
+  therefore **not** a usable way to bypass a stale cache here. If that enforcement reaches
+  normal browsing windows, the campaign goes dark for every reviewer at once. The cheap fix
+  when it matters is a DNS name plus a managed certificate, or fronting the VM with a
+  load balancer that terminates TLS.
 - **~$13/mo** always-on, and patching and restarts are yours. `--restart always` plus a boot-time
   startup script means a reboot restores service unattended.
 
