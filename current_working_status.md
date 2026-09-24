@@ -107,6 +107,43 @@ interannual run below.
 
 ---
 
+### 2025 South review campaign — context imagery, neighbours, and a claim TTL that never fired (2026-09-24)
+
+A parallel workstream to whatever leads the *Now* section above; it owns no part of that schedule.
+Evidence and detail live in `post-inference/review_campaign.md` §4.1, §4.3 and §6.2 — only the
+decisions are here.
+
+**The claim TTL had never fired.** The app's identity held `roles/storage.objectCreator`, which
+grants create-if-absent and neither overwrite nor delete, so heartbeats 500'd invisibly into a
+`fetch` with no `.catch`, and stale reclaims swallowed their 403 for seven weeks. 18 batches (3,600
+polygons) were stranded, and because the oldest was `b00001` the honest contiguous-prefix headline
+sat at `max_prob >= 1.0` while 29% of the inventory was rated. A `storage.objects.delete` role
+conditioned to the claims prefix was granted and verified live.
+
+**The context view was part-blank for ~87% of polygons, and it was not a download gap.** The wide
+crop is 10x the feature; chips existed only for tiles a *detection* sits in. Of the 502,555 tiles the
+wide views needed but lacked, **98.8% sat on quads already in the bucket** — never chipped. Only
+5,999 had no quad, and just **two quad cells** are fully enclosed holes (75.65N/112.94E,
+71.50N/52.47E, 91 tiles between them). The acquisition is sound; the chipping scope was too narrow.
+
+**Rebuilt and cut over.** `build_rgb_chips.py --wide-context` selects tiles by the wide crop window;
+621,158 chips written with 0 errors, all 240,668 crops re-rendered, cutover verified by
+`scripts/gcs_parity.py` (**PARITY PASS**). Polygons without full context fell from ~87% to **4.09%**;
+severe gaps (>50% of the view missing) from 15.3% to **1.2%**. Remaining gaps are drawn as labelled
+diagonal striping rather than black, because black is indistinguishable from dark water.
+
+**Verdicts already recorded stand, by decision.** On 240 rated high-confidence polygons, wide-crop
+blackness tracked the verdict (`false` 47% against 13% for clean crops, p<0.0001) and the gap
+survived controlling for polygon area — but blackness is largely a proxy for polygon size, so it is
+suggestive, not established. ~4,300 high-confidence polygons were rated with most of their context
+missing; the caveat is recorded in the campaign spec rather than acted on.
+
+**Open**: the two enclosed quad holes are worth raising with the acquisition side. The app is plain
+HTTP with no sign-in (§10.3) and Chrome's HTTPS-Upgrade already makes it unreachable in Incognito —
+if that enforcement reaches normal windows the campaign goes dark for every reviewer.
+
+---
+
 ## Pointers
 
 - **Experiments / recipe / findings** → `docs/experiment_ledger.md` (SSoT)

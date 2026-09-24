@@ -895,11 +895,21 @@ one synthetic RGBA quad COG.
 | `test_build_tile_bboxes_raises_on_missing_tile_id` | a `tile_id` referenced by the gpkg but absent from the tile list raises (surfaced data-integrity mismatch, not silently dropped) | real |
 | `test_write_rgb_chip_is_georeferenced_uint8_and_matches_quad_values` | `write_rgb_chip` → `read_tile` end-to-end: output is a 3-band uint8 GeoTIFF, EPSG:3857, correct bounds, pixel values match the source quad | real — exercises the actual inference read path |
 | `test_chip_write_is_atomic` | a failed write leaves neither a truncated `.tif` nor a `.partial` | real — the resume path skips any existing file, so a truncated chip would be skipped forever |
+| `test_context_tiles_cover_the_whole_wide_crop` | every corner of a polygon's wide review crop falls inside some selected tile | real — the direct regression for §4.1's context gap |
+| `test_context_tiles_outnumber_the_polygons_own_tiles` | `--wide-context` selects more than the polygon's own tiles | real |
+| `test_context_tiles_are_deduped_across_polygons` | neighbouring polygons share context; each tile is chipped once | real — at inventory scale duplicates would be hundreds of thousands of wasted quad reads |
+| `test_context_tile_bounds_match_the_stride_grid` | computed bounds reproduce the grid `generate_tile_grid.py` writes | real — bounds are arithmetic here, not a tile-list lookup, so they must agree or chips land off-grid |
 
 Gained `--workers`, skip-existing resume, and a `-input_file_list` VRT build on
 2026-08-03 for the review campaign: the 0.30 candidate inventory references
 118,586 tiles (vs 29,850 chipped for the 0.65 product), and 118k paths overflow
 argv. See `post-inference/review_campaign.md` §4.1.
+
+Gained `--wide-context` on 2026-09-23. Chipping by `tile_ids` covers the
+detection but not the ground around it, so the review app's wide view was
+part-blank for ~87% of polygons (400-polygon sample); the flag selects tiles by
+the wide crop window instead and computes their bounds from the stride grid,
+since a context window legitimately runs past the domain tile list. Same section.
 
 ### [test_claim.py](test_claim.py)
 
@@ -916,6 +926,16 @@ argv. See `post-inference/review_campaign.md` §4.1.
 | `test_heartbeat_keeps_claim_fresh` | heartbeat refreshes the claim so a long shard isn't seen as stale | real |
 | `test_heartbeat_does_not_steal_others_claim` | heartbeat by a non-owner is a no-op | real — ownership guard |
 | `test_reclaim_absent_claim_is_false` | reclaiming a missing claim returns False | shallow |
+| `test_claiming_still_works_without_delete_permission` | create-if-absent needs only `objectCreator`; the half that never broke | real |
+| `test_heartbeat_surfaces_a_missing_delete_permission` | refreshing a claim is an *overwrite*, which `objectCreator` cannot do, and must raise | real — the live review app beat every 60 s into a 500 for seven weeks and nothing showed it |
+| `test_stale_reclaim_surfaces_a_missing_delete_permission` | a 403 on reclaim is not swallowed as someone-else-got-there-first | real — the blanket `except` here stranded 18 batches |
+| `test_lost_reclaim_race_is_still_swallowed` | narrowing the `except` keeps the case it was written for: another worker deleting first returns False | real — guards against over-correcting |
+
+The `_CreateOnlyBucket` fixture models GCS's `roles/storage.objectCreator`:
+create-if-absent succeeds, overwrite and delete both 403. The original
+`_FakeBucket` modelled atomicity but not IAM, which is exactly why the
+2026-08/09 review-campaign failure was untestable. See
+`post-inference/review_campaign.md` §6.2.
 
 ### [test_gcs_parity.py](test_gcs_parity.py)
 
@@ -1064,6 +1084,38 @@ VRT with `gdalbuildvrt`.
 | `test_has_imagery_is_false_off_the_mosaic` | boundless fill reads as absent, not as dark imagery | real — replaced a colour-based check that mistook antialiased outline for content |
 | `test_render_crop_returns_a_jpeg` | output is JPEG-encoded | shallow |
 | `test_outline_false_renders_the_same_view_without_the_red` | `outline=False` drops the red outline pixels and keeps the imagery | real — counts red pixels, not bytes; the toggle's whole premise |
+| `test_imagery_fraction_is_one_over_a_populated_chip` | full coverage reads as 1.0 | real |
+| `test_imagery_fraction_is_zero_over_a_nodata_chip` | an all-NoData chip reads as 0.0 | real |
+| `test_imagery_fraction_is_zero_off_the_mosaic` | boundless fill reads as absent, not dark imagery | real |
+| `test_imagery_fraction_is_partial_over_the_mosaic_edge` | a window half on the chips returns a middling fraction | real — the case `has_imagery`'s boolean cannot express, and the one that hid §4.1's context gap for seven weeks |
+| `test_neighbours_are_drawn_and_are_not_red` | neighbour outlines appear in their own colour and the target's red survives unchanged | real — counts pixels per colour, not bytes |
+| `test_neighbour_colour_stays_out_of_the_red_predicate` | `NEIGHBOUR_COLOR` fails `R>150 & G<90 & B<90` | real — without it the outline-toggle test above silently stops meaning anything |
+| `test_neighbours_are_suppressed_in_the_plain_view` | `outline=False` drops neighbours too, however many are passed | real — the plain view's whole point is an unprimed look |
+| `test_no_neighbours_renders_byte_identically` | the 4-positional-arg call used by `build_qc_rating_page.py` is byte-for-byte unchanged | real — guards the MD5 sign-off noted above |
+| `test_absent_imagery_is_striped_not_black` | a gap renders as two-tone striping, not flat black | real — black is also dark water; this is what makes absence legible |
+| `test_fully_covered_crop_is_not_striped` | no false alarms over real imagery | real |
+| `test_a_gap_is_labelled_in_both_views` | the `NO IMAGERY` caption appears in the outlined *and* plain views, and not on a full crop | real — a plain view without it would still be lying |
+
+### [test_build_review_crops.py](test_build_review_crops.py)
+
+`scripts/build_review_crops.py` — the crop-archive builder's resume rule and its
+two per-process bbox lookups. GPU-free; no VRT needed (the chip index itself is
+covered in `test_review_crops.py`, next to the crop geometry it serves).
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_all_four_crops_present_counts_as_rendered` | all four JPEGs on disk → already rendered | real |
+| `test_any_missing_crop_means_not_rendered` (4 cases) | three of four is a half-written polygon, not a finished one | real |
+| `test_resume_skips_a_polygon_that_already_has_crops` | without `--overwrite` the mosaic is never opened, so a stale crop is never revisited | real — **the regression guard**: this is how a completed chip archive changed nothing in August |
+| `test_overwrite_re_renders_an_existing_archive` | `--overwrite` gets past the resume check and reaches the mosaic | real |
+| `test_chips_for_selects_only_overlapping_chips` | the vectorized bbox filter picks exactly the touching chips | real |
+| `test_neighbours_exclude_the_polygon_being_rated` | the target is not drawn twice, once red and once cyan | real |
+| `test_neighbours_outside_the_window_are_not_drawn` | bbox filter excludes distant candidates | real |
+| `test_polygon_index_carries_bounds_and_wkb` | what workers receive in place of the parent's GeoDataFrame | real |
+
+Before this file, `_render_one`, `_chips_for`, `_render_chunk` and `build_crops`
+were entirely untested — only `chip_index` had coverage. The four-JPEG contract
+and the `no_imagery.csv` sweep remain unasserted.
 
 ### [test_review_manifest.py](test_review_manifest.py)
 
@@ -1116,6 +1168,8 @@ plus a stubbed IAP verifier, via FastAPI's `TestClient`.
 | Test | Checks | Strictness |
 |---|---|---|
 | `test_claim_returns_items_with_crop_urls` | items carry proxy URLs and never leak raw object keys | real — the "no imagery on the host" design |
+| `test_crop_urls_carry_the_archive_version` | every crop URL ends in `?v=<CROP_VERSION>` | real — crops are cached `max-age=86400` under a stable key, so a re-rendered archive reaches nobody without this |
+| `test_crop_is_served_with_the_version_query_string` | the proxy keys off the path, so the token neither 404s nor changes the bytes | real |
 | `test_crop_streams_the_jpeg` | `/crop/<key>` returns the bytes as `image/jpeg`, cacheable | real — the whole imagery path |
 | `test_crop_refuses_objects_outside_the_crop_prefix` | verdicts/manifest are unreachable through the proxy, including via `..` | real — otherwise the proxy reads the whole bucket |
 | `test_crop_of_a_missing_object_is_404_not_500` | the 20 no-imagery polygons degrade gracefully | real |
@@ -1198,6 +1252,7 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 
 ## Dev log
 
+- 2026-09-23 — Review-app context, neighbours and a claim TTL that never fired: **+22 tests** (`test_review_crops.py` 12→23, new `test_build_review_crops.py` with 11, `test_claim.py` 9→13, `test_build_rgb_chips.py` 6→10, `test_review_app.py` +2). Three of them exist because a fake was too kind. `test_claim.py`'s `_FakeBucket` modelled GCS's create-if-absent atomicity but not its IAM, so nothing could catch that the live review app's runtime identity held `objectCreator` — which grants neither overwrite nor delete. Heartbeats 500'd into a `fetch` with no `.catch` and stale reclaims swallowed their 403 for seven weeks, stranding 18 batches and freezing the campaign's headline claim. The new `_CreateOnlyBucket` reproduces it in four lines. The rest guard the crop archive: `test_resume_skips_a_polygon_that_already_has_crops` pins the rule that let a rebuilt chip mosaic change nothing, `test_context_tiles_cover_the_whole_wide_crop` pins the tile selection that was only ever wide enough for the detection itself, and `test_absent_imagery_is_striped_not_black` pins the reason none of it was noticed — missing pixels rendered as black, which is also what dark water looks like. Green in `rts-infer:v1` (**128 passed** across the nine review/claim/chip files). See `post-inference/review_campaign.md` §4.1, §4.3, §6.2.
 - 2026-04-22 — Initial suite: 24 tests across 4 files, all green. Covers Phase 0 data pipeline. See plan for context.
 - 2026-04-23 — Phase 1 additions: 81 new tests across 10 files covering models, losses, EMA, scheduler, metrics, checkpointing, freeze/unfreeze, early stopping, MLflow utilities, visualizations, deployment-package guards, and an end-to-end training smoke. Fast suite 105 tests (~12 s), plus the train-smoke at ~130 s. Total 113 tests. All green.
 - 2026-06-30 — Object-scorecard instrument (v3 object-improvement plan, Phase 0): +4 `_object_match_detail` tests in `test_metrics.py` (tp/fp/fn parity with the frozen gate path + split/merge/geometry), and new `test_object_scorecard.py` (14 tests) covering `object_detail_counts`, per-region bootstrap CIs, `_geometry_summary`, `build_scorecard` self-check, the region-stratified train sampler, the D2 change-signal probe, and the seed-noise aggregator. All report-only/synthetic; verified green off-VM under a torch stub (real torch on the L4 runs them in the full suite). Tier-2 execution gaps recorded in Coverage gaps #8.

@@ -141,7 +141,14 @@ class ClaimStore:
 
         Returns True if a stale claim was deleted (so the caller may retry the
         claim). False if the claim is fresh, absent, or unreadable.
+
+        Only the lost-the-race case is swallowed. Anything else — above all a
+        403 from a runtime identity without ``storage.objects.delete`` — must
+        surface: a blanket ``except`` here let the review campaign run seven
+        weeks with its claim TTL silently dead (`review_campaign.md` §6.2).
         """
+        from google.api_core.exceptions import NotFound
+
         blob = self.bucket.blob(self._claim_key(shard_id))
         _, heartbeat = self._read_claim(blob)
         if heartbeat is None:
@@ -153,7 +160,7 @@ class ClaimStore:
             logger.warning("reclaimed stale shard %s (heartbeat %.0fs old)",
                            shard_id, self._now() - heartbeat)
             return True
-        except Exception:  # noqa: BLE001 - another worker deleted it first
+        except NotFound:  # another worker deleted it first
             return False
 
     # --- the worker entry point ------------------------------------------

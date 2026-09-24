@@ -18,7 +18,8 @@ from shapely.geometry import Point
 
 from inference.tiles import TILE_SIZE_PX
 from scripts.build_rgb_chips import (
-    build_tile_bboxes, collect_flagged_tile_ids, write_rgb_chip,
+    build_tile_bboxes, collect_flagged_tile_ids, context_tile_bboxes,
+                                     write_rgb_chip,
 )
 
 
@@ -132,3 +133,66 @@ def test_chip_write_is_atomic(tmp_path, monkeypatch):
         brc.write_rgb_chip("t0_0", (0.0, 0.0, 10.0, 10.0), None, str(out))
     assert not out.exists()
     assert list(tmp_path.glob("*.partial")) == []
+
+
+# --- review-context tile selection ----------------------------------------
+def _gpkg_with(tmp_path, geoms):
+    import geopandas as gpd
+
+    gdf = gpd.GeoDataFrame({"rts_id": list(range(1, len(geoms) + 1))},
+                           geometry=geoms, crs="EPSG:3857")
+    path = tmp_path / "cand.gpkg"
+    gdf.to_file(path, driver="GPKG")
+    return str(path)
+
+
+def test_context_tiles_cover_the_whole_wide_crop(tmp_path):
+    """The bug this flag exists for: chipping only the tiles a polygon sits in
+    leaves the review app's 1.5 km context view part-blank."""
+    from shapely.geometry import box
+
+    from review.crops import crop_bounds
+
+    geom = box(0, 0, 100, 100)
+    got = context_tile_bboxes(_gpkg_with(tmp_path, [geom]), stride_px=344)
+    _, wide = crop_bounds(geom.bounds)
+    # every corner of the wide crop falls inside some returned tile
+    for cx, cy in ((wide[0], wide[1]), (wide[2], wide[3]),
+                   (wide[0], wide[3]), (wide[2], wide[1])):
+        assert ((got.minx <= cx) & (got.maxx >= cx)
+                & (got.miny <= cy) & (got.maxy >= cy)).any(), (cx, cy)
+
+
+def test_context_tiles_outnumber_the_polygons_own_tiles(tmp_path):
+    from shapely.geometry import box
+
+    got = context_tile_bboxes(_gpkg_with(tmp_path, [box(0, 0, 100, 100)]),
+                              stride_px=344)
+    assert len(got) > 4
+
+
+def test_context_tiles_are_deduped_across_polygons(tmp_path):
+    """Neighbouring polygons share context; each tile must be chipped once."""
+    from shapely.geometry import box
+
+    got = context_tile_bboxes(
+        _gpkg_with(tmp_path, [box(0, 0, 100, 100), box(200, 200, 300, 300)]),
+        stride_px=344)
+    assert got.tile_id.is_unique
+
+
+def test_context_tile_bounds_match_the_stride_grid(tmp_path):
+    """Bounds are computed, not looked up, so they must reproduce the grid
+    generate_tile_grid.py writes — same id, same square."""
+    from shapely.geometry import box
+
+    from inference.quad_index import RESOLUTION_M, WORLD_MIN
+    from inference.tiles import TILE_SIZE_PX
+
+    got = context_tile_bboxes(_gpkg_with(tmp_path, [box(0, 0, 100, 100)]),
+                              stride_px=344).iloc[0]
+    c, r = (int(v) for v in got.tile_id[1:].split("_"))
+    stride_m, tile_m = 344 * RESOLUTION_M, TILE_SIZE_PX * RESOLUTION_M
+    assert got.minx == WORLD_MIN + c * stride_m
+    assert got.miny == WORLD_MIN + r * stride_m
+    assert round(got.maxx - got.minx, 6) == round(tile_m, 6)

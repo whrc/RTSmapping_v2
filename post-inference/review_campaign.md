@@ -59,7 +59,7 @@ negligible, small enough that a reviewer who walks away strands little work.
 ## 4. Artifact layout
 
 ```
-gs://rts-mapping-v2-usw1/inference/2025q3_south/
+gs://rts-arctic-usw1/inference/2025q3_south/
   internal/review_crops/<rts_id>_t.jpg        tight crop  (3× the feature, ≥250 m)
   internal/review_crops/<rts_id>_w.jpg        wide  crop  (10× the feature, ≥1.5 km)
   internal/review_crops/<rts_id>_t_plain.jpg  the same two views without the
@@ -109,6 +109,90 @@ real one.
 from the ~70% the old archive would have produced. Archive: 120,334 JPEGs, **3.2 GB**, mean 23.1 KB
 per crop. Zero polygons are missing a crop file.
 
+That measurement was right about the *tight* view and blind to the wide one, and the blindness
+mattered.
+
+#### The context gap (found 2026-09-23)
+
+`has_imagery` probes the **tight** window only, so a polygon whose object is visible but whose 1.5 km
+surroundings are half black passed the check silently. Sampling 150 rendered polygons found **44% of
+wide views at least 10% black and 15% more than half black**, concentrated almost entirely in the
+high-confidence band:
+
+| conf_class | mean black | >=10% black | >50% black |
+|---|---|---|---|
+| high (p >= 0.652) | 33.7% | **73.3%** | 28.3% |
+| medium | 22.6% | 51.4% | 17.1% |
+| low (p < 0.452) | 3.0% | 7.3% | **0%** |
+
+The cause is not a failed download and not a stale render. `build_rgb_chips.py` chipped only the
+tiles a *detection* references, and the wide crop is `10x` the feature — so it reaches tiles no
+detection sits in. Measured against the real geometry of all 60,167 polygons and all 118,586 chip
+names:
+
+- the wide views need **621,141** tiles; **118,586** were chipped, **502,555** were not;
+- of those 502,555, **496,556 (98.8%) sit on quads already in the bucket** — never chipped, not
+  missing;
+- only **5,999 (1.2%)** have no downloaded quad. They fall in 175 quad cells, of which **173 sit on
+  the edge of the downloaded footprint** (coastline, AOI boundary) and **2 are fully enclosed holes**
+  — 75.65N/112.94E and 71.50N/52.47E, 91 tiles between them. Those two are the only genuine
+  acquisition gaps in the whole inventory.
+
+The size correlation explains the confidence-class pattern entirely: high-confidence polygons are
+larger (median extent 592 units against 91 for low), so `10x` sends their context window far past the
+chipped tiles. Median wide side by class: high 7,309 units needing 36 tiles with 6 present; low 1,500
+units needing 6 with 4 present. **Only 12.8% of polygons had every tile their wide view
+needed** (400-polygon sample; the 621,141 / 118,586 / 502,555 tile counts above are exact,
+taken over all 60,167).
+
+**Fix.** `build_rgb_chips.py --wide-context` selects tiles by each polygon's wide crop bounds
+(`review.crops.crop_bounds`, the same function the renderer uses) instead of by the polygon, and
+computes tile bounds from the stride grid rather than the domain tile list, because a context window
+legitimately runs past the inference AOI. Then re-render **with `--overwrite`**: the resume check in
+`build_crops` skips any polygon that already has its four JPEGs, so without it a rebuilt chip archive
+changes nothing.
+
+**New tripwire.** `review.crops.imagery_fraction` measures how much of a window the mosaic carries,
+and `build_review_crops.py` writes every polygon under 90% to `partial_context.csv`. `no_imagery.csv`
+keeps its all-or-nothing meaning; the new file is what would have caught this in August.
+
+**Stale artifact.** `inference/2025q3_south/quad_index_2025q3.csv` points every row at
+`gs://pdg-planet-data/...`, deleted in the migration (404). Regenerate it against
+`gs://rts-arctic-usw1/global_quarterly/2025/q3/` with `scripts/build_quad_index.py` before any
+chipping run.
+
+**Measured result of the rebuild (2026-09-24).** Run on a temporary `n2-standard-32`
+(`rts-chips`, deleted afterwards), against a quad index regenerated to **309,102** quads:
+
+| | before | after |
+|---|---|---|
+| chips in the archive | 118,586 | **621,158** (0 errors, 33 min at 238 chips/s) |
+| `partial_context.csv` | n/a | **2,463 (4.09%)**, from ~87% of polygons lacking full context |
+| `no_imagery.csv` | 20 | **20** — unchanged, as expected |
+| wide views ≥10% missing (n=400 pixel sweep) | 44% | **11%** |
+| wide views >50% missing | 15.3% | **1.2%** |
+| wide views fully clean | 56% | 68% |
+
+What remains is real and now *visible*: the flagged crops show a straight quad-footprint boundary,
+striped and captioned, which matches the finding that 173 of the 175 absent quad cells sit on the
+edge of the downloaded footprint.
+
+**Cutover done 2026-09-24**, server-side copy of `review_crops_v2/` over `review_crops/`, verified
+with `scripts/gcs_parity.py` — **PARITY PASS**, 240,668 objects / 7,167,023,924 bytes identical by
+name, size and checksum. Note that `gcloud storage rsync` left **55,758 objects at their original
+timestamp**: those renders are byte-identical, because a tight `_plain` crop of an isolated,
+fully-covered polygon gains no outline, no neighbour and no striping. The skew confirms it — 30,382
+`_t_plain` and 15,954 `_t` against only 2,047 `_w`, the variant that gained the most. An unchanged
+timestamp is not a skipped copy, but sampling could not prove that, which is why the full walk ran.
+
+Artifacts: crops staged at `internal/review_crops_v2/` (240,668 objects, 7.2 GB — larger than the
+old 3.2 GB because previously-black pixels now carry imagery), chips at `internal/rgb_chips/`
+(621,158, 311 GB), `internal/rgb_chips.vrt` (758 MB), and the regenerated index at
+`quad_index_2025q3_regen.csv`. **Cutover is a server-side copy of `review_crops_v2/` over
+`review_crops/`**, deliberately left as a separate step because the campaign is live; the bucket's
+7-day soft-delete policy covers a rollback. The app must be redeployed afterwards so `CROP_VERSION`
+busts the 24-hour browser cache.
+
 ### 4.2 The outline toggle
 
 The red outline is **drawn into the pixels** by `render_crop`, so it cannot be switched off in the
@@ -121,6 +205,29 @@ judging whether a slump is real should be able to see the imagery unannotated. T
 **sticky** across items and reloads, so working a whole batch unoutlined is a deliberate mode rather
 than a per-item peek. The outlined view stays the default, and the prefetcher warms whichever pair is
 on screen.
+
+### 4.3 Neighbouring detections, and absence made visible
+
+Two things a reviewer could not see before 2026-09-23.
+
+**Neighbours.** Other candidates falling inside a crop are outlined in `NEIGHBOUR_COLOR` (`#3fd0ff`,
+0.9 px, 70% alpha) beneath the target's red — so a reviewer can tell a lone feature from one of a
+cluster, which is most of what "context" means here. All 60,167 candidates count as neighbours, down
+to p = 0.30. They are drawn in both the tight and wide outlined views and **suppressed entirely in
+the `_plain` pair**, because that view exists for judging pixels unprimed. The colour is chosen to
+fail the red-pixel predicate `tests/test_review_crops.py` uses to police the toggle, so that test
+keeps its meaning.
+
+**Absence.** A boundless read fills 0 and renders black, which is also what dark water and shadowed
+ground look like once JPEG has been at them — the reason §4.1's context gap went unnoticed for seven
+weeks. Missing pixels are now drawn as diagonal grey striping (`NO_DATA_DARK`/`NO_DATA_LIGHT`, 8 px
+period) and captioned `NO IMAGERY <pct>` when more than 2% of the window is absent. The caption is a
+fact about the imagery, not a hint about the model, so it appears in the `_plain` pair too —
+otherwise that view would still be lying.
+
+Workers get neighbours through the pool initializer, the same route as the chip index: the parent
+builds `_polygon_index(gdf)` once and each worker filters it by bbox (`_neighbours_for`), because a
+worker is handed only the polygon it is rendering.
 
 ## 5. The manifest
 
@@ -158,6 +265,41 @@ matters. Its practical value is the timestamp: the only record of when a held ba
 **Changing the TTL needs a redeploy, not just an edit.** The app runs from a container image, so the
 constant is baked in at build time — edit `review/store.py`, then `scripts/deploy_review_vm.sh`.
 
+### 6.2 The TTL needs an IAM grant, and ran dead without it
+
+From 2026-08-04 to 2026-09-23 **neither the heartbeat nor the stale reclaim did anything**, on a
+runtime identity holding `roles/storage.objectCreator` + `roles/storage.objectViewer`.
+`objectCreator` grants create-if-absent and nothing else — **not overwrite, not delete** — so:
+
+| call | operation | what happened |
+|---|---|---|
+| `heartbeat()` | overwrite | raised; `/api/heartbeat` 500'd; the browser beat has no `.catch`, so it was invisible |
+| `reclaim_if_stale()` | delete | a blanket `except` swallowed the 403 and returned False, every time |
+| `mark_done()` claim cleanup | delete | also failed, but is best-effort — which is why 108 claim objects existed for 88 done batches |
+
+The signature in the bucket: every claim read `claimed_at == heartbeat_at` to the microsecond, and a
+claim opened that morning was still `metageneration=1` after a day of 60-second beats. The cost was
+**18 batches (3,600 polygons) stranded**, and because the oldest was `b00001` the contiguous-prefix
+headline (§9) sat frozen at `max_prob >= 1.0` while 29% of the inventory was rated.
+
+Granted 2026-09-23, and verified live — `/api/next` handed back the 49-day-stale `b00001`, and a
+heartbeat then advanced `heartbeat_at` past `claimed_at`:
+
+```bash
+gcloud iam roles create rtsReviewClaimReaper --project=abruptthawmapping     --title="RTS review claim reaper" --permissions=storage.objects.delete --stage=GA
+
+gcloud storage buckets add-iam-policy-binding gs://rts-arctic-usw1     --member=serviceAccount:rts-review-app@abruptthawmapping.iam.gserviceaccount.com     --role=projects/abruptthawmapping/roles/rtsReviewClaimReaper     --condition='title=claims-prefix-only,expression=resource.name.startsWith(
+        "projects/_/buckets/rts-arctic-usw1/objects/inference/2025q3_south/review/claims/")'
+```
+
+Uniform bucket-level access is on, so the condition applies; the blast radius is claim objects,
+which are reconstructible, and the bucket carries a 7-day soft-delete policy. Two guards stop it
+rotting again: `reclaim_if_stale` now catches only `NotFound` (the lost-the-race case) so a 403
+surfaces, and the app probes create/overwrite/delete against the claims prefix at start-up and logs
+an error naming the missing permission. `tests/test_claim.py` carries a create-only fake bucket that
+reproduces the failure — the original fake modelled atomicity but not IAM, which is why no test
+could have caught this.
+
 Reviewer lifecycle:
 
 ```
@@ -182,11 +324,11 @@ queue with no verdicts lost, because nothing was ever written:
 
 ```bash
 # who holds what, and when they last touched it
-gcloud storage ls gs://rts-mapping-v2-usw1/inference/2025q3_south/review/claims/
-gcloud storage cat gs://rts-mapping-v2-usw1/inference/2025q3_south/review/claims/b00042
+gcloud storage ls gs://rts-arctic-usw1/inference/2025q3_south/review/claims/
+gcloud storage cat gs://rts-arctic-usw1/inference/2025q3_south/review/claims/b00042
 
 # release it — only after checking with the holder, who may still have it open
-gcloud storage rm gs://rts-mapping-v2-usw1/inference/2025q3_south/review/claims/b00042
+gcloud storage rm gs://rts-arctic-usw1/inference/2025q3_south/review/claims/b00042
 ```
 
 Check with the holder first. Their unsubmitted verdicts live in their browser, and releasing the
@@ -352,7 +494,7 @@ account holds no `setIamPolicy` of any kind on this project:
 | Permission | Held | Needed for |
 |---|---|---|
 | `iam.serviceAccounts.create`, `actAs` | ✅ | creating and attaching the runtime SA |
-| `storage` admin on `rts-mapping-v2-usw1` | ✅ | the bucket bindings (already applied) |
+| `storage` admin on `rts-arctic-usw1` | ✅ | the bucket bindings (already applied) |
 | `run.services.create/update` | ✅ | deploying |
 | `artifactregistry.repositories.uploadArtifacts` | ✅ (**the account, not Cloud Build**) | pushing the image |
 | `clientauthconfig.brands.create` | ✅ | the OAuth brand — and one **already exists**, so the prerequisite flagged earlier is moot |
@@ -403,13 +545,13 @@ python scripts/build_review_crops.py \
     --chips-vrt  .../rgb_chips.vrt \
     --out-dir    .../review_crops --workers 90
 gsutil -m rsync -r .../review_crops \
-    gs://rts-mapping-v2-usw1/inference/2025q3_south/internal/review_crops/
+    gs://rts-arctic-usw1/inference/2025q3_south/internal/review_crops/
 
 # 2. queue
 python scripts/build_review_manifest.py \
     --attributes .../south_rts_attributes.parquet --out .../manifest.parquet
 gsutil cp .../manifest.parquet \
-    gs://rts-mapping-v2-usw1/inference/2025q3_south/review/manifest.parquet
+    gs://rts-arctic-usw1/inference/2025q3_south/review/manifest.parquet
 ```
 
 ### 11.2 Deploy — the open VM (in use)
@@ -538,7 +680,7 @@ curl -s https://<space>/api/progress
 
 # merge (safe to run mid-campaign; unreviewed polygons stay null)
 python scripts/merge_review_verdicts.py \
-    --verdicts gs://rts-mapping-v2-usw1/inference/2025q3_south/review/verdicts \
+    --verdicts gs://rts-arctic-usw1/inference/2025q3_south/review/verdicts \
     --manifest .../manifest.parquet \
     --candidates .../south_rts_candidates.gpkg \
     --prior-ratings post-inference/qc_ratings.csv \

@@ -10,6 +10,11 @@ South run's continental canvas), reusing the exact windowed-read path real
 inference uses (`inference.tiles.read_tile`) so the chip imagery matches what
 the model saw (CLAUDE Rule 3 — no duplicated tile-reading logic).
 
+`--wide-context` widens that rule to the tiles covering each polygon's **wide
+review crop**, which is what the review app shows around a detection. Without it
+the app's context view is part-blank for most polygons
+(`post-inference/review_campaign.md` §4.1).
+
 Usage (Banks):
     python scripts/build_rgb_chips.py \
         --gpkg banks_rts.gpkg --tile-list banks_tiles.csv \
@@ -21,6 +26,12 @@ Usage (full South):
         --gpkg south_rts.gpkg --tile-list tiles_2025q3_domain_full.csv \
         --quad-index quad_index_2025q3.csv \
         --out-dir /local/south/products/rgb_chips
+
+Usage (review context — no tile list needed, the grid is arithmetic):
+    python scripts/build_rgb_chips.py \
+        --gpkg south_rts_candidates.gpkg --wide-context \
+        --quad-index quad_index_2025q3.csv \
+        --out-dir /local/south/review --workers 64
 """
 
 from __future__ import annotations
@@ -40,8 +51,11 @@ from rasterio.transform import from_bounds as transform_from_bounds
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from inference.quad_index import load_quad_index  # noqa: E402
+from inference.quad_index import (RESOLUTION_M, WORLD_MIN,  # noqa: E402
+                                  load_quad_index)
 from inference.tiles import TILE_SIZE_PX, read_tile  # noqa: E402
+from review.crops import crop_bounds  # noqa: E402
+from utils.config import load_config  # noqa: E402
 from utils.logging import setup_logging  # noqa: E402
 
 import logging  # noqa: E402
@@ -56,6 +70,56 @@ def collect_flagged_tile_ids(gpkg_path: str) -> set[str]:
     for cell in gdf["tile_ids"]:
         ids.update(t for t in str(cell).split(",") if t)
     return ids
+
+
+def context_tile_bboxes(gpkg_path: str, stride_px: int,
+                        scale: float = 1.0) -> pd.DataFrame:
+    """Tiles covering every polygon's **wide review crop**, not just the polygon.
+
+    :func:`collect_flagged_tile_ids` answers "which tiles does this detection
+    touch", which is what the ArcGIS QC package wanted. The review app asks a
+    different question: what does the ground *around* the detection look like.
+    The wide crop is up to 10x the feature, so it routinely reaches tiles no
+    detection sits in, and those were never chipped — 502,555 of them across the
+    2025q3 inventory, which is why context views rendered part-blank.
+
+    Bounds come from the stride grid rather than the domain tile list
+    (:func:`build_tile_bboxes`), because a context window legitimately runs past
+    the inference AOI. Where no quad covers a tile, ``read_tile`` returns NoData
+    and the crop renderer stripes it as "NO IMAGERY".
+
+    Args:
+        gpkg_path: the candidates gpkg, EPSG:3857.
+        stride_px: tile-grid stride, `configs/deployment.yaml inference.stride_px`.
+        scale: detection scale, as in `generate_tile_grid`.
+
+    Returns:
+        Columns ``tile_id, minx, miny, maxx, maxy`` — the same shape
+        :func:`build_tile_bboxes` returns, one row per tile.
+    """
+    import math
+
+    stride_m = stride_px * RESOLUTION_M / scale
+    tile_m = TILE_SIZE_PX * RESOLUTION_M / scale
+    gdf = gpd.read_file(gpkg_path)
+    seen: set[tuple[int, int]] = set()
+    for geom in gdf.geometry:
+        _, wide = crop_bounds(geom.bounds)
+        c0 = math.floor((wide[0] - WORLD_MIN - tile_m) / stride_m) + 1
+        c1 = math.floor((wide[2] - WORLD_MIN) / stride_m)
+        r0 = math.floor((wide[1] - WORLD_MIN - tile_m) / stride_m) + 1
+        r1 = math.floor((wide[3] - WORLD_MIN) / stride_m)
+        for c in range(c0, c1 + 1):
+            for r in range(r0, r1 + 1):
+                seen.add((c, r))
+    rows = [{"tile_id": f"t{c}_{r}",
+             "minx": WORLD_MIN + c * stride_m, "miny": WORLD_MIN + r * stride_m,
+             "maxx": WORLD_MIN + c * stride_m + tile_m,
+             "maxy": WORLD_MIN + r * stride_m + tile_m}
+            for c, r in sorted(seen)]
+    logger.info("%d polygons -> %d tiles covering their wide review crops",
+                len(gdf), len(rows))
+    return pd.DataFrame(rows)
 
 
 def build_tile_bboxes(tile_ids: set[str], tile_list_path: str) -> pd.DataFrame:
@@ -116,7 +180,14 @@ def _write_one(job: tuple[str, tuple, str]) -> str | None:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--gpkg", required=True, help="region rts.gpkg (detections)")
-    p.add_argument("--tile-list", required=True)
+    p.add_argument("--tile-list",
+                   help="domain tile grid CSV; required unless --wide-context")
+    p.add_argument("--wide-context", action="store_true",
+                   help="chip the tiles covering each polygon's WIDE review "
+                        "crop instead of only the tiles it overlaps, so the "
+                        "review app's context view is not part-blank")
+    p.add_argument("--config", default="configs/deployment.yaml",
+                   help="source of inference.stride_px for --wide-context")
     p.add_argument("--quad-index", required=True)
     p.add_argument("--out-dir", required=True, type=Path)
     p.add_argument("--workers", type=int, default=1,
@@ -128,9 +199,15 @@ def main() -> int:
     args = p.parse_args()
     setup_logging()
 
-    tile_ids = collect_flagged_tile_ids(args.gpkg)
-    logger.info("%d unique tiles referenced by %s", len(tile_ids), args.gpkg)
-    bboxes = build_tile_bboxes(tile_ids, args.tile_list)
+    if args.wide_context:
+        stride_px = load_config(args.config)["inference"]["stride_px"]
+        bboxes = context_tile_bboxes(args.gpkg, stride_px)
+    else:
+        if not args.tile_list:
+            p.error("--tile-list is required unless --wide-context is given")
+        tile_ids = collect_flagged_tile_ids(args.gpkg)
+        logger.info("%d unique tiles referenced by %s", len(tile_ids), args.gpkg)
+        bboxes = build_tile_bboxes(tile_ids, args.tile_list)
 
     chips_dir = args.out_dir / "rgb_chips"
     chips_dir.mkdir(parents=True, exist_ok=True)

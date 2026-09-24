@@ -5,10 +5,15 @@ feature) and a wide crop (~1.5 km context), red outline burned in — the same
 geometry the offline pack builder uses (`review/crops.py`), so both review
 surfaces show the identical view.
 
-Resumable: a polygon whose two crops already exist on disk is skipped, so an
-interrupted run continues where it stopped. Blank crops (chips missing → the
-render is all fill) are reported to `blank_crops.csv` rather than silently
-shipped to a reviewer.
+Resumable: a polygon whose four crops already exist on disk is skipped, so an
+interrupted run continues where it stopped. **Pass `--overwrite` after the chip
+archive changes** — otherwise the resume silently keeps crops rendered against
+the older, sparser mosaic, which is how the 2026-08 archive shipped 44% of its
+wide views part-black (`review_campaign.md` §4.1).
+
+Crops that could not be filled are reported rather than silently shipped: no
+imagery at all to `no_imagery.csv`, and an incomplete 1.5 km context to
+`partial_context.csv`.
 
 Output goes to a **local** directory; upload it to `internal/review_crops/`
 with `gsutil -m rsync`. The archive is PlanetScope-derived and must never land
@@ -39,14 +44,24 @@ from shapely import wkb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from review.crops import crop_bounds, has_imagery, render_crop  # noqa: E402
+from review.crops import (crop_bounds, has_imagery, imagery_fraction,  # noqa: E402
+                          render_crop)
 from utils.logging import setup_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 CHUNK = 500  # polygons per worker task
 
+# A wide crop below this much real imagery is reported to partial_context.csv.
+# Not an error: at the domain edge there is genuinely nothing to show. It is a
+# tripwire — the 2026-08 archive shipped 44% of wide views partly blank and
+# nothing noticed, because the only coverage probe looked at the tight window.
+MIN_WIDE_COVERAGE = 0.90
+
+CROP_SUFFIXES = ("t", "w", "t_plain", "w_plain")
+
 _INDEX = None  # per-process chip index, set in the initializer
+_POLYS = None  # per-process candidate index, for the neighbour outlines
 
 
 def chip_index(chips_vrt: str) -> pd.DataFrame:
@@ -89,9 +104,42 @@ def chip_index(chips_vrt: str) -> pd.DataFrame:
     return df[["path", "minx", "miny", "maxx", "maxy"]]
 
 
-def _init(index: pd.DataFrame) -> None:
-    global _INDEX
+def _already_rendered(out: Path, rts_id: int) -> bool:
+    """True if all four of this polygon's crops are already on disk.
+
+    The resume check, pulled out so it can be tested: when it says True and
+    ``--overwrite`` was not passed, the polygon keeps whatever pixels it has —
+    including pixels rendered against a mosaic that has since been extended.
+    """
+    return all((out / f"{rts_id}_{s}.jpg").exists() for s in CROP_SUFFIXES)
+
+
+def _polygon_index(gdf) -> pd.DataFrame:
+    """Candidate bboxes + WKB, the neighbour-outline counterpart of `chip_index`.
+
+    Built once in the parent and handed to every worker through the pool
+    initializer, because a worker is given only the polygon it is rendering and
+    cannot otherwise know what sits next to it.
+
+    Args:
+        gdf: the candidate GeoDataFrame, EPSG:3857.
+
+    Returns:
+        Columns ``rts_id, minx, miny, maxx, maxy, wkb`` — one row per polygon.
+    """
+    b = gdf.geometry.bounds
+    return pd.DataFrame({
+        "rts_id": gdf["rts_id"].astype(int).to_numpy(),
+        "minx": b["minx"].to_numpy(), "miny": b["miny"].to_numpy(),
+        "maxx": b["maxx"].to_numpy(), "maxy": b["maxy"].to_numpy(),
+        "wkb": [g.wkb for g in gdf.geometry],
+    })
+
+
+def _init(index: pd.DataFrame, polys: pd.DataFrame) -> None:
+    global _INDEX, _POLYS
     _INDEX = {c: index[c].to_numpy() for c in index.columns}
+    _POLYS = {c: polys[c].to_numpy() for c in polys.columns}
 
 
 def _chips_for(bounds: tuple) -> list[str]:
@@ -102,8 +150,24 @@ def _chips_for(bounds: tuple) -> list[str]:
     return list(_INDEX["path"][hit])
 
 
-def _render_one(rts_id: int, geom, out_dir: Path, png_px: int) -> bool:
-    """Write all four crops for one polygon. True if it has no imagery.
+def _neighbours_for(bounds: tuple, self_id: int) -> list:
+    """Other candidate polygons whose bbox overlaps ``bounds``.
+
+    Same vectorized bbox filter as :func:`_chips_for` over the per-process
+    candidate index, so no spatial tree is needed: 60k strict-inequality
+    comparisons cost far less than the render that follows. Only the hits are
+    deserialized from WKB.
+    """
+    minx, miny, maxx, maxy = bounds
+    hit = ((_POLYS["minx"] < maxx) & (_POLYS["maxx"] > minx)
+           & (_POLYS["miny"] < maxy) & (_POLYS["maxy"] > miny)
+           & (_POLYS["rts_id"] != self_id))
+    return [wkb.loads(b) for b in _POLYS["wkb"][hit]]
+
+
+def _render_one(rts_id: int, geom, out_dir: Path,
+                png_px: int) -> tuple[bool, float]:
+    """Write all four crops for one polygon.
 
     Four, not two: tight and wide, each with and without the red outline. The
     outline is drawn into the pixels, so the app's toggle needs a second copy
@@ -111,21 +175,30 @@ def _render_one(rts_id: int, geom, out_dir: Path, png_px: int) -> bool:
 
     All four are read through one micro-VRT built over the *wide* extent,
     which contains the tight extent by construction.
+
+    Returns:
+        ``(empty, wide_coverage)`` — whether the tight view has no imagery at
+        all, and what fraction of the wide view the mosaic actually carries.
     """
     from osgeo import gdal
 
     tight, wide = crop_bounds(geom.bounds)
     chips = _chips_for(wide)
     if not chips:
-        return True  # no chip covers this polygon at all
+        return True, 0.0  # no chip covers this polygon at all
 
+    others = _neighbours_for(wide, rts_id)
+    tight_others = _neighbours_for(tight, rts_id)
     with tempfile.NamedTemporaryFile(suffix=".vrt") as tmp:
         gdal.BuildVRT(tmp.name, chips).FlushCache()
         with rasterio.open(tmp.name) as src:
             empty = not has_imagery(src, tight)
+            wide_cov = imagery_fraction(src, wide)
             rendered = {
-                f"{rts_id}_t.jpg": render_crop(src, [geom], tight, png_px),
-                f"{rts_id}_w.jpg": render_crop(src, [geom], wide, png_px),
+                f"{rts_id}_t.jpg": render_crop(src, [geom], tight, png_px,
+                                               neighbours=tight_others),
+                f"{rts_id}_w.jpg": render_crop(src, [geom], wide, png_px,
+                                               neighbours=others),
                 f"{rts_id}_t_plain.jpg": render_crop(src, [geom], tight, png_px,
                                                      outline=False),
                 f"{rts_id}_w_plain.jpg": render_crop(src, [geom], wide, png_px,
@@ -133,22 +206,31 @@ def _render_one(rts_id: int, geom, out_dir: Path, png_px: int) -> bool:
             }
     for name, jpg in rendered.items():
         (out_dir / name).write_bytes(jpg)
-    return empty
+    return empty, wide_cov
 
 
 def _render_chunk(items: list[tuple[int, bytes]], out_dir: str,
-                  png_px: int) -> tuple[int, list[int]]:
-    """Render a chunk of (rts_id, geometry-WKB). Returns (n_done, blank_ids)."""
+                  png_px: int) -> tuple[int, list[int], list[tuple[int, float]]]:
+    """Render a chunk of (rts_id, geometry-WKB).
+
+    Returns:
+        ``(n_done, blank_ids, partial)`` where ``partial`` is the
+        ``(rts_id, wide_coverage)`` pairs below :data:`MIN_WIDE_COVERAGE`.
+    """
     out = Path(out_dir)
-    done, blank = 0, []
+    done, blank, partial = 0, [], []
     for rts_id, geom_wkb in items:
         try:
-            if _render_one(rts_id, wkb.loads(geom_wkb), out, png_px):
+            empty, wide_cov = _render_one(rts_id, wkb.loads(geom_wkb), out,
+                                          png_px)
+            if empty:
                 blank.append(rts_id)
+            if wide_cov < MIN_WIDE_COVERAGE:
+                partial.append((rts_id, wide_cov))
             done += 1
         except Exception:  # noqa: BLE001 - one bad polygon must not kill a chunk
             logger.exception("failed to render rts_id=%s", rts_id)
-    return done, blank
+    return done, blank, partial
 
 
 def build_crops(candidates: str, chips_vrt: str, out_dir: str,
@@ -162,7 +244,8 @@ def build_crops(candidates: str, chips_vrt: str, out_dir: str,
         out_dir: local output directory for the JPEGs.
         workers: process-pool size.
         png_px: crop edge length in pixels.
-        overwrite: re-render polygons whose crops already exist.
+        overwrite: re-render polygons whose crops already exist. Required
+            whenever the chip archive has changed under an existing archive.
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -171,8 +254,7 @@ def build_crops(candidates: str, chips_vrt: str, out_dir: str,
 
     pending = []
     for rts_id, geom in zip(gdf["rts_id"].astype(int), gdf.geometry):
-        if not overwrite and all((out / f"{rts_id}_{s}.jpg").exists()
-                                 for s in ("t", "w", "t_plain", "w_plain")):
+        if not overwrite and _already_rendered(out, rts_id):
             continue
         pending.append((int(rts_id), geom.wkb))
     logger.info("%d to render, %d already present", len(pending),
@@ -182,20 +264,23 @@ def build_crops(candidates: str, chips_vrt: str, out_dir: str,
 
     index = chip_index(chips_vrt)
     logger.info("indexed %d chips from %s", len(index), chips_vrt)
+    polys = _polygon_index(gdf)
 
     chunks = [pending[i:i + CHUNK] for i in range(0, len(pending), CHUNK)]
-    done, blanks = 0, []
+    done, blanks, partials = 0, [], []
     with ProcessPoolExecutor(max_workers=workers, initializer=_init,
-                             initargs=(index,)) as pool:
+                             initargs=(index, polys)) as pool:
         futures = [pool.submit(_render_chunk, c, str(out), png_px)
                    for c in chunks]
         for i, fut in enumerate(as_completed(futures), 1):
-            n, blank = fut.result()
+            n, blank, partial = fut.result()
             done += n
             blanks.extend(blank)
+            partials.extend(partial)
             if i % 20 == 0 or i == len(futures):
-                logger.info("chunk %d/%d — %d rendered, %d blank",
-                            i, len(futures), done, len(blanks))
+                logger.info("chunk %d/%d — %d rendered, %d blank, "
+                            "%d partial context",
+                            i, len(futures), done, len(blanks), len(partials))
 
     # Sweep the whole inventory, not just this run's slice, so the report is
     # correct after a resume: a polygon with no chips writes no files at all.
@@ -211,6 +296,17 @@ def build_crops(candidates: str, chips_vrt: str, out_dir: str,
         logger.warning("%d polygons (%.2f%%) have no imagery — they are still "
                        "served; reviewers should rate them 'unsure'",
                        n_blank, 100 * n_blank / len(all_ids))
+
+    # Partial *context* is the failure the tight-window probe above cannot see:
+    # the polygon is visible but the 1.5 km view around it is part black.
+    partial_csv = out.parent / "partial_context.csv"
+    pd.DataFrame(sorted(partials), columns=["rts_id", "wide_coverage"]).to_csv(
+        partial_csv, index=False)
+    if partials:
+        logger.warning("%d polygons (%.2f%% of those rendered) have under %.0f%% "
+                       "imagery in the wide view (listed in %s)",
+                       len(partials), 100 * len(partials) / max(done, 1),
+                       100 * MIN_WIDE_COVERAGE, partial_csv)
     return done
 
 

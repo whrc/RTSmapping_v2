@@ -62,14 +62,39 @@ def _iap(assertion: str = VALID_ASSERTION) -> dict:
 
 
 def test_claim_returns_items_with_crop_urls(client):
+    from review.app import CROP_VERSION
+
     r = client.get("/api/next", params={"reviewer": "ann"})
     body = r.json()
     assert body["batch_id"] == "b00000"
     assert len(body["items"]) == 4
     first = body["items"][0]
-    assert first["tight_url"] == "/crop/campaign/crops/1_t.jpg"
-    assert first["wide_url"] == "/crop/campaign/crops/1_w.jpg"
+    assert first["tight_url"] == f"/crop/campaign/crops/1_t.jpg?v={CROP_VERSION}"
+    assert first["wide_url"] == f"/crop/campaign/crops/1_w.jpg?v={CROP_VERSION}"
     assert "tight_key" not in first  # the raw key field is replaced, not added
+
+
+def test_crop_urls_carry_the_archive_version(client):
+    """Crops are cached for a day under a stable key, so a re-rendered archive
+    only reaches reviewers if the URL changes with it."""
+    from review.app import CROP_VERSION
+
+    items = client.get("/api/next", params={"reviewer": "ann"}).json()["items"]
+    for it in items:
+        for k in ("tight_url", "wide_url", "tight_plain_url", "wide_plain_url"):
+            assert it[k].endswith(f"?v={CROP_VERSION}"), k
+
+
+def test_crop_is_served_with_the_version_query_string(client):
+    """The token rides in the query string; the proxy keys off the path, so it
+    must neither 404 nor change what is returned."""
+    import review.app as app_mod
+    from review.app import CROP_VERSION
+    app_mod._bucket.blob("campaign/crops/1_t.jpg").upload_from_string(b"\xff\xd8jpeg")
+
+    r = client.get(f"/crop/campaign/crops/1_t.jpg?v={CROP_VERSION}")
+    assert r.status_code == 200
+    assert r.content == b"\xff\xd8jpeg"
 
 
 def test_crop_streams_the_jpeg(client):

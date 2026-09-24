@@ -48,13 +48,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from review.store import ReviewStore
+from review.store import STALE_AFTER_S, ReviewStore
 
 logger = logging.getLogger(__name__)
 
-# Crops are immutable once rendered, so let the browser keep them: a reviewer
-# stepping back through a batch then re-displays with no fetch at all.
+# Crops are cached hard — a reviewer stepping back through a batch re-displays
+# with no fetch at all. They are immutable only *within* a version of the
+# archive, so re-rendering it means bumping CROP_VERSION: without that, a
+# reviewer keeps the old pixels for up to max-age. The token rides in the query
+# string, which the proxy's prefix check below never sees.
 CROP_CACHE_CONTROL = "private, max-age=86400"
+CROP_VERSION = 2  # 2: 2026-09 re-render — full context + neighbour outlines
 STATIC = Path(__file__).parent / "static"
 
 _store: ReviewStore | None = None
@@ -101,6 +105,45 @@ def _read_manifest(uri: str) -> pd.DataFrame:
     return pd.read_parquet(io.BytesIO(_bucket.blob(path).download_as_bytes()))
 
 
+def _check_claim_permissions(store: ReviewStore) -> bool:
+    """Log whether the runtime identity can actually maintain a claim.
+
+    A claim is created, refreshed (overwrite) and released (delete). GCS's
+    ``objectCreator`` grants only the first, and the other two then fail on a
+    live campaign with nothing in the UI to show for it — heartbeats stop
+    recording activity and the stale-claim TTL never fires, so an abandoned
+    batch is stranded forever. That is exactly what happened between 2026-08-04
+    and 2026-09-23. One probe object at start-up turns a seven-week silence into
+    a log line.
+
+    Returns:
+        True if create, overwrite and delete all succeeded.
+    """
+    blob = store.bucket.blob(f"{store.base}/claims/.permcheck")
+    try:
+        blob.upload_from_string("{}", if_generation_match=0)
+    except Exception:  # noqa: BLE001 - a leftover probe is not itself a failure
+        pass
+    try:
+        blob.upload_from_string("{}")            # overwrite → heartbeat
+        blob.delete()                            # delete    → stale reclaim
+    except Exception as exc:  # noqa: BLE001 - diagnostic only, never fatal
+        logger.error("claim maintenance is BROKEN: %s cannot overwrite/delete "
+                     "under %s/claims/ (%s). Heartbeats and the %.0f-day stale "
+                     "reclaim will silently do nothing until the runtime "
+                     "identity is granted storage.objects.delete on that "
+                     "prefix.", _sa_hint(), store.base, exc,
+                     STALE_AFTER_S / 86400)
+        return False
+    logger.info("claim maintenance ok: create, overwrite and delete all work")
+    return True
+
+
+def _sa_hint() -> str:
+    """Best-effort name of the identity we are running as, for the log line."""
+    return os.environ.get("REVIEW_SA", "the runtime service account")
+
+
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
     """Load the manifest and open the bucket once, at process start."""
@@ -112,6 +155,7 @@ async def _lifespan(_: FastAPI):
                          os.environ["REVIEW_CROP_PREFIX"])
     logger.info("campaign loaded: %d items in %d batches",
                 len(manifest), len(_store.batch_ids))
+    _check_claim_permissions(_store)
     yield
 
 
@@ -120,7 +164,7 @@ app = FastAPI(title="RTS review campaign", lifespan=_lifespan)
 
 def _crop_url(key: str) -> str:
     """The app-relative URL the browser fetches one crop from."""
-    return f"/crop/{key}"
+    return f"/crop/{key}?v={CROP_VERSION}"
 
 
 @app.get("/crop/{key:path}")
