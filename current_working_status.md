@@ -146,8 +146,8 @@ imagery** — including the riverbank shadow sitting on a polygon's own downslop
 reserving 0: valid imagery is floored at 1 (`write_rgb_chip`), which makes `render_crop`,
 `has_imagery` and `imagery_fraction` correct unchanged. **Review-only** — inference masks by the
 quad's alpha band, and training's identical conflation sits behind `data.nodata_handling`, default
-off and set by no config, so it never reached the delivered model. Needs a re-chip + re-render;
-`CROP_VERSION` → 3. Detail in `post-inference/review_campaign.md` §4.4.
+off and set by no config, so it never reached the delivered model. Re-chipped and re-rendered 2026-09-28: partial context **4.09% → 0.15%** (92
+polygons), no-imagery 20 → **0**, both uploads byte-verified, app serving `?v=3`. Detail in `post-inference/review_campaign.md` §4.4.
 
 **Open**: the two enclosed quad holes are worth raising with the acquisition side. The app is plain
 HTTP with no sign-in (§10.3) and Chrome's HTTPS-Upgrade already makes it unreachable in Incognito —

@@ -282,6 +282,29 @@ any zero band is swapped for the channel mean — but it is gated by `data.nodat
 none of that reached the delivered model. The latent hazard is recorded in `training/training.md`
 §4.4 so a future re-stage that flips the flag on doesn't walk into it.
 
+**Rebuilt and cut over 2026-09-28.** 621,158 chips re-read from the quads (0 errors, 37 min, 32
+vCPU / 64 workers), then all 240,668 crops re-rendered (0 errors, 57 min, 24 workers):
+
+| | before | after |
+|---|---|---|
+| polygons <90% wide coverage (`partial_context.csv`) | 2,463 (4.09%) | **92 (0.15%)** |
+| polygons with no imagery (`no_imagery.csv`) | 20 | **0** |
+| crop 39484 stripe pixels | 3.01% | **0.01%** |
+
+Both uploads byte-verified against the local render — crops 240,668 objects / 6,884,030,114 B and
+chips 621,158 / 331,528,719,633 B, zero missing, extra or mismatched. `rgb_chips.vrt` is unchanged
+(identical tile set). The app was redeployed and serves `?v=3`, so reviewer caches invalidate
+themselves.
+
+> **Two false success signals on the day, both worth knowing.** (1) `gcloud` on a fresh Ubuntu VM is
+> a **snap**, and snap confinement SIGTERMs processes when the invoking SSH session ends — a
+> `nohup`'d `gcloud storage rsync` died after 98,718 of 240,668 objects, and two `systemd-run`
+> retries exited `Result=success` having copied nothing (journal showed `status=143`). Long transfers
+> must run inside a detached container, which the Docker daemon owns, or they will silently
+> half-finish. (2) `deploy_review_vm.sh` prints `No change requested; skipping update`, which reads
+> like a no-op but is not. Neither an exit code nor a log line is evidence here: verify the served
+> `?v=` token and compare object bytes against the source.
+
 **Consequences.** `partial_context.csv` and §4.1's blackness rows are over-counts. The verdict-skew
 analysis in §4.1 used pixel blackness as a proxy for missing context; with ~69% of blackness being
 dark terrain, it was partly measuring terrain, which weakens it further than the polygon-size caveat
