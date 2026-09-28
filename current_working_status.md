@@ -138,6 +138,17 @@ survived controlling for polygon area — but blackness is largely a proxy for p
 suggestive, not established. ~4,300 high-confidence polygons were rated with most of their context
 missing; the caveat is recorded in the campaign spec rather than acted on.
 
+**Follow-up (2026-09-28): the striping itself was firing on valid imagery.** The operator found
+crops captioned `NO IMAGERY` over ground that opened complete in QGIS. Planet's 8-bit basemaps clamp
+deep shadow and dark water to exactly `(0,0,0)` with `alpha=255`; the chip writer wrote NoData as 0
+too, so `max == 0` caught both. Pooled over seven sampled quads, **68.8% of striped pixels were valid
+imagery** — including the riverbank shadow sitting on a polygon's own downslope edge. Fixed by
+reserving 0: valid imagery is floored at 1 (`write_rgb_chip`), which makes `render_crop`,
+`has_imagery` and `imagery_fraction` correct unchanged. **Review-only** — inference masks by the
+quad's alpha band, and training's identical conflation sits behind `data.nodata_handling`, default
+off and set by no config, so it never reached the delivered model. Needs a re-chip + re-render;
+`CROP_VERSION` → 3. Detail in `post-inference/review_campaign.md` §4.4.
+
 **Open**: the two enclosed quad holes are worth raising with the acquisition side. The app is plain
 HTTP with no sign-in (§10.3) and Chrome's HTTPS-Upgrade already makes it unreachable in Incognito —
 if that enforcement reaches normal windows the campaign goes dark for every reviewer.

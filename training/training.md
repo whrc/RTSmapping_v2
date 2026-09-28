@@ -135,6 +135,19 @@ Phase 0's `data/transforms.py` boundary-ignore logic is reused — a NoData mask
 
 Implemented in `data.dataset.substitute_nodata` (zero is the NoData sentinel): all-band-zero pixels → `label=255`; any zero band → substitute that band with its raw per-channel mean (handles band dropout while keeping the valid bands of a partially-degraded tile). **Gated by `data.nodata_handling` (bool, default `false`)** so it is opt-in per dataset version — the locked Phase-0 baseline was trained without it, so it stays off for the v1.0 ablation program and is enabled only on re-staged datasets that keep degraded tiles.
 
+> **Caveat (2026-09-28): zero is not a reliable NoData sentinel in these basemaps.** Planet's 8-bit
+> quads clamp deeply shadowed ground and dark water to exactly `(0, 0, 0)` with `alpha = 255` — real
+> observations below the quantization floor, not gaps. So `substitute_nodata`'s `(rgb == 0).all()`
+> would force valid dark ground to `ignore`, and its per-band `rgb == 0` would swap a dark pixel's
+> zero band for the channel mean (R/G ≈ 54, B ≈ 31), turning near-black terrain mid-grey. On 30
+> sampled positive tiles that is 0.52% of pixels ignored and 2.96% band-substituted (25.7% on the
+> worst tile); 1.48% and 3.54% of RTS-labelled pixels respectively. **This never reached a trained
+> model** — `data.nodata_handling` defaults to `False` and no config enables it — but note it also
+> makes training disagree with inference, which masks by the quad's alpha band and would leave those
+> same pixels dark. Any re-stage that turns the flag on should key off alpha, not off zero. Chips had
+> the identical bug and it did ship; see `post-inference/review_campaign.md` §4.4.
+
+
 ### 4.5 Normalization-stats schema
 
 `normalization_stats.json` carries channel-name bindings alongside parallel mean/std arrays. RGB block is always present; EXTRA block only when EXTRA channels are declared. Source of truth: `data/normalization.py:build_stats_dict`.

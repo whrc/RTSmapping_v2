@@ -58,7 +58,8 @@ logger = logging.getLogger(__name__)
 # reviewer keeps the old pixels for up to max-age. The token rides in the query
 # string, which the proxy's prefix check below never sees.
 CROP_CACHE_CONTROL = "private, max-age=86400"
-CROP_VERSION = 2  # 2: 2026-09 re-render — full context + neighbour outlines
+CROP_VERSION = 3  # 3: 2026-09 re-chip — dark ground no longer striped as NO IMAGERY
+#                 2: 2026-09 re-render — full context + neighbour outlines
 STATIC = Path(__file__).parent / "static"
 
 _store: ReviewStore | None = None

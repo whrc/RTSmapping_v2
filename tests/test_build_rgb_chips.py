@@ -196,3 +196,81 @@ def test_context_tile_bounds_match_the_stride_grid(tmp_path):
     assert got.minx == WORLD_MIN + c * stride_m
     assert got.miny == WORLD_MIN + r * stride_m
     assert round(got.maxx - got.minx, 6) == round(tile_m, 6)
+
+
+def _write_quad_with_alpha(path: Path, bounds: tuple, rgb_value: tuple[int, int, int],
+                           nodata_rows: int) -> None:
+    """A quad whose top `nodata_rows` rows are alpha=0 and the rest alpha=255.
+
+    Deliberately paints the *same* RGB value in both halves: the only thing
+    separating "absent" from "imaged" here is the alpha band, which is the
+    distinction the chip archive has to carry.
+    """
+    h = w = TILE_SIZE_PX
+    data = np.zeros((4, h, w), dtype=np.uint8)
+    for i, v in enumerate(rgb_value):
+        data[i] = v
+    data[3] = 255
+    data[3, :nodata_rows] = 0
+    profile = dict(driver="GTiff", height=h, width=w, count=4, dtype="uint8",
+                   crs="EPSG:3857",
+                   transform=transform_from_bounds(*bounds, w, h))
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(data)
+
+
+def _one_quad_index(path: Path, bounds: tuple) -> pd.DataFrame:
+    return pd.DataFrame([dict(
+        quad_id="q0", x=0, y=0, gcs_path=str(path),
+        minx=bounds[0], miny=bounds[1], maxx=bounds[2], maxy=bounds[3],
+    )])
+
+
+def test_black_imagery_and_absent_imagery_are_written_differently(tmp_path):
+    """The whole point of the chip archive's NoData contract.
+
+    Planet's 8-bit basemaps clamp deeply shadowed ground and dark water to
+    exactly (0, 0, 0) with alpha=255 — a real observation with no radiometric
+    signal left. Writing those pixels as 0 made them indistinguishable from
+    genuinely unimaged ground, and `render_crop` striped both as NO IMAGERY.
+    See `post-inference/review_campaign.md` §4.4.
+    """
+    bounds = (0.0, 0.0, TILE_SIZE_PX * 4.77731426, TILE_SIZE_PX * 4.77731426)
+    quad = tmp_path / "quad.tif"
+    _write_quad_with_alpha(quad, bounds, rgb_value=(0, 0, 0), nodata_rows=128)
+
+    out = tmp_path / "t0.tif"
+    write_rgb_chip("t0", bounds, _one_quad_index(quad, bounds), str(out))
+    with rasterio.open(out) as src:
+        arr = src.read()
+        assert src.nodata == 0
+
+    assert (arr[:, :128, :] == 0).all(), "alpha=0 must stay the NoData sentinel"
+    assert (arr[:, 128:, :] > 0).all(), "valid black imagery must not read as NoData"
+
+
+def test_chip_floor_leaves_real_values_untouched(tmp_path):
+    """Only the 0 sentinel is reserved; every other value round-trips."""
+    bounds = (0.0, 0.0, TILE_SIZE_PX * 4.77731426, TILE_SIZE_PX * 4.77731426)
+    quad = tmp_path / "quad.tif"
+    _write_quad_with_alpha(quad, bounds, rgb_value=(1, 7, 255), nodata_rows=0)
+
+    out = tmp_path / "t0.tif"
+    write_rgb_chip("t0", bounds, _one_quad_index(quad, bounds), str(out))
+    with rasterio.open(out) as src:
+        arr = src.read()
+    assert (arr[0] == 1).all() and (arr[1] == 7).all() and (arr[2] == 255).all()
+
+
+def test_a_tile_with_no_quad_at_all_is_written_as_nodata(tmp_path):
+    """The other half of absence: no quad covers the tile, so nothing is imaged."""
+    bounds = (0.0, 0.0, TILE_SIZE_PX * 4.77731426, TILE_SIZE_PX * 4.77731426)
+    far = (bounds[2] * 10, bounds[3] * 10, bounds[2] * 11, bounds[3] * 11)
+    quad = tmp_path / "quad.tif"
+    _write_quad_with_alpha(quad, far, rgb_value=(10, 20, 30), nodata_rows=0)
+
+    out = tmp_path / "t0.tif"
+    write_rgb_chip("t0", bounds, _one_quad_index(quad, far), str(out))
+    with rasterio.open(out) as src:
+        arr = src.read()
+    assert (arr == 0).all()

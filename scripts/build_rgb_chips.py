@@ -139,9 +139,19 @@ def build_tile_bboxes(tile_ids: set[str], tile_list_path: str) -> pd.DataFrame:
 def write_rgb_chip(tile_id: str, bbox: tuple[float, float, float, float],
                    quad_index: pd.DataFrame, out_path: str) -> None:
     """Window RGB for one tile off the quads (inference.tiles.read_tile) and
-    write it as a small georeferenced uint8 GeoTIFF (NoData pixels -> 0)."""
+    write it as a small georeferenced uint8 GeoTIFF (NoData pixels -> 0).
+
+    0 is reserved for NoData, so valid imagery is floored at 1. Planet's 8-bit
+    basemaps clamp deeply shadowed ground and dark water to exactly (0, 0, 0)
+    with alpha=255 — a real observation whose signal fell below the quantization
+    floor. Writing those at 0 made them identical to unimaged ground, and the
+    review renderer striped both as NO IMAGERY, deleting riverbank shadow and
+    headwall shading from the crops used to judge a slump. The 1 DN shift is far
+    below sensor noise; the ambiguity it removes is not
+    (`post-inference/review_campaign.md` §4.4).
+    """
     rgb, nodata = read_tile(bbox, quad_index, TILE_SIZE_PX)
-    rgb_u8 = np.clip(rgb, 0, 255).astype(np.uint8)
+    rgb_u8 = np.clip(rgb, 1, 255).astype(np.uint8)
     rgb_u8[:, nodata] = 0
     h, w = rgb_u8.shape[1:]
     transform = transform_from_bounds(*bbox, w, h)

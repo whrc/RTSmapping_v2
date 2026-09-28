@@ -171,6 +171,8 @@ chipping run.
 | `no_imagery.csv` | 20 | **20** — unchanged, as expected |
 | wide views ≥10% missing (n=400 pixel sweep) | 44% | **11%** |
 | wide views >50% missing | 15.3% | **1.2%** |
+
+The two blackness-derived rows above (the 150-polygon sample and `partial_context.csv`) are **over-counts**: both measure `max == 0`, which §4.4 shows also catches valid dark ground. The tile-existence rows are unaffected — they never looked at pixel values.
 | wide views fully clean | 56% | 68% |
 
 What remains is real and now *visible*: the flagged crops show a straight quad-footprint boundary,
@@ -225,9 +227,65 @@ period) and captioned `NO IMAGERY <pct>` when more than 2% of the window is abse
 fact about the imagery, not a hint about the model, so it appears in the `_plain` pair too —
 otherwise that view would still be lying.
 
+This was right in intent and wrong in execution until 2026-09-28: the test for "absent" was `max == 0`, which is also true of valid dark ground. See §4.4.
+
 Workers get neighbours through the pool initializer, the same route as the chip index: the parent
 builds `_polygon_index(gdf)` once and each worker filters it by bbox (`_neighbours_for`), because a
 worker is handed only the polygon it is rendering.
+
+### 4.4 Zero was never reserved for NoData (found 2026-09-28)
+
+Reported by the operator: crops showed grey `NO IMAGERY` striping over ground that opened complete in
+QGIS. They were right, and the striping §4.3 introduced was firing mostly on valid imagery.
+
+**Mechanism.** Planet's 8-bit basemaps clamp deeply shadowed ground and dark water to exactly
+`(0, 0, 0)` with `alpha = 255` — a real observation whose signal fell below the quantization floor,
+not a gap. The value histograms show a clamp, not a smooth dark tail: quad `1662-1646` has 20.20% of
+pixels at exactly 0 against 0.86% at 1, and `722-1555` 24.02% against 0.28%. `write_rgb_chip` then
+wrote NoData as 0 as well and declared `nodata=0`, so the chip could no longer say which was which,
+and `render_crop`'s `gap = rgb.max(axis=-1) == 0` striped both. No threshold could separate them —
+the values are identical; the ambiguity was in the sentinel.
+
+**Scale.** Seven quads sampled under the worst `partial_context.csv` polygons, against the alpha band
+that actually marks absence:
+
+| quad | alpha==0 (true absence) | RGB==0 (what was striped) | striped-but-valid |
+|---|---|---|---|
+| 306-1573 | 0.00% | 0.45% | **100%** |
+| 1662-1646 | 0.00% | 18.38% | **100%** |
+| 1630-1668 | 0.00% | 26.60% | **100%** |
+| 722-1555 | 0.00% | 23.58% | **100%** |
+| 1579-1665 | 0.00% | 8.95% | **100%** |
+| 486-1659 | 0.00% | 5.18% | **100%** |
+| 1606-1707 | 37.79% | 37.93% | 0.4% |
+
+Pooled, **68.8% of striped pixels were valid imagery**. The last row is the mechanism working: where
+absence is real, alpha and RGB agree to 0.14%. The harm is not cosmetic — on polygon 39484 the
+striped blobs were the shadow the riverbank casts onto the cut slope, directly on the feature's
+downslope edge, which is evidence a reviewer uses to judge a headwall.
+
+**Fix.** `write_rgb_chip` floors valid imagery at 1 and leaves 0 for NoData alone, so `max == 0`
+means exactly "nothing was imaged here". `render_crop`, `has_imagery` and `imagery_fraction` become
+correct unchanged. The 1 DN shift is far below sensor noise. Requires a re-chip and a re-render, and
+`CROP_VERSION` goes to 3.
+
+**Blast radius — review only.** Inference is **not** affected: `InferenceTileDataset` neutralises
+NoData with the alpha-derived mask `read_tile` returns, never a zero test (`inference/tiles.py:435`,
+`:480`). The chip archive is read only by the review app and the ArcGIS QC package; nothing upstream
+of the model touches it.
+
+Training is **not** affected either, though it needs checking rather than assuming: `substitute_nodata`
+(`data/dataset.py:107-112`) carries the same conflation — `(rgb == 0).all()` forces `label = 255` and
+any zero band is swapped for the channel mean — but it is gated by `data.nodata_handling`, **default
+`False`, and no config in `configs/` sets it**. On 30 sampled positive tiles it would have touched
+0.52% of pixels (forced to ignore) and 2.96% (band-substituted), rising to 25.7% on the worst tile;
+none of that reached the delivered model. The latent hazard is recorded in `training/training.md`
+§4.4 so a future re-stage that flips the flag on doesn't walk into it.
+
+**Consequences.** `partial_context.csv` and §4.1's blackness rows are over-counts. The verdict-skew
+analysis in §4.1 used pixel blackness as a proxy for missing context; with ~69% of blackness being
+dark terrain, it was partly measuring terrain, which weakens it further than the polygon-size caveat
+already recorded there.
 
 ## 5. The manifest
 

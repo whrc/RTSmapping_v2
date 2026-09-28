@@ -306,3 +306,27 @@ def test_a_gap_is_labelled_in_both_views(mosaic):
     assert has_label(outlined)
     assert has_label(plain)
     assert not has_label(full)
+
+
+def test_valid_dark_imagery_is_not_striped(tmp_path):
+    """The regression test for the false NO IMAGERY blobs.
+
+    A chip written under the post-fix NoData contract floors valid pixels at 1,
+    so deeply shadowed ground arrives as 1 rather than 0. It must render as the
+    near-black terrain it is — no stripes, no caption. Before the fix the same
+    ground arrived as 0 and was branded absent, which deleted riverbank shadow
+    and headwall shading from the very crops used to judge a slump.
+    """
+    import subprocess
+
+    dark = tmp_path / "t0_0.tif"
+    _chip(dark, 0.0, 0.0, 1)
+    vrt = tmp_path / "dark.vrt"
+    subprocess.run(["gdalbuildvrt", str(vrt), str(dark)], check=True,
+                   stdout=subprocess.DEVNULL)
+
+    with rasterio.open(vrt) as src:
+        a = _pixels(render_crop(src, [], (100.0, 100.0, 2000.0, 2000.0),
+                                png_px=256, outline=False))
+    assert _near_no_data(a).mean() < 0.02, "dark terrain must not be striped"
+    assert a.max() < 40, "and it must still look dark, not mean-filled"
