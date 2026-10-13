@@ -22,10 +22,10 @@
 > **not** bank, so anything EE-dependent, including any future re-export, must land before
 > **2027-09-22**.
 >
-> **BUT THE CAMPAIGN IS STILL BLOCKED — the uplift looks incomplete.** Measured 2026-09-23
-> over ~3 hours of live export: **concurrent RUNNING is 1**, project-wide, and the project
-> still reports `registrationState: REGISTERED_NOT_COMMERCIALLY`. See "Measured under
-> Partner" below. Do not read this banner as "solved".
+> **Steady state is ~9.6 days per year, ~58 days for six** — close to the original plan.
+> The binding constraint is not EECU and not concurrency but **task expiry**: EE kills
+> tasks that wait too long, which cost 2019 6% of its cells and 2020 92% of its. Keep the
+> queue short. See "CORRECTED 2026-10-13" below.
 >
 > The rest of this document is the measurement that justified the application. It is kept
 > because the per-cell cost is still the number every schedule estimate is built on.
@@ -119,7 +119,7 @@ confirmed by the uplift behaving exactly as a per-project quota change.
 Partner Tier on `abruptthawmapping` (proj# 801926669176) for one year, **expiring
 2027-09-22**. See the banner at the top for the measured limit.
 
-## Measured under Partner (2026-09-23) — concurrency did NOT improve
+## Measured under Partner (2026-09-23) — SUPERSEDED by the 10-13 correction above
 
 The 2019 export was launched under `rtsmapping@`, and 2020 under `yyang@` an hour later,
 specifically to test whether concurrency is per-user. It is not.
@@ -164,6 +164,60 @@ with ~2,000 tasks queued.
 **Do not use `ee.data.getTaskStatus()`** for any of this — it returns `UNKNOWN` for jobs
 that have succeeded. `ee.data.listOperations()` is authoritative, and is **project-scoped,
 not user-scoped**: both accounts see the same task list.
+
+## CORRECTED 2026-10-13 — steady state, and a failure mode that cost 2020
+
+The alarming 2026-09-23 reading below was taken in the first three hours of the first
+export and did not survive contact with a steady state.
+
+| | 09-23 (first 3 h) | **steady state** |
+|---|---|---|
+| Concurrent RUNNING | 1 | **~3** |
+| Throughput | 1.75-2.2 cells/h | **7.80 cells/h** |
+| Per year (1,799 cells) | ~35-41 d | **~9.6 d** |
+| Six years serial | ~200-220 d | **~58 d** |
+
+**The original plan's pessimistic case (~10.5 d/year, ~63 d for six) was right.** Partner
+Tier did what it needed to: it removed the EECU wall that made this a 38-month project.
+
+**`registrationState` was NOT the cause of the slow start.** It still reads
+`REGISTERED_NOT_COMMERCIALLY` today, unchanged, while concurrency rose 1 -> 3 on its own.
+That string is simply the normal state for a noncommercial project; reading it as the
+throttle conflated it with pdg's Community-tier EECU starvation. Nothing was fixed, EE
+ramped. **Do not size a schedule from the first hours of an export**, and treat concurrency
+as a variable EE sets (3 under Contributor, 1 at spin-up, 3 at steady state), not a
+constant. The per-user vs per-project question is consequently still open — the 09-23 test
+compared 1 RUNNING against a baseline that was itself 1, and proved nothing.
+
+### EE EXPIRES QUEUED TASKS — this is the real operational constraint
+
+Measured 2026-10-13, ground truth from GCS, not from `listOperations()`:
+
+| year | submitted | delivered | expired |
+|---|---|---|---|
+| 2019 | 1,744 | **1,635 (90.9%)** | ~109 |
+| 2020 | 263 | **23 (1.3%)** | 241 (92%) |
+
+Failures carry code 7, `Execution failed; Task too old.` 2020 is the clean demonstration:
+submitted 2026-09-23, queued behind the whole of 2019, waited ~3 weeks, nearly all died
+without ever running. **Expiry sits between 9 and 20 days of waiting.**
+
+A whole year submitted up front is 1,799 tasks; at 7.8 cells/hour the tail waits 9.6 days,
+right at the edge — which is why 2019 lost 6% off the back of its own queue.
+
+**Fix:** `MAX_ACTIVE_TASKS` 2900 -> **250** in `scripts/export_s2_composites.py`. With
+concurrency ~3 a deep queue buys nothing; it only manufactures tasks that time out before a
+worker reaches them. The driver now stays alive and tops the queue up, so it must run
+detached, and re-running resumes from what is delivered. **One year at a time.**
+
+**Note `listOperations()` ages out.** It showed 2,007 tasks on 09-28 and only 569 on 10-13,
+so it is a rolling window, not a cumulative record. Count delivered cells in GCS (stripping
+the `-XXXXXXXXXX-YYYYYYYYYY` multi-part suffix) for anything that matters.
+
+**Known defect, unfixed:** cell `E0450_N0680` fails with
+`GeometryConstructors.MultiGeometry: Geometry coordinate projection requires non-zero
+maxError` — a clip geometry needing an explicit `maxError` on reprojection. It will fail
+again on every resume until fixed.
 
 ## Operational trap found the same day
 

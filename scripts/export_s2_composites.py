@@ -43,7 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("export_s2")
 
 DEFAULT_BANDS = ["B4", "B3", "B2", "B8"]   # RGB + NIR (NIR enables NDVI)
-MAX_ACTIVE_TASKS = 2900                    # stay under the 3,000 per-user server ceiling
+MAX_ACTIVE_TASKS = 250                     # keep the QUEUE SHORT: EE expires tasks that wait too long
 
 
 def cell_id(lon0: float, lat0: float) -> str:
@@ -128,16 +128,27 @@ def _wait_for_task_slot(ee, poll: int = 30) -> None:
     authoritative guard is the retry in `submit_with_backoff`, which reacts to the error
     the server actually raises; this check just avoids provoking it.
 
-    The limit was 2000 and that made this a TRAP when two years run at once. Because the
-    count is project-scoped but the server ceiling is per-user, a second year's submission
-    throttles against the FIRST year's backlog, not against its own. Measured 2026-09-23:
-    2019 (1,738 pending) plus 2020 reached 2,000 project-wide and 2020's driver sat in
-    "GEE task queue full (2000 active); backing off 30s" indefinitely, submitting only as
-    2019 drained — about two cells an hour. 2900 leaves headroom under the 3,000 server
-    ceiling while no longer self-throttling a single year's 1,799 cells.
+    **A SHORT QUEUE IS THE POINT — do not raise this.** Earth Engine expires tasks that sit
+    PENDING too long, failing them with code 7 "Execution failed; Task too old." Measured
+    2026-10-13, after submitting whole years up front at a steady ~7.8 cells/hour:
 
-    None of this buys throughput. Batch concurrency is 1 task project-wide
-    (interannual_inference/ee_quota.md); queue depth only decides how much is waiting.
+        2019  1,744 submitted -> 1,635 delivered,  ~109 expired (6%)
+        2020    263 submitted ->    23 delivered,   241 expired (92%)
+
+    2020 is the clean demonstration: its tasks queued behind the whole of 2019, waited
+    about three weeks, and nearly all died without ever running. Expiry sits somewhere
+    between 9 and 20 days of waiting.
+
+    Since batch concurrency is only ~3, a deep queue buys NOTHING — it just manufactures
+    tasks that will time out before a worker reaches them. 250 is ~80x the concurrency,
+    and even at the pessimistic 2 cells/hour the tail waits ~5 days, inside the expiry
+    window. The driver then stays alive and tops the queue up, which is why it must be run
+    detached; if it dies, re-running resumes from what is already delivered.
+
+    (History: this was 2000, then briefly 2900 on 2026-09-23 to stop two concurrent years
+    throttling each other through this project-scoped count. That reasoning was right about
+    the project/user scope mismatch and wrong about the direction — raising it made the
+    expiry problem worse. One year at a time, short queue.)
     """
     while True:
         active = [t for t in ee.data.listOperations()
