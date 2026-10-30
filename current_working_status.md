@@ -68,6 +68,14 @@ checkout):
   mid-run on every fleet shape except a tuned 8×A100.
 
 ### Now
+**Review campaign — `unsure` adjudication package built (2026-10-15).** **5,411 polygons, 16,916
+chips, 9.6 GB zip** at `E:\rts_adjudication\full\unsure_pkg_2026-10-15.zip` (outside the repo; the chips
+are Planet-derived, internal only). It will go to Heidi for ArcGIS Pro review with Esri World Imagery
+beside Planet; the README says only how to load the imagery and polygons. Verified with GDAL/rasterio, but
+**not yet opened in ArcGIS Pro**, and Esri's resolution above 60°N is unchecked. Parsing the returned work
+and merging it into `merge_review_verdicts.py` is not built. Re-run with `--exclude issued_ids.csv` once
+more batches land (`review_campaign.md` §7.1).
+
 **2019 Sentinel-2 export running, and the schedule has been re-planned around a hard limit
 we are not going to get lifted.** Decision 2026-09-23: accept concurrency as it is and work
 with it, rather than waiting on Google.

@@ -438,8 +438,64 @@ Two checks, together **0.5% overhead** (~300 extra ratings):
   `qc_ratings.csv` against the new verdicts and reports the confusion matrix. No extra ratings, and
   it still catches systematic drift between the two rounds.
 
-**Adjudication.** Replicate disagreements plus every `unsure` are re-served by the same app under a
-filtered manifest, to the domain expert. No new code path — a manifest flag.
+**Adjudication.** Replicate disagreements are re-served by the same app under a filtered manifest, to
+the domain expert — a manifest flag, no new code path. Every `unsure` instead goes through the ArcGIS
+pass in §7.1, because what resolves an `unsure` is a second imagery source, which the app does not have.
+
+### 7.1 Adjudicating the `unsure` polygons in ArcGIS Pro
+
+`unsure` means a reviewer could not settle the call on the Planet crop. The adjudicator gets the same
+Planet 2025 Q3 imagery **plus the Esri World Imagery basemap**, in ArcGIS Pro, and works through the
+polygons by hand. It runs on a collaborator's machine, so nothing is assumed there — no repo, Python,
+gcloud or bucket access. `scripts/build_unsure_package.py` therefore emits one self-contained folder:
+
+```
+unsure_pkg_<date>/
+  README.md                how to load the imagery and polygons, nothing more
+  unsure_polygons.shp      rts_id, rev_order, area_m2, no_planet
+  issued_ids.csv           feed to --exclude on the next build
+  planet_2025q3.vrt        one raster layer for all the imagery
+  planet_2025q3/r_<gx>_<gy>.vrt   one VRT per ~200 km region
+  planet_2025q3/chips/t<x>_<y>.tif   the RGB chips the polygons touch (§4.1's archive, a subset)
+```
+
+- **Selection.** Coverage verdict `unsure` only, latest wins, replicates ignored — the same pooling as
+  `merge_review_verdicts.py`, so the package and the merged inventory agree on what is unsure.
+- **Re-runnable.** Verdicts keep arriving, so later builds take `--exclude issued_ids.csv` and issue only
+  polygons that have become `unsure` since. `--limit N` draws a seeded random sample for a test package.
+- **Blinded.** `max_prob`, `conf_class`, batch id and reviewer are not in the layer, for the reason in §6:
+  a visible probability primes the rater.
+- **Two-level VRT.** One VRT over all chips would make GDAL walk every source per read (§4.1 measured
+  ~2 s per window); regional VRTs keep each walk to a few hundred sources. Chips are copied, not re-encoded.
+- **`rev_order`, not `order`.** ORDER is a reserved SQL word and trips ArcGIS sorting and queries.
+  The order is a serpentine over a 25 km grid so consecutive polygons are neighbours.
+- **Shapefile, not GeoPackage.** Pro edits a shapefile in every version; GeoPackage editing is not
+  confirmed for the adjudicator's.
+- **No instructions, no verdict field.** The package says how to *load* the data and nothing else: no
+  rubric, no editing steps, no prescribed return format. How decisions are recorded is the adjudicator's
+  choice and is parsed when the work comes back.
+- **Licence.** Chips are PlanetScope-derived and not for redistribution (§4): the package stays inside
+  the team and never goes under `products/` or into the repo.
+
+**Calls to settle when the results are parsed** (deliberately not sent to the adjudicator). The model was
+trained on Planet only, and `data/data.md` §2.4 treats an RTS-like feature that Planet cannot confirm as
+*ignore*; so a slump that is clear on Esri but unresolved on Planet needs a decision on whether it counts
+as `rts`. Esri imagery can also be years older than Planet 2025, so a feature on Esri but not Planet may
+be an old scar.
+
+**Open risks, not yet resolved.**
+- **Esri resolution above 60°N is unverified.** Esri documents World Imagery as 0.3 m (continental US),
+  0.6 m (parts of Europe) and "1 m elsewhere"; coverage north of 60°N is undocumented and often patchy,
+  and the unsure set's median latitude is 72°N. Build a `--limit 50` package first and Identify the
+  basemap at a few polygons. If Esri is only ~15 m at most of them it adds little over Planet.
+- **Opening it in ArcGIS Pro is untested.** Built 2026-10-15 from 128+ batches of verdicts: **5,411
+  polygons, 16,916 chips (9.6 GB zip), 1,131 regional VRTs**, in ~35 min on a workstation (chip download
+  ~7/s dominates). Checked with GDAL/rasterio: unique ids, EPSG:3857, every polygon footprint reads real
+  pixels through the two-level VRT (median 0.24 s per window), no leftover `.partial` files, zip tests clean.
+  Whether Pro itself reads the nested VRT quickly has not been checked.
+
+**Not built yet.** Folding the returned `verdict` column into `merge_review_verdicts.py` (an
+`--adjudication` input that keeps the first-pass value alongside the final one).
 
 ## 8. Merge and output
 

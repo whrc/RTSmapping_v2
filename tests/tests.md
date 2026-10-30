@@ -1225,6 +1225,31 @@ inventory plus the agreement statistics (§7–§8). GPU-free, network-free.
 | `test_read_verdicts_of_an_empty_campaign_is_an_empty_frame` | empty campaign has a usable schema | shallow |
 | `test_duplicate_coverage_verdicts_do_not_inflate_the_pair_count` | joining on a non-unique id must not multiply the agreement sample | real — guards a silent kappa inflation |
 
+### [test_unsure_package.py](test_unsure_package.py)
+
+`scripts/build_unsure_package.py` — the self-contained ArcGIS Pro folder for adjudicating `unsure`
+polygons (`review_campaign.md` §7.1). Pandas only: no geopandas, GDAL or GCS. `gdalbuildvrt` is faked by
+recording its calls; the chip source is a local directory. Mutation-checked (break the serpentine, count
+replicates, leak `max_prob`: each fails a test).
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_only_coverage_unsure_polygons_are_selected` | `rts` / `false` are left out | real |
+| `test_an_injected_replicate_never_makes_a_polygon_unsure` | a replicate `unsure` on a coverage `rts` is ignored | real — else the package disagrees with the merged inventory |
+| `test_a_later_coverage_verdict_replaces_an_earlier_unsure` | latest coverage verdict wins | real |
+| `test_already_issued_ids_are_excluded` | `--exclude` drops issued ids | real — what makes re-runs incremental |
+| `test_an_empty_campaign_selects_nothing` | no verdicts → empty list | shallow |
+| `test_order_walks_the_grid_in_a_serpentine` | row 0 west→east, row 1 east→west, from shuffled input | real |
+| `test_order_breaks_ties_on_rts_id_whatever_the_input_order` | same-cell polygons order deterministically | real |
+| `test_a_shared_chip_is_listed_once_in_the_first_polygons_region` | a chip two polygons touch is assigned to one region only | real |
+| `test_a_polygon_with_no_tile_ids_contributes_no_chips` | empty `tile_ids` adds nothing | shallow |
+| `test_the_layer_carries_no_blinded_column` | exact column list (no verdict field either); `max_prob`, `conf_class`, `batch_id`, `reviewer` never reach the layer; `no_planet` flagged | real — the blinding rule, against a literal list not the constant |
+| `test_no_layer_field_is_a_reserved_sql_word` | no field named `order` | shallow — a regression pin for an ArcGIS quirk |
+| `test_fetch_copies_missing_chips_and_reports_what_it_cannot_find` | missing chips are returned; no `.partial` left behind | real |
+| `test_fetch_does_not_recopy_a_chip_that_is_already_there` | resume skips existing chips | real |
+| `test_vrts_use_relative_paths_and_zero_nodata` | members are relative to each VRT's own dir; `-srcnodata 0 -vrtnodata 0`; top VRT lists the regional ones | real — absolute paths would break the folder when moved |
+| `test_the_zip_keeps_the_folder_and_the_paths_relative` | archive paths start at the package folder | real |
+
 ---
 
 ## Coverage gaps (known)
@@ -1270,6 +1295,7 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 - 2026-08-28 — Parity gate hardened against composite objects: `test_gcs_parity.py` 21 → **25 tests**. GCS stores **no `md5Hash`** for composite objects — anything `gcloud storage cp` uploads with a parallel composite upload, i.e. the large files — so the MD5-only comparison saw `"" == ""` and passed the biggest objects in the migration on *size alone*. Found by hash-verifying the t65 build before discarding the local SSD copy: three files (171 MB, 216 MB, 3.6 GB) reported no MD5 and were only proved identical via CRC32C. `same_content()` now prefers MD5, falls back to CRC32C, and **reports rather than passes** a pair sharing no checksum — absence of evidence is not agreement. The four new tests pin each branch, including that MD5 still wins when both sides have it. Sampling 400 objects per leg showed 0 % of the STS-copied bulk lacks MD5, so the hole was narrow — but it sat exactly on the hand-uploaded files, which are the ones no transfer service checked. All synthetic/CPU.
 - 2026-09-22 — Earth Engine Partner Tier landed on `abruptthawmapping`, so the interannual campaign restarts and three tests pin the config changes it forced. The quad-count reconciliation target moved from one `expect.n_quads: 309100` scalar to a per-year map: delivered counts are genuinely year-dependent (2019 **308,459** delivered vs 309,107 for 2022 — 215 of 2019's 227 missing quads have a missing 4-neighbour and the gaps form orbit-track stripes, i.e. real coverage, not lost deliveries), and at `quad_tolerance: 0.01` a thinner early year would have tripped a guard built to catch *filename* regressions. `stages.expect_quads_for()` still accepts a plain int, because `/opt/rts/RTSmapping_v2` is a live shared checkout. Also in this change but not test-visible: `years` re-sequenced to `[2019, 2020, 2021, 2024, 2022, 2023]` (2022/2023 held behind the QA60 mask bake-off), `accounts` collapsed to one entry (the per-year `accounts.2019` path did not exist on disk, and `adc_for` falls back to `default`, so a run "under rtsmapping" would silently have been yyang — two accounts on one year, which the config's own rule forbids). **Two pre-existing failures are Windows-only and unrelated**: `test_adc_for_year_picks_that_years_account` and `test_s2_export_mounts_the_years_own_credential` assert POSIX literals against `str(Path(p).expanduser())`, which yields `\adc\...` on Windows; both pass on `rts-ops`. Suite: **45 passed, 2 failed (pre-existing, Windows-only)**.
 - 2026-08-27 — PDG migration parity gate: new `test_gcs_parity.py` (21 tests) for `scripts/gcs_parity.py`, the check that decides whether the PDG buckets may be deleted. The tool was first written to MD5-sample 200 objects per leg; the test that corrupted one object in twenty exposed why that is worthless here — a 200-object sample over the 41.7M-object `probs/` leg would essentially never touch the bad one. Rewritten as a constant-memory lockstep walk of both lexicographic listings, which is both stronger (every object compared) and simpler (no reservoir, no RNG, no seed flag). The tests pin each failure mode separately — missing at start/middle/end, extra, truncated, corrupt-but-same-size — because they exercise different branches of the three-way merge. All synthetic/CPU. Green in `rts-train:v2` (21 passed); full suite **668 passed, 2 skipped** (620 before the `interannual-campaign` merge landed its 48). Fixed en route: `test_quad_drift.py` hardcoded `REPO = Path("/w")`, so the whole suite failed collection unless the container happened to mount the repo at `/w` — now derived from `__file__` like every other test.
+- 2026-10-15 — ArcGIS adjudication package for the review campaign's `unsure` polygons: new `test_unsure_package.py` (15 tests) for `scripts/build_unsure_package.py`. The package goes to a collaborator with only ArcGIS Pro, so the tests pin what they receive: exactly the polygons the merge would call unsure (coverage verdict, latest wins, replicates ignored), none of the blinded columns, each chip in one regional VRT, and relative VRT paths. A first draft of the blinding test compared the output to the `LAYER_COLUMNS` constant — circular, it passed with `max_prob` added to both — so it now asserts a literal list. All synthetic/CPU, pandas only (geopandas and GDAL are absent locally); the GDAL and shapefile steps are **not** exercised by any test. Green: 15 passed, plus `test_review_merge.py` 19 unchanged.
 - 2026-07-07 — ArcGIS Pro QC package (Banks Island team review): new `test_build_rgb_chips.py` (5 tests) for `scripts/build_rgb_chips.py`, which generates RGB "underlying tile" context chips for the ArcGIS Pro QC package — only for the tiles a detected RTS polygon references, reusing `inference.tiles.read_tile`. All synthetic/GPU-free. Full suite 356 passed, 1 skipped (pre-existing) + these 5 = 361 green.
 
 ## `scripts/verify_frozen_model.py` — not a pytest test
