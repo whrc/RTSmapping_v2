@@ -20,6 +20,7 @@ button:disabled{opacity:.4;cursor:default}
 .v-rts{background:#2a78d6;color:#fff}.v-false{background:#666;color:#fff}
 .v-unsure{background:#eda100;color:#000}
 #meta{font-size:15px}#status,#campaign{color:#aaa;font-size:13px}
+#coord{font-size:15px;font-variant-numeric:tabular-nums;user-select:all}
 kbd{background:#333;border-radius:3px;padding:1px 5px}
 #track{width:96vw;max-width:1140px;height:6px;background:#333;border-radius:3px}
 #fill{height:100%;width:0;background:#2a78d6;border-radius:3px}
@@ -39,6 +40,7 @@ kbd{background:#333;border-radius:3px;padding:1px 5px}
 </div>
 <div id="track"><div id="fill"></div></div>
 <div id="imgs"><img id="tight" alt="tight crop"><img id="wide" alt="wide crop"></div>
+<div id="coord"></div>
 <div id="bar"><span id="status"></span> · <span id="campaign"></span></div>
 
 <script>
@@ -130,6 +132,10 @@ function show() {
       outlineOn ? f.tight_url : (f.tight_plain_url || f.tight_url);
   document.getElementById('wide').src =
       outlineOn ? f.wide_url : (f.wide_plain_url || f.wide_url);
+  // Polygon centroid, "lat, lon" in the order map search boxes take, so it can
+  // be pasted straight into another basemap to look the site up.
+  document.getElementById('coord').textContent =
+      f.lat.toFixed(5) + ', ' + f.lon.toFixed(5);
   document.getElementById('outline').textContent =
       'outline: ' + (outlineOn ? 'on' : 'off');
   var n = Object.keys(verdicts).length;

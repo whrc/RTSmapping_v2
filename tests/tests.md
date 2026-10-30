@@ -1171,7 +1171,7 @@ plus a stubbed IAP verifier, via FastAPI's `TestClient`.
 
 | Test | Checks | Strictness |
 |---|---|---|
-| `test_claim_returns_items_with_crop_urls` | items carry proxy URLs and never leak raw object keys | real — the "no imagery on the host" design |
+| `test_claim_returns_items_with_crop_urls` | items carry proxy URLs and never leak raw object keys, and carry the centroid `lat`/`lon` the UI prints under the crops | real — the "no imagery on the host" design |
 | `test_crop_urls_carry_the_archive_version` | every crop URL ends in `?v=<CROP_VERSION>` | real — crops are cached `max-age=86400` under a stable key, so a re-rendered archive reaches nobody without this |
 | `test_crop_is_served_with_the_version_query_string` | the proxy keys off the path, so the token neither 404s nor changes the bytes | real |
 | `test_crop_streams_the_jpeg` | `/crop/<key>` returns the bytes as `image/jpeg`, cacheable | real — the whole imagery path |
@@ -1185,7 +1185,7 @@ plus a stubbed IAP verifier, via FastAPI's `TestClient`.
 | `test_submit_persists_and_is_idempotent` | written=True then written=False | real |
 | `test_bad_verdict_is_a_400_not_a_500` | store `ValueError` maps to a client error | real |
 | `test_progress_tracks_submissions` | progress reflects a completed batch | real |
-| `test_index_serves_the_rater` | the UI is served at `/` | shallow |
+| `test_index_serves_the_rater` | the UI is served at `/` and contains the `#coord` line for the printed centroid (the JS that fills it is not run) | shallow |
 | `test_iap_identity_is_used_when_present` | a verified IAP assertion sets the reviewer | real |
 | `test_client_cannot_override_the_iap_identity` | a supplied name is ignored behind IAP | real — attribution feeds κ and the audit trail, so it must not be typeable |
 | `test_claim_is_recorded_under_the_iap_identity` | the verdict JSONL carries the authenticated address, not the client's | real |

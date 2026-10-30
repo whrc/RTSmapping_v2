@@ -72,6 +72,8 @@ def test_claim_returns_items_with_crop_urls(client):
     assert first["tight_url"] == f"/crop/campaign/crops/1_t.jpg?v={CROP_VERSION}"
     assert first["wide_url"] == f"/crop/campaign/crops/1_w.jpg?v={CROP_VERSION}"
     assert "tight_key" not in first  # the raw key field is replaced, not added
+    # The UI prints these under the crops for looking the site up elsewhere.
+    assert (first["lat"], first["lon"]) == (70.0, -120.0)
 
 
 def test_crop_urls_carry_the_archive_version(client):
@@ -204,6 +206,7 @@ def test_index_serves_the_rater(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "RTS review campaign" in r.text
+    assert 'id="coord"' in r.text  # printed centroid under the crops
 
 
 # --- reviewer identity ----------------------------------------------------
