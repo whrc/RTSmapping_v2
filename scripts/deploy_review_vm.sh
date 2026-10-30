@@ -51,7 +51,11 @@ $DOCKER build -f "$REPO/computing/Dockerfile.review" -t "$IMAGE" "$REPO"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 $DOCKER save "$IMAGE" | gzip -1 > "$TMP/rts-review.tar.gz"
-gcloud storage cp "$TMP/rts-review.tar.gz" "gs://$BUCKET/$TARBALL"
+# The bucket is Requester Pays (2026-10-28), so every read and write names a
+# billing project: `--billing-project` here, `userProject=` in the VM's curl,
+# REVIEW_BILLING_PROJECT in the app.
+gcloud storage cp --billing-project "$PROJECT" \
+    "$TMP/rts-review.tar.gz" "gs://$BUCKET/$TARBALL"
 
 echo "== firewall: open $TAG:80 to the internet =="
 gcloud compute firewall-rules describe "rts-review-allow-http" --project "$PROJECT" \
@@ -83,12 +87,13 @@ TOKEN=\$(curl -s -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 curl -sf -H "Authorization: Bearer \$TOKEN" -o /var/tmp/rts-review.tar.gz \
-  "https://storage.googleapis.com/storage/v1/b/$BUCKET/o/\$OBJ?alt=media"
+  "https://storage.googleapis.com/storage/v1/b/$BUCKET/o/\$OBJ?alt=media&userProject=$PROJECT"
 docker load -i /var/tmp/rts-review.tar.gz
 docker rm -f rts-review >/dev/null 2>&1 || true
 docker run -d --restart always --name rts-review -p 80:8080 \
   -e PORT=8080 \
   -e REVIEW_BUCKET=$BUCKET \
+  -e REVIEW_BILLING_PROJECT=$PROJECT \
   -e REVIEW_PREFIX=$PREFIX \
   -e REVIEW_CROP_PREFIX=$CROPS \
   -e REVIEW_MANIFEST=$MANIFEST \

@@ -25,6 +25,10 @@ Configuration is entirely environment (Cloud Run env vars / Space secrets):
     REVIEW_CROP_PREFIX  crop archive prefix, e.g. .../internal/review_crops
     REVIEW_MANIFEST     gs:// URI of manifest.parquet
     IAP_AUDIENCE        optional; the IAP JWT audience to require
+    REVIEW_BILLING_PROJECT  required while the bucket is Requester Pays (enabled
+                        2026-10-28): the project billed for every read/write.
+                        The runtime identity needs
+                        roles/serviceusage.serviceUsageConsumer on it.
     GCP_SA_KEY          optional; only for a host that cannot attach a service
                         account. On Cloud Run leave it unset.
 
@@ -90,7 +94,8 @@ def _connect():
 
         creds, project = google.auth.default()
         client = storage.Client(credentials=creds, project=project)
-    return client.bucket(os.environ["REVIEW_BUCKET"])
+    return client.bucket(os.environ["REVIEW_BUCKET"],
+                         user_project=os.environ.get("REVIEW_BILLING_PROJECT"))
 
 
 def _read_manifest(uri: str) -> pd.DataFrame:

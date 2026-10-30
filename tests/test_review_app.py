@@ -253,3 +253,33 @@ def test_me_reports_no_identity_rather_than_failing(client):
     """The UI calls /api/me before it has a name; it needs an answer, not a 403."""
     assert client.get("/api/me").json() == {"reviewer": None,
                                             "authenticated": False}
+
+
+def test_connect_bills_the_configured_project(monkeypatch):
+    """A Requester Pays bucket 400s every call that lacks a billing project."""
+    import google.auth
+    from google.cloud import storage
+
+    import review.app as app_mod
+
+    seen = {}
+
+    class _Client:
+        def __init__(self, credentials=None, project=None):
+            pass
+
+        def bucket(self, name, user_project=None):
+            seen["args"] = (name, user_project)
+
+    monkeypatch.delenv("GCP_SA_KEY", raising=False)
+    monkeypatch.setenv("REVIEW_BUCKET", "b")
+    monkeypatch.setattr(google.auth, "default", lambda: (None, "p"))
+    monkeypatch.setattr(storage, "Client", _Client)
+
+    monkeypatch.setenv("REVIEW_BILLING_PROJECT", "billing-proj")
+    app_mod._connect()
+    assert seen["args"] == ("b", "billing-proj")
+
+    monkeypatch.delenv("REVIEW_BILLING_PROJECT")
+    app_mod._connect()
+    assert seen["args"] == ("b", None)

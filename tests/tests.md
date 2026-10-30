@@ -1193,6 +1193,7 @@ plus a stubbed IAP verifier, via FastAPI's `TestClient`.
 | `test_supplied_name_is_used_when_there_is_no_iap` | local runs and the offline pack still work | real |
 | `test_no_identity_at_all_is_a_403` | no name and no assertion is refused | real |
 | `test_me_reports_no_identity_rather_than_failing` | `/api/me` answers before the UI has a name | real — the UI calls it first |
+| `test_connect_bills_the_configured_project` | `_connect` opens the bucket with `user_project=$REVIEW_BILLING_PROJECT` (None when unset) | real — the bucket went Requester Pays 2026-10-28 and every call without a billing project 400s; the fake bucket cannot model this, so the test pins the argument |
 
 ### [test_review_merge.py](test_review_merge.py)
 
