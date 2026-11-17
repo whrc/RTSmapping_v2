@@ -207,6 +207,7 @@ def test_index_serves_the_rater(client):
     assert r.status_code == 200
     assert "RTS review campaign" in r.text
     assert 'id="coord"' in r.text  # printed centroid under the crops
+    assert 'id="copy"' in r.text   # and its copy button
 
 
 # --- reviewer identity ----------------------------------------------------

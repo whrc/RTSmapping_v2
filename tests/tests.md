@@ -1188,7 +1188,7 @@ plus a stubbed IAP verifier, via FastAPI's `TestClient`.
 | `test_submit_persists_and_is_idempotent` | written=True then written=False | real |
 | `test_bad_verdict_is_a_400_not_a_500` | store `ValueError` maps to a client error | real |
 | `test_progress_tracks_submissions` | progress reflects a completed batch | real |
-| `test_index_serves_the_rater` | the UI is served at `/` and contains the `#coord` line for the printed centroid (the JS that fills it is not run) | shallow |
+| `test_index_serves_the_rater` | the UI is served at `/` and contains the `#coord` line and copy button for the printed centroid (the JS that fills and copies it is not run) | shallow |
 | `test_iap_identity_is_used_when_present` | a verified IAP assertion sets the reviewer | real |
 | `test_client_cannot_override_the_iap_identity` | a supplied name is ignored behind IAP | real — attribution feeds κ and the audit trail, so it must not be typeable |
 | `test_claim_is_recorded_under_the_iap_identity` | the verdict JSONL carries the authenticated address, not the client's | real |

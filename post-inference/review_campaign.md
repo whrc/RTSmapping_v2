@@ -419,7 +419,7 @@ double-counted *record* is not.
 
 **The model's probability is never shown to the reviewer.** A rater told the model is 99% confident
 is primed to agree, and this campaign exists to *measure* the model, not to confirm it. The UI shows
-only the batch position, the polygon's area, and its centroid `lat, lon` (printed under the crops, so
+only the batch position, the polygon's area, and its centroid `lon, lat` (printed under the crops with a copy button, so
 the site can be looked up in another basemap). `max_prob` still drives the queue order, so a
 determined reviewer could infer a tier from position — a far weaker cue than a number on screen next
 to the buttons.
