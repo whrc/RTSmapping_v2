@@ -1250,6 +1250,22 @@ replicates, leak `max_prob`: each fails a test).
 | `test_vrts_use_relative_paths_and_zero_nodata` | members are relative to each VRT's own dir; `-srcnodata 0 -vrtnodata 0`; top VRT lists the regional ones | real — absolute paths would break the folder when moved |
 | `test_the_zip_keeps_the_folder_and_the_paths_relative` | archive paths start at the package folder | real |
 
+### [test_diag_fp_census.py](test_diag_fp_census.py)
+
+`scripts/diag_fp_census.py` — v3-alpha Phase 0.1/0.2: where the census false positives sit, and how many a tile-level gate could remove. Synthetic polygons built in EPSG:3857 metres and converted to lon/lat, so the projected-window logic is tested exactly. Network-free; the split-assignment test needs geopandas and is skipped without it.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_tile_half_is_half_a_512px_web_mercator_tile` | `TILE_HALF_M` ≈ 1,223 m (256 px × 4.7773 m) | shallow — pins the constant |
+| `test_removable_bounds_flag_neighbours_inside_the_projected_window` | a rts at 1,100 m and an unsure at 1,200 m are in the window; an unreviewed one at 1,300 m is not; a polygon 50 km away is alone | real |
+| `test_the_window_is_square_not_circular` | a rts at the (1,200, 1,200) corner counts (1,697 m apart); one at 1,250 m on-axis does not | real — a circular test would silently give a different removable share |
+| `test_removable_bounds_are_ordered_and_separate_unreviewed_neighbours` | lower 1/3, upper 2/3 on a hand-built case; lower ≤ upper | real — the gate decision rests on this bracket |
+| `test_rate_table_false_rate_excludes_unsure_and_shares_sum_to_one` | false rate 1/4 and 3/4 with unsure ignored; shares of all false sum to 1 | real |
+| `test_rate_table_shares_use_all_false_even_when_a_group_key_is_missing` | a NaN group key (centroid outside every region) must not shrink the denominator: share 0.5, not 1.0 | real — the first run overstated the top-5-region share (62% vs 58%) this way |
+| `test_confidence_profile_precision_and_auroc` | precision at a cut, false kept, AUROC 0.8 on a hand-counted 16-of-20 case, unsure excluded | real — pins the baseline a tile gate must beat |
+| `test_bands_are_left_closed` | 0.65 opens its band; 1.0 lands in the top band, not NaN | real — a right-closed band would move every boundary polygon |
+| `test_assign_split_maps_regions_through_splits_yaml` | train / val_realistic / unassigned from region polygons and `splits.yaml` | real — skipped without geopandas |
+
 ---
 
 ## Coverage gaps (known)
@@ -1285,6 +1301,7 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 
 ## Dev log
 
+- 2026-11-18 — v3-alpha Phase 0: new `test_diag_fp_census.py` (9 tests) for `scripts/diag_fp_census.py`, the census error analysis behind the `cgm` go/no-go. The tile window is a *projected* square (+-1,223 m in EPSG:3857, about 420 m on the ground at 70N), and two tests exist only to keep it that way. A first draft asserted the last band's right edge was 1.0001; pandas rounds interval labels to 3 d.p., so it read 1.0. The band was right and the assertion wrong, so the test now checks that 1.0 lands in the top band. All synthetic/CPU. Green: 9 passed (8 pandas-only, 1 geopandas).
 - 2026-09-28 — Zero was never reserved for NoData: **+4 tests** (`test_build_rgb_chips.py` 10→13, `test_review_crops.py` 23→24). The operator spotted crops striped `NO IMAGERY` over ground that opened complete in QGIS. Planet's 8-bit basemaps clamp deep shadow and dark water to exactly `(0,0,0)` with `alpha=255`; `write_rgb_chip` wrote NoData as 0 as well, so the chip could not say which was which and `render_crop` striped both — pooled over seven sampled quads, **68.8% of striped pixels were valid imagery**. No threshold could have separated them; the ambiguity was in the sentinel. The fix floors valid imagery at 1. The guard that matters is `test_black_imagery_and_absent_imagery_are_written_differently`: one quad, the same `(0,0,0)` in both halves, alpha the only difference — verified red on `clip(rgb, 0, 255)` and green on `clip(rgb, 1, 255)`. The older `test_write_rgb_chip_is_georeferenced_uint8_and_matches_quad_values` could never have caught it: its fixture paints `(10,20,30)`, so the sentinel collision it was blind to never arose. **126 passed** across the nine review/chip/claim files in `rts-infer:v1`. See `post-inference/review_campaign.md` §4.4 and `training/training.md` §4.4.
 - 2026-09-23 — Review-app context, neighbours and a claim TTL that never fired: **+22 tests** (`test_review_crops.py` 12→23, new `test_build_review_crops.py` with 11, `test_claim.py` 9→13, `test_build_rgb_chips.py` 6→10, `test_review_app.py` +2). Three of them exist because a fake was too kind. `test_claim.py`'s `_FakeBucket` modelled GCS's create-if-absent atomicity but not its IAM, so nothing could catch that the live review app's runtime identity held `objectCreator` — which grants neither overwrite nor delete. Heartbeats 500'd into a `fetch` with no `.catch` and stale reclaims swallowed their 403 for seven weeks, stranding 18 batches and freezing the campaign's headline claim. The new `_CreateOnlyBucket` reproduces it in four lines. The rest guard the crop archive: `test_resume_skips_a_polygon_that_already_has_crops` pins the rule that let a rebuilt chip mosaic change nothing, `test_context_tiles_cover_the_whole_wide_crop` pins the tile selection that was only ever wide enough for the detection itself, and `test_absent_imagery_is_striped_not_black` pins the reason none of it was noticed — missing pixels rendered as black, which is also what dark water looks like. Green in `rts-infer:v1` (**128 passed** across the nine review/claim/chip files). See `post-inference/review_campaign.md` §4.1, §4.3, §6.2.
 - 2026-04-22 — Initial suite: 24 tests across 4 files, all green. Covers Phase 0 data pipeline. See plan for context.

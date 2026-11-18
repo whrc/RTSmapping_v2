@@ -1,0 +1,128 @@
+{
+  "n_polygons": 60167,
+  "status_counts": {
+    "unverified": 32367,
+    "rts": 12372,
+    "false_positive": 9636,
+    "unsure": 5792
+  },
+  "tile_half_m_projected": 1222.99245256282,
+  "removable_all": {
+    "n_false": 9636,
+    "removable_lower": 0.7434620174346201,
+    "removable_upper": 0.9878580323785803
+  },
+  "confidence_profile": {
+    "precision_at_max_prob": {
+      "0.45": {
+        "n": 22008,
+        "precision": 0.5621592148309705,
+        "false_kept": 9636
+      },
+      "0.65": {
+        "n": 15422,
+        "precision": 0.7156010893528725,
+        "false_kept": 4386
+      },
+      "0.80": {
+        "n": 10800,
+        "precision": 0.815462962962963,
+        "false_kept": 1993
+      },
+      "0.90": {
+        "n": 7713,
+        "precision": 0.9114482043303513,
+        "false_kept": 683
+      },
+      "0.95": {
+        "n": 5623,
+        "precision": 0.9507380401920683,
+        "false_kept": 277
+      }
+    },
+    "auroc_by_val_region": {
+      "Beringia lowland tundra": {
+        "n_rts": 12,
+        "n_false": 25,
+        "auroc": 0.8049999999999999
+      },
+      "Canadian Low Arctic tundra": {
+        "n_rts": 831,
+        "n_false": 330,
+        "auroc": 0.7718885606972249
+      },
+      "Interior Alaska-Yukon lowland taiga": {
+        "n_rts": 7,
+        "n_false": 155,
+        "auroc": 0.6714285714285714
+      },
+      "Northeast Siberian coastal tundra": {
+        "n_rts": 55,
+        "n_false": 101,
+        "auroc": 0.5654365436543655
+      },
+      "Novosibirsk Islands Arctic desert": {
+        "n_rts": 7,
+        "n_false": 86,
+        "auroc": 0.6453488372093023
+      }
+    },
+    "auroc_all": 0.838693279371717,
+    "auroc_high_tier": 0.7985491085263053,
+    "auroc_val_pooled": 0.751719461854061,
+    "share_of_false_below_0.9": 0.9291199667911997,
+    "share_of_false_below_0.8": 0.7931714404317144,
+    "false_regions_ge_0.8": {
+      "n_regions": 17,
+      "n_false": 3687,
+      "share_of_all_false": 0.38262764632627644,
+      "n_rts_there": 339
+    },
+    "false_regions_ge_0.9": {
+      "n_regions": 13,
+      "n_false": 2527,
+      "share_of_all_false": 0.26224574512245746,
+      "n_rts_there": 83
+    },
+    "top5_false_regions": {
+      "Taimyr-Central Siberian tundra": 2538,
+      "Canadian Middle Arctic Tundra": 1063,
+      "Kalaallit Nunaat Arctic steppe": 1051,
+      "Canadian High Arctic tundra": 622,
+      "Canadian Low Arctic tundra": 330
+    },
+    "top5_share_of_all_false": 0.5815691158156912
+  },
+  "removable_by_max_prob_band": {
+    "[0.3, 0.45)": {
+      "n_false": 0,
+      "removable_lower": NaN,
+      "removable_upper": NaN
+    },
+    "[0.45, 0.65)": {
+      "n_false": 5250,
+      "removable_lower": 0.7175238095238096,
+      "removable_upper": 0.9872380952380952
+    },
+    "[0.65, 0.8)": {
+      "n_false": 2393,
+      "removable_lower": 0.7735060593397409,
+      "removable_upper": 0.9882992060175512
+    },
+    "[0.8, 0.9)": {
+      "n_false": 1310,
+      "removable_lower": 0.7702290076335878,
+      "removable_upper": 0.9862595419847329
+    },
+    "[0.9, 0.95)": {
+      "n_false": 406,
+      "removable_lower": 0.8103448275862069,
+      "removable_upper": 1.0
+    },
+    "[0.95, 1.0)": {
+      "n_false": 277,
+      "removable_lower": 0.7509025270758123,
+      "removable_upper": 0.9855595667870036
+    }
+  }
+}
