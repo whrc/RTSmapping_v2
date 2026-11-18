@@ -1,6 +1,6 @@
 # v3-cgm — a classification-guided existence gate (`cgm`)
 
-Branch `v3-cgm` (git worktree; renamed from `v3-alpha` on 2026-11-18). **Purpose: test whether the `cgm` tile-level existence gate reduces false positives.** Nothing else belongs on this branch. **v2 is not changed by anything here.** Whether `cgm` replaces v2 for any year is decided after the experiments. (The file keeps the name `v3_alpha.md`, and the plan text outside the repo still says v3-alpha.)
+Branch `v3-cgm` (git worktree). **Purpose: test whether the `cgm` tile-level existence gate reduces false positives.** Nothing else belongs on this branch. **v2 is not changed by anything here.** Whether `cgm` replaces v2 for any year is decided after the experiments.
 
 **Status (2026-11-18): PAUSED after Phase 0.1/0.2.** The 2025 review verdicts are about to be used to extend the training set (more hard negatives; more positives in poorly represented regions; val and test regions held out) in a separate session. `cgm` is evaluated after that, with a new control, because the old controls, `σ_ctrl` and any probe would be tied to the old training set. See *Pickup* at the end.
 
@@ -37,7 +37,7 @@ down by ≥ 2σ_ctrl, and E1 PR-AUC Δ ≥ −0.01.
 Reproduce: `python scripts/diag_fp_census.py --snapshot rts_candidates_review_status_20261117T230236Z.geojson.gz
 --attrs south_rts_attributes.parquet --regions circumpolar_subregions.geojson --splits splits.yaml --out-dir ...`
 (inputs: `gs://rts-arctic-usw1/inference/2025q3_south/products/` and `gs://rts-arctic-us/training/v1.0/`).
-Tables are in [v3_alpha_phase0/](v3_alpha_phase0/). Status counts reproduce the documented snapshot exactly
+Tables are in [v3_cgm_phase0/](v3_cgm_phase0/). Status counts reproduce the documented snapshot exactly
 (12,372 rts · 9,636 false · 5,792 unsure · 32,367 unreviewed; 60,167 polygons).
 
 **The reviewed set.** The queue runs in descending `max_prob`, so the high tier (≥ 0.65) is fully reviewed,
@@ -125,7 +125,7 @@ tundra (12 / 25).
 ## 4. Environment notes (this laptop)
 
 `.venv` in the worktree (gitignored) built from `requirements_frozen.txt` (smp 0.5.0, timm 1.0.26,
-torch 2.11.0+cpu) plus `requirements-v3a.txt` (geopandas, shapely, pyogrio). Two local deviations:
+torch 2.11.0+cpu) plus `requirements-v3cgm.txt` (geopandas, shapely, pyogrio). Two local deviations:
 `rasterio==1.4.4` instead of 1.5.0 (1.5 needs Python ≥ 3.12; this machine has 3.11.5), and a venv-local
 `sitecustomize.py` that preloads scikit-learn's `msvcp140.dll`, because the system copy is older than
 torch 2.11 needs (`import torch` otherwise dies with WinError 1114). Run with `PYTHONNOUSERSITE=1`; the
@@ -142,12 +142,12 @@ Treat the VM run as the authoritative baseline.
 ## 5. Pickup
 
 **Done and committed on branch `v3-cgm`:** the census error analysis (`scripts/diag_fp_census.py`, 9 tests,
-tables in `v3_alpha_phase0/`), the smp `aux_params` check, the pinned local environment, the corrections in §3.
+tables in `v3_cgm_phase0/`), the smp `aux_params` check, the pinned local environment, the corrections in §3.
 **Not done:** Phase 0.3 (E2 tile set), 0.4 (encoder probe), 0.5 (control scoring), and everything in Phase 1–2.
 No `cgm` code exists yet, and no training has run.
 
 **Reusable by the data-extension work:** the region and split assignment (`assign_split`), the tile window
-logic, the per-region counts in `v3_alpha_phase0/false_rate_by_region.csv` (verified rts and false per region,
+logic, the per-region counts in `v3_cgm_phase0/false_rate_by_region.csv` (verified rts and false per region,
 to rank where to add data), and the rule that val and test regions stay held out.
 
 **Decisions still open (asked 2026-11-18):** how to treat `rts` outlines as positives (model-drawn 0.30
@@ -163,7 +163,7 @@ the 652 polygons from regions in no split may be used for training.
 5. Phase 1–2 only if it passes. Phase 2 needs a training GPU quota (still none in `abruptthawmapping`).
 
 **Environment to recreate:** `python -m venv .venv`, install `requirements_frozen.txt` (with
-`--extra-index-url https://download.pytorch.org/whl/cpu`) then `requirements-v3a.txt`; see §4 for the two
+`--extra-index-url https://download.pytorch.org/whl/cpu`) then `requirements-v3cgm.txt`; see §4 for the two
 laptop-only workarounds. Raw inputs live in GCS (paths in §2), not in the repo. The approved plan text is
 in `C:/Users/Yili Yang/.claude/plans/plan-for-a-new-temporal-kitten.md` (outside the repo; §3 above supersedes
 its claim about precision falling above 0.65).

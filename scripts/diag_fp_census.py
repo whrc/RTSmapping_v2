@@ -1,4 +1,4 @@
-"""v3-alpha Phase 0.1 / 0.2: where do the census false positives sit?
+"""v3-cgm Phase 0.1 / 0.2: where do the census false positives sit?
 
 Reads the review-status snapshot (one row per candidate polygon, from
 ``export_candidates_geojson.py``) and the candidate attribute table, then reports:
