@@ -1,7 +1,6 @@
-# v3-alpha — a classification-guided existence gate (`cgm`)
+# v3-cgm — a classification-guided existence gate (`cgm`)
 
-Branch `v3-alpha` (git worktree). **v2 is not changed by anything here.** v3-alpha is a branched
-experiment; whether it replaces v2 for any year is decided after the experiments.
+Branch `v3-cgm` (git worktree; renamed from `v3-alpha` on 2026-11-18). **Purpose: test whether the `cgm` tile-level existence gate reduces false positives.** Nothing else belongs on this branch. **v2 is not changed by anything here.** Whether `cgm` replaces v2 for any year is decided after the experiments. (The file keeps the name `v3_alpha.md`, and the plan text outside the repo still says v3-alpha.)
 
 **Status (2026-11-18): PAUSED after Phase 0.1/0.2.** The 2025 review verdicts are about to be used to extend the training set (more hard negatives; more positives in poorly represented regions; val and test regions held out) in a separate session. `cgm` is evaluated after that, with a new control, because the old controls, `σ_ctrl` and any probe would be tied to the old training set. See *Pickup* at the end.
 
@@ -136,13 +135,13 @@ user-site NumPy 2.4.6 there is built against a mismatched scipy.
 fail or error, in six files: `test_review_crops.py` (19), `test_train_smoke.py` (10), `test_downsample_max.py`
 (3), `test_interannual_inference.py` (2), `test_prob_writer.py` (1), `test_planetscope_download.py` (1). The
 causes are the laptop, not the code: no GDAL command-line tools (`WinError 2`), no `osgeo` Python bindings,
-POSIX-path assertions that see backslashes, and mlflow file URIs on Windows. None touches v3-alpha files.
+POSIX-path assertions that see backslashes, and mlflow file URIs on Windows. None touches this branch's files.
 The run used `-q` twice, which drops pytest's summary line, so the counts come from the progress lines.
 Treat the VM run as the authoritative baseline.
 
 ## 5. Pickup
 
-**Done and committed on branch `v3-alpha`:** the census error analysis (`scripts/diag_fp_census.py`, 9 tests,
+**Done and committed on branch `v3-cgm`:** the census error analysis (`scripts/diag_fp_census.py`, 9 tests,
 tables in `v3_alpha_phase0/`), the smp `aux_params` check, the pinned local environment, the corrections in §3.
 **Not done:** Phase 0.3 (E2 tile set), 0.4 (encoder probe), 0.5 (control scoring), and everything in Phase 1–2.
 No `cgm` code exists yet, and no training has run.
