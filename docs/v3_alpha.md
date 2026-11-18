@@ -3,8 +3,7 @@
 Branch `v3-alpha` (git worktree). **v2 is not changed by anything here.** v3-alpha is a branched
 experiment; whether it replaces v2 for any year is decided after the experiments.
 
-**Status (2026-11-18): Phase 0 in progress.** 0.1 and 0.2 are done (census error analysis, below). 0.3–0.5
-(E2 tile set, the encoder probe, control scoring) are not started and need a compute decision.
+**Status (2026-11-18): PAUSED after Phase 0.1/0.2.** The 2025 review verdicts are about to be used to extend the training set (more hard negatives; more positives in poorly represented regions; val and test regions held out) in a separate session. `cgm` is evaluated after that, with a new control, because the old controls, `σ_ctrl` and any probe would be tied to the old training set. See *Pickup* at the end.
 
 ## 1. Spec (from the approved plan)
 
@@ -141,8 +140,31 @@ POSIX-path assertions that see backslashes, and mlflow file URIs on Windows. Non
 The run used `-q` twice, which drops pytest's summary line, so the counts come from the progress lines.
 Treat the VM run as the authoritative baseline.
 
-## 5. Next
+## 5. Pickup
 
-0.3 E2 tile set → 0.4 probe → 0.5 control scoring. The probe needs the v1.1 control checkpoints
-(`gs://rts-arctic-us/RTS_MODEL_V1_1/runs/v1_1_seed4{2,3,4}/`) and a few thousand train tiles; both are CPU-feasible
-here but slow. See the open decisions reported with this record.
+**Done and committed on branch `v3-alpha`:** the census error analysis (`scripts/diag_fp_census.py`, 9 tests,
+tables in `v3_alpha_phase0/`), the smp `aux_params` check, the pinned local environment, the corrections in §3.
+**Not done:** Phase 0.3 (E2 tile set), 0.4 (encoder probe), 0.5 (control scoring), and everything in Phase 1–2.
+No `cgm` code exists yet, and no training has run.
+
+**Reusable by the data-extension work:** the region and split assignment (`assign_split`), the tile window
+logic, the per-region counts in `v3_alpha_phase0/false_rate_by_region.csv` (verified rts and false per region,
+to rank where to add data), and the rule that val and test regions stay held out.
+
+**Decisions still open (asked 2026-11-18):** how to treat `rts` outlines as positives (model-drawn 0.30
+contours: hand refine, or boundary-ignore ring); whether to cap or balance hard negatives by scene type; whether
+the 652 polygons from regions in no split may be used for training.
+
+**To resume `cgm`:**
+1. Rebuild the controls on the extended set (single seeds are enough to start; the recipe is `configs/v1_1_seed42.yaml`).
+2. Re-run `diag_fp_census.py` on a fresh snapshot; re-check the corrections in §3 (precision rises with `max_prob`).
+3. E2 primary metric: AUROC within Canadian Low Arctic, plus region-stratified pooled; secondary: unassigned
+   polygons as extra false positives, train-region polygons as a labelled memorisation reference.
+4. Phase 0.3–0.5 as in §1 (VM: CPU, about 16 vCPU, us-west1), then the go/no-go on the probe (≥ +0.02 AUROC).
+5. Phase 1–2 only if it passes. Phase 2 needs a training GPU quota (still none in `abruptthawmapping`).
+
+**Environment to recreate:** `python -m venv .venv`, install `requirements_frozen.txt` (with
+`--extra-index-url https://download.pytorch.org/whl/cpu`) then `requirements-v3a.txt`; see §4 for the two
+laptop-only workarounds. Raw inputs live in GCS (paths in §2), not in the repo. The approved plan text is
+in `C:/Users/Yili Yang/.claude/plans/plan-for-a-new-temporal-kitten.md` (outside the repo; §3 above supersedes
+its claim about precision falling above 0.65).
