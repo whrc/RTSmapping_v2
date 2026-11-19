@@ -3,7 +3,7 @@
 **This file is the experiments SSoT.** Every training run, the locked recipe, the findings, and the
 dropped ideas live here and nowhere else. `docs/report.html` is the generated analytical/visual view of
 this file; `current_working_status.md` is the project diary. To update, follow the ritual in `CLAUDE.md`.
-**v2.0 is locked/frozen.** The v2.1 SSL-pretraining program has its own ledger: `docs/experiment_ledger_v21.md`.
+**M1.0 is locked/frozen.** The M3.0 SSL-pretraining program has its own ledger: `docs/experiment_ledger_v21.md`.
 
 **Metric:** `val_realistic_pr_auc_geomean` = `best_smoothed` (higher is better). The **`score` column of
 the run table is machine-harvested** from each run's `run_summary.json` by `scripts/sync_experiments.py`
@@ -181,9 +181,9 @@ sign-flipped → rejected).
 | multiscale_poc_seed42 | M | corrected | 0.9165 | done | multiscale POC — gates 1+2 pass, gate 3 fail (family-M finding) |
 | multiscale_poc_seed43 | M | corrected | 0.9284 | done | multiscale POC seed-confirm |
 | multiscale_poc_seed44 | M | corrected | 0.9282 | done | multiscale POC seed-confirm |
-| v1_1_seed42 | N | corrected | 0.9029 | done | v1.1 correctness retrain — ability WASH (val set −29 black neg; own-thr 0.45) |
-| v1_1_seed43 | N | corrected | 0.9086 | done | v1.1 correctness retrain seed-confirm |
-| v1_1_seed44 | N | corrected | 0.8906 | done | v1.1 correctness retrain seed-confirm (mean 0.9007; keep v1.0 deployed) |
+| v1_1_seed42 | N | corrected | 0.9029 | done | M1.1 (on D1.1) correctness retrain — no-improvement (val set −29 black neg; own-thr 0.45) |
+| v1_1_seed43 | N | corrected | 0.9086 | done | M1.1 correctness retrain seed-confirm |
+| v1_1_seed44 | N | corrected | 0.8906 | done | M1.1 correctness retrain seed-confirm (mean 0.9007; keep M1.0 deployed) |
 <!-- C1–C4 hypothesis-test battery (2026-07-25); design: docs/future_work/experiments_hypothesis_test.md; stats: outputs/metric_robustness.csv -->
 | c2_effb0_ndvi_seed42 | E | corrected | 0.8854 | done | C2 capacity sweep — EffB0+NDVI (deploy recipe) |
 | c2_effb0_ndvi_seed43 | E | corrected | 0.8522 | done | seed-confirm |
@@ -266,7 +266,7 @@ distance-from-center Gaussian σ=128 px; NDVI windowed on-the-fly from S2 compos
 G=0.0112. Re-measured on the corrected split, σ≈0.012 (~2×) → every lock needs mean Δ≥G **and** 3-seed
 sign-consistency. Normalization Arm A (per-dataset z-score) locked.
 
-**B — Data scaling (leaky split, relative-only).** More labeled data is **not** the near-term lever: v1.0
+**B — Data scaling (leaky split, relative-only).** More labeled data is **not** the near-term lever: D1.0
 is on a data plateau (25→100%: 0.764→0.792, flat slope) and the model is well-matched to its data
 (train/val IoU gap 0.05/0.17 ≪ 0.4). No new labels are coming → squeeze the fixed ~1.5k positives via
 representation, not volume. This is the central diagnosis: **representation-limited, not data-volume- or
@@ -709,7 +709,7 @@ the `u8 >= 162` (≥0.648) that binarising the raster at 0.65 gives, which is th
 sit in medium polygons. Still a **one-region** number (all 215 GT objects in Northwest Russian-Novaya Zemlya
 tundra), as with J and K. Artifact: `/mnt/outputs/v1.0/diagnostics/product_rule_scorecard_frozen_test.json`.
 
-**M — Multi-scale (0.5x context-expanded training POC, started 2026-07-02).** Motivation: the v2.0
+**M — Multi-scale (0.5x context-expanded training POC, started 2026-07-02).** Motivation: the M1.0
 model does not transfer zero-shot to 2× GSD (scale-0.5 tiny-AOI test: 0 blobs vs 9, hot-region IoU
 0.000 — `docs/inference_validation.md`), and the inference.md §6.4 gate presumes multi-scale must come
 from training. Design (user decisions): full re-stage of the dataset at 0.5x (~9.55 m/px, 1024-px
@@ -719,8 +719,8 @@ context; 115/168 convert) · joint dual-scale training, 3 seeds. New guards at 0
 255 (known-but-undelineated RTS in the 4× context must not train as background), sub-pixel (<10 px)
 positives → 255. Staged: `gs://rts-mapping-v2/training/v1.0_scale05` — **21,934 tiles (1,491 pos /
 20,443 neg)**; splits resolve to train 17,679 / val_realistic 2,155 (93 pos) / test 2,100. Provenance:
-staging vectors reproduce 57/60 sampled v1.0 label tiles exactly (3 misses = later hotfix edits).
-Norm: v1.0 stats reused; measured drift mean −1.2..−1.8%, std −5..−7% (bilinear variance loss —
+staging vectors reproduce 57/60 sampled D1.0 label tiles exactly (3 misses = later hotfix edits).
+Norm: D1.0 stats reused; measured drift mean −1.2..−1.8%, std −5..−7% (bilinear variance loss —
 accepted, keeps the 1x baseline unconfounded). Ignore share in 0.5x positives: 0.71% of px (vs 3.40%
 positive px) — the context-expansion did remove most ignore need. **Pre-registered gates:**
 (1) *1x no-regression*: 3-seed mean best_smoothed within seed noise of the TrivialAugment baseline
@@ -736,7 +736,7 @@ below −0.01). Adding 17,679 0.5x train tiles does not hurt 1x; the +0.0026 mea
 **Gate 2 — PASS 3/3.** Same-checkpoint 0.5x val (2,155 tiles / 93 pos): geomean 0.8234 / 0.8166 / 0.8183
 vs the 1x-only baseline checkpoint's **0.7500**; obj-F1 ratio to own 1x = 0.787 / 0.808 / 0.781 (gate
 ≥0.7; baseline = 0.588). Note: on 2024 same-domain tiles the baseline degrades rather than fully
-collapses — the tiny-AOI zero-blob result compounded 2025 imagery + the uncalibrated v2.0 dev
+collapses — the tiny-AOI zero-blob result compounded 2025 imagery + the uncalibrated M1.0 dev
 checkpoint. Multiscale training closes most of the 0.5x gap regardless.
 **Gate 3 — FAIL (pre-registered).** §7.3 average-fusion on the 1x val grid (2,096/2,151 tiles covered):
 fused object recall never exceeds 1x-only at any matched threshold (best-F1 points: R 0.674/0.630/0.704
@@ -772,39 +772,39 @@ of the correction is the 50–600 px edge-partial band. Excluded set at 600: val
 0.223 → 0.159 (−6.4 pt, ~29% of the "floor" was un-scoreable slivers). Artifacts:
 `/mnt/outputs/v1.0/staging/data_v1_1_audit/mmu_rescore/` (per-MMU scorecards + `excluded_audit_{val,test}.json`).
 
-**N-retrain — v1.1 data-correctness 3-seed retrain = ability WASH (2026-07-04, `v1_1_seed{42,43,44}`).**
-v1.1 applied three unambiguous row-level fixes (small-blob deletion dropped — superseded by the MMU
+**N-retrain — M1.1 (on D1.1) data-correctness 3-seed retrain = no-improvement (2026-07-04, `v1_1_seed{42,43,44}`).**
+D1.1 applied three unambiguous row-level fixes (small-blob deletion dropped — superseded by the MMU
 metric fix): +28 restored positives (hotfixed regions), −49 all-black negatives, +`vjn7wxyufczs`
 promotion (test-region label correction). **Training-relevant delta = +25 train pos / −16 train black
-neg = 0.14% of 17,951 train tiles** → predicted within seed noise. Staged multiroot (v1.0 symlink
+neg = 0.14% of 17,951 train tiles** → predicted within seed noise. Staged multiroot (D1.0 symlink
 primary + 29-tile delta root; the 28 restores needed NDVI regenerated via GEE, S2-2024, scale-matched
 mean 0.440). Same locked recipe (`aug_trivialaugment_deploy`); only the data differs.
 
 *Raw gate looked like a regression, but both "worse" signals are confounds:*
-- val best_smoothed 0.9029/0.9086/0.8906 (mean **0.9007**) vs v1.0 0.9167/0.9216/0.9270 (**0.9218**) —
-  **confounded**: v1.1 val_realistic lost 29 all-black (trivial) negatives (2151→2122), a different,
+- val best_smoothed 0.9029/0.9086/0.8906 (mean **0.9007**) vs M1.0 0.9167/0.9216/0.9270 (**0.9218**) —
+  **confounded**: D1.1 val_realistic lost 29 all-black (trivial) negatives (2151→2122), a different,
   harder prevalence-conditioned val set.
-- object P/R at the fixed deploy point (thr 0.65 on v1.0's T=0.512321) dropped ~6 pt — **pure
-  calibration**: v1.1's val-optimal threshold is **0.45, not 0.65** (`tune_object_operating_point`).
+- object P/R at the fixed deploy point (thr 0.65 on M1.0's T=0.512321) dropped ~6 pt — **pure
+  calibration**: M1.1's val-optimal threshold is **0.45, not 0.65** (`tune_object_operating_point`).
 
 *Calibration-free / fairly-calibrated metrics say TIE:*
-- Temperature-invariant test **pixel PR-AUC: v1.1 0.9976 ≈ v1.0 0.9970**; MMU600 invisible floor
-  0.154 vs 0.159 (v1.1 hair better).
-- Each model at its **own** val-tuned operating point (v1.0 thr0.3/mb80, v1.1 thr0.45/mb80):
+- Temperature-invariant test **pixel PR-AUC: M1.1 0.9976 ≈ M1.0 0.9970**; MMU600 invisible floor
+  0.154 vs 0.159 (M1.1 hair better).
+- Each model at its **own** val-tuned operating point (M1.0 thr0.3/mb80, M1.1 thr0.45/mb80):
 
   | | VAL obj-F1 | TEST obj-F1 | val−test gap |
   |---|---|---|---|
-  | v1.0 | 0.5669 (P.489/R.674) | 0.6272 (P.668/R.591) | −0.060 |
-  | v1.1 | 0.5615 (P.570/R.553) | 0.6069 (P.701/R.535) | −0.045 |
+  | M1.0 | 0.5669 (P.489/R.674) | 0.6272 (P.668/R.591) | −0.060 |
+  | M1.1 | 0.5615 (P.570/R.553) | 0.6069 (P.701/R.535) | −0.045 |
 
-  VAL F1 tied (0.567 vs 0.562); TEST F1 v1.0 +0.020 (≈ seed noise). **v1.1 has a tighter val−test gap
+  VAL F1 tied (0.567 vs 0.562); TEST F1 M1.0 +0.020 (≈ seed noise). **M1.1 has a tighter val−test gap
   (0.045 vs 0.060)** — more honest generalization — and **leans precision** (higher P / lower R at both
   splits), a bias aligned with the precision-leaning deploy (min_blob 2000).
 
-**Verdict:** v1.1 model ability = v1.0 (the 0.14% delta did not move it); the apparent drop was
-calibration + a val-set change, not a regression. **Deploy decision: keep v1.0** (incumbent, calibrated
-at thr 0.65); retain the v1.1 cleaner-label dataset + checkpoints for the next real modeling change
-(shipping v1.1 would need its own thr≈0.45 calibration first). The object-score win from the data-v1.1
+**Verdict:** M1.1 model ability = M1.0 (the 0.14% delta did not move it); the apparent drop was
+calibration + a val-set change, not a regression. **Deploy decision: keep M1.0** (incumbent, calibrated
+at thr 0.65); retain the D1.1 cleaner-label dataset + checkpoints for the next real modeling change
+(shipping M1.1 would need its own thr≈0.45 calibration first). The object-score win from the D1.1 data
 effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outputs/v1_1/`
 (runs, diagnostics, object_operating_point) + `/mnt/outputs/v1.0/staging/data_v1_1_audit/`.
 <!-- FINDINGS:END -->
@@ -840,9 +840,9 @@ effort is finding N (the MMU metric fix), not the retrain. Artifacts: `/mnt/outp
 `gs://rts-mapping-v2-usw1/inference/2025q3_south/products/`; FP modes: NoData context, water
 bodies, snow, mining/infrastructure look-alikes — mine more along those strata).
 **Conditional:** scale-TTA · ensemble (decided at final lock). **Done since this list was
-written:** v1.0 re-stage → executed as data-v1.1 (family N, ability wash — see N-retrain
+written:** D1.0 re-stage → executed as D1.1 (family N, no-improvement — see N-retrain
 finding) · context-expansion multi-scale → executed as the 0.5x POC (family M). **MAE SSL
-pretraining → ran as the v2.1 program and CLOSED 2026-07-18 in the negative** (arctic MAE
+pretraining → ran as the M3.0 program and CLOSED 2026-07-18 in the negative** (arctic MAE
 continue-pretrain on sat493m scored 0.8139 vs 0.9191 baseline, Δ −0.105, 0/3 seeds — a
 regression, not a null). EffB5 remains the deployed encoder; details in
 `docs/experiment_ledger_v21.md`.

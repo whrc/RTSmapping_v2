@@ -199,7 +199,7 @@ def s2_bands(bounds, grid: dict, year: int) -> dict[int, np.ndarray]:
 # per region rather than a property of the landform.
 #
 # Ground scale, not map scale. Tiles are EPSG:3857, whose scale factor is 1/cos(lat),
-# so a v1.0 tile's ~4.77 map-units/px is ~2.4 ground m/px at 60 deg N and ~1.3 at 74.
+# so a D1.0 tile's ~4.77 map-units/px is ~2.4 ground m/px at 60 deg N and ~1.3 at 74.
 # Mercator is conformal, so that single factor applies to both axes and one scalar
 # `ground_scale` converts every derivative correctly. Deriving slope or a metre-radius
 # focal window on the map grid instead (as plots/extra_channel_vis does) understates

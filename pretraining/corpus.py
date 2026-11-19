@@ -1,4 +1,4 @@
-"""Sample + materialize the v2.1 SSL pretraining corpus (spec: pretraining/pretraining.md).
+"""Sample + materialize the M3.0 SSL pretraining corpus (spec: pretraining/pretraining.md).
 
 Unlabeled 512x512 4-ch (RGB+NDVI) tiles over the S2-covered south footprint. Tile
 reads reuse the inference readers verbatim (``inference.tiles.read_tile`` /

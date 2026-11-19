@@ -17,7 +17,7 @@ deterministic: false   # exploration runs; set true in configs/final_seed.yaml f
 # Data
 # ---------------------------------------------------------------------------
 data:
-  version: "1.0"
+  version: "D1.0"
 
   # data_root can be any URI rasterio understands:
   #   gs://rts-arctic-us/training/v1.0             (our bucket; requires GOOGLE_APPLICATION_CREDENTIALS)

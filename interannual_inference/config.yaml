@@ -145,6 +145,17 @@ docker:
   train_image: us-west1-docker.pkg.dev/abruptthawmapping/rts/rts-train:v2
   dataprep_image: rts-dataprep:v1   # the only image with earthengine-api
 
+# The GPU fleet the `infer` stage creates: a template + MIG named rts-infer-<year>, via
+# computing/create_inference_fleet.sh. EMPTY ON PURPOSE — the GPU type is chosen at the 2019
+# launch from a short pilot (computing/gpu_operations.md), and the stage refuses until then.
+#   machine        e.g. a2-highgpu-1g (A100-40GB) or g2-standard-12 (L4)
+#   gpus_per_vm    GPUs that machine carries
+#   n_vms          fleet size
+#   zones          one zone -> zonal MIG (A100: us-west1-b only); a list -> regional MIG
+#   spot           default true; false for on-demand
+#   dataloader_workers (default 8), boot_disk_type (hyperdisk-balanced for G4), image — optional
+fleet: {}
+
 # Google account the export runs under.
 #
 # ONE ACCOUNT. Concurrency is per USER, so extra accounts each get their own ~3 RUNNING

@@ -33,7 +33,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
     # Optional single-level inheritance: `base: baseline.yaml` (path relative
     # to this file) pulls in the base config, with this file's keys deep-merged
     # on top. Lets experiment configs hold only their 2-10 line delta instead
-    # of a full ~169-line copy (the v2.0 copy-paste configs drifted exactly
+    # of a full ~169-line copy (the M1.0 copy-paste configs drifted exactly
     # this way). One level only: a base may not itself declare a base.
     base_ref = cfg.pop("base", None)
     if base_ref is not None:

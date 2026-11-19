@@ -326,20 +326,44 @@ def _shard_evidence(year: int, cfg: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
-# infer — nohup'd supervisor; progress via the tested inference_snapshot
+# infer — creates the year's GPU fleet and returns; the fleet works detached, progress
+# comes from the tested inference_snapshot, and scripts/gpu_watcher.py resizes the fleet
+# to 0 once every shard is done
 # --------------------------------------------------------------------------
+FLEET_KEYS = ("machine", "gpus_per_vm", "n_vms", "zones")
+
+
 def _infer_cmd(year: int, cfg: dict) -> list[str]:
+    """Create rts-infer-<year> (template + MIG) with the shape in config.yaml `fleet:`.
+
+    There is no default GPU type on purpose: the choice is made at the 2019 launch from a
+    short pilot (computing/gpu_operations.md), and until then this stage must refuse.
+    """
+    fleet = cfg.get("fleet") or {}
+    missing = [k for k in FLEET_KEYS if not fleet.get(k)]
+    if missing:
+        raise ValueError(
+            f"config.yaml `fleet:` has no {', '.join(missing)}, so there is no GPU type to "
+            "run inference on. It is chosen at the 2019 launch from a short pilot — "
+            "see computing/gpu_operations.md.")
     base = fmt(cfg["paths"]["inference_base"], year)
-    return ["bash", "-c",
-            f"BASE={base} "
-            f"QUAD_INDEX={base}/quad_index_{year}q3.csv "
-            f"S2_INDEX={base}/s2_index_{year}_south.csv "
-            f"PACKAGES='{cfg['paths']['packages']}/seed42 {cfg['paths']['packages']}/seed43 "
-            f"{cfg['paths']['packages']}/seed44' "
-            f"LOGDIR=/mnt/outputs/inference/{year}q3_south/logs "
-            f"STOP_FILE=/mnt/outputs/inference/{year}q3_south/STOP "
-            f"nohup bash {REPO}/scripts/launch_south_inference.sh "
-            f"> /mnt/outputs/inference/{year}q3_south/launch.log 2>&1 &"]
+    pkgs = cfg["paths"]["packages"]
+    zones = fleet["zones"]
+    if isinstance(zones, (list, tuple)):
+        zones = ",".join(zones)
+    env = [f"YEAR={year}", f"RUN_BASE={base}",
+           f"QUAD_INDEX={base}/quad_index_{year}q3.csv",
+           f"S2_INDEX={base}/s2_index_{year}_south.csv",
+           f"PACKAGES={pkgs}/seed42,{pkgs}/seed43,{pkgs}/seed44",
+           f"MACHINE={fleet['machine']}", f"GPUS_PER_VM={fleet['gpus_per_vm']}",
+           f"N_VMS={fleet['n_vms']}", f"ZONES={zones}",
+           f"SPOT={0 if fleet.get('spot') is False else 1}",
+           f"DL_WORKERS={fleet.get('dataloader_workers', 8)}",
+           f"PROJECT={cfg['docker']['project']}"]
+    for key, var in (("boot_disk_type", "BOOT_DISK_TYPE"), ("image", "IMAGE")):
+        if fleet.get(key):
+            env.append(f"{var}={fleet[key]}")
+    return ["env", *env, "bash", str(REPO / "computing" / "create_inference_fleet.sh")]
 
 
 def _infer_probe(year: int, cfg: dict) -> Optional[dict]:

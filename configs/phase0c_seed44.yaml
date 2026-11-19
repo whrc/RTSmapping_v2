@@ -14,7 +14,7 @@ seed: 44
 deterministic: false   # set true only for final multi-seed lock run
 
 data:
-  version: "1.0"
+  version: "D1.0"
   data_root: "gs://rts-mapping-v2/training/v1.0"
   rgb_dir: "PLANET-RGB"
   extra_dir: "EXTRA"

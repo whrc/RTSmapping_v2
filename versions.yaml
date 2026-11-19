@@ -1,0 +1,129 @@
+# Version registry — SSoT for what every data / model version and inference epoch means.
+# Checked by scripts/check_versions.py (run it after editing). Numbers (counts, scores) are NOT
+# copied here: each entry's `doc` says where they live.
+#
+# SCHEME
+#   1. Typed ids. Data = D<major>.<minor>, model = M<major>.<minor>, inference epoch = imagery year.
+#      "D1.1" and "M1.1" cannot be confused; every reference in the repo matches [DM]\d+\.\d+.
+#   2. MAJOR = what it is built from changed; MINOR = the same thing, refined.
+#        Data  MAJOR: new tiles/imagery, new bands, changed tiling/processing.
+#              MINOR: same tiles; labels, metadata or splits changed.
+#        Model MAJOR: new recipe (architecture, encoder, channels, loss) or the data MAJOR changed.
+#              MINOR: same recipe — retrain, new seeds, recalibration (threshold/temperature), data MINOR.
+#      Running a new year of imagery through the deployed model is a new epoch, not a new model id.
+#   3. Lineage lives in fields, not in the number: a model names its `data`, an epoch names its `model`.
+#
+# POLICY
+#   - Mint a model id only for a deployment candidate. Experiments keep their ledger run name.
+#     Mint a data id for any dataset staged in a bucket.
+#   - Ids are immutable: a superseded id keeps its number and changes `status`.
+#   - To add a version: add the entry here FIRST, then run `python scripts/check_versions.py`.
+#   - "v3" in older docs means the unscheduled next-model backlog; it gets an M id when it becomes a deployment candidate.
+#   - Docker image tags (rts-train:v2, rts-infer:v1) version the tooling, not data or models — outside this scheme.
+#   - `physical` lists paths/run names that still carry the legacy label (GCS roots, run-dir prefixes,
+#     config filenames, MLflow experiments). They were NOT renamed (hard to reverse, keyed by ledger/MLflow);
+#     this field is the lookup from the old name to the id.
+#
+# STATUS
+#   deployed    the model behind the shipped products (exactly one)
+#   current     the working training set (exactly one)
+#   superseded  replaced by a newer version
+#   rejected    evaluated, not adopted — `verdict` says why and links the evidence
+#               no-improvement = within seed noise of the incumbent; negative = worse than the incumbent
+#
+# retired: legacy names that must no longer appear as bare words in docs or code (check_versions.py
+# flags them); each maps to the id that replaced it.
+
+retired:
+  v2-alpha: D0.1
+  v2.0-alpha: D0.1
+  v2.1-alpha: D0.2
+  v1.0: D1.0
+  v1.1: D1.1
+  v1.0_scale05: D2.0
+  v2.1-pretrain: D3.0
+  v2.0: M1.0
+  v2.1: M3.0
+
+data:
+  - id: D0.1
+    meaning: First model-v2 development dataset (the frozen phase-0c snapshot). Destroyed by an external in-place bucket rewrite on 2026-06-12.
+    status: superseded
+    gcs_root: gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA   # source bucket; original snapshot unrecoverable
+    doc: docs/archive/v2-alpha/README.md
+  - id: D0.2
+    meaning: The regenerated, still-churning drop that followed D0.1 (batch labels in flux). Preliminary; replaced by D1.0.
+    status: superseded
+    parent: D0.1
+    doc: docs/v1.0_rebaseline.md
+  - id: D1.0
+    meaning: First standard dataset (batch1+2+3, 2024 PlanetScope RGB, QC'd, leakage-free region split). Training data of the deployed model.
+    status: current
+    parent: D0.2
+    gcs_root: gs://rts-arctic-us/training/v1.0
+    doc: data/version.json
+  - id: D1.1
+    meaning: D1.0 tiles with three row-level label-correctness fixes (stored as a delta root over D1.0). Retained for the next modeling change.
+    status: rejected
+    verdict: no-improvement
+    parent: D1.0
+    gcs_root: gs://rts-arctic-us/training/v1.1_delta
+    doc: docs/experiment_ledger.md   # family N
+  - id: D2.0
+    meaning: D1.0 re-staged at 0.5x scale (context-expanded 512 px tiles) for the multi-scale POC.
+    status: rejected
+    verdict: no-improvement
+    parent: D1.0
+    gcs_root: gs://rts-arctic-us/training/v1.0_scale05
+    doc: data/data.md   # section 3.5
+  - id: D3.0
+    meaning: Unlabeled pretraining corpus (RGB+NDVI, South footprint) for MAE self-supervised pretraining. Not archived; rebuildable by the corpus builder.
+    status: rejected
+    verdict: negative
+    doc: pretraining/pretraining.md
+    physical: ["PRETRAIN_CORPUS under RTS_MODEL_V21/"]
+
+models:
+  - id: M1.0
+    meaning: Deployed model — 3-seed UNet++/EfficientNet-B5 ensemble, RGB+NDVI, locked v2 recipe, threshold 0.65.
+    status: deployed
+    data: D1.0
+    recipe: docs/experiment_ledger.md   # section "v2 final recipe (locked)"
+    doc: post-inference/south_products.md
+    physical: ["RTS_MODEL_V2/", "rts-train:v2 image", "runs aug_trivialaugment_deploy{,_seed43,_seed44}"]
+  - id: M1.1
+    meaning: Same recipe as M1.0 retrained on D1.1 (label-correctness retrain).
+    status: rejected
+    verdict: no-improvement
+    parent: M1.0
+    data: D1.1
+    recipe: docs/experiment_ledger.md
+    doc: docs/experiment_ledger.md   # family N
+    physical: ["RTS_MODEL_V1_1/", "v1_1_seed{42,43,44}", "configs/v1_1_seed*.yaml"]
+  - id: M2.0
+    meaning: Joint dual-scale (1x + 0.5x) training of the M1.0 recipe, with overlap fusion at inference.
+    status: rejected
+    verdict: no-improvement   # gates 1 and 2 pass, gate 3 (fusion recall) fails
+    parent: M1.0
+    data: [D1.0, D2.0]
+    recipe: docs/experiment_ledger.md   # family M
+    doc: docs/experiment_ledger.md
+    physical: ["RTS_MODEL_V2_scale05/", "multiscale_poc_seed{42,43,44}"]
+  - id: M3.0
+    meaning: DINOv3-L encoder with arctic MAE continued pretraining, fine-tuned under the locked recipe.
+    status: rejected
+    verdict: negative   # arctic MAE harmed the encoder
+    parent: M1.0
+    data: [D3.0, D1.0]   # D3.0 pretrains the encoder, D1.0 fine-tunes it
+    recipe: docs/experiment_ledger_v21.md
+    doc: docs/experiment_ledger_v21.md
+    physical: ["RTS_MODEL_V21/", "configs/v21/", "/mnt/outputs/v2.1/", "MLflow experiment rts-segmentation-v2.1"]
+
+epochs:
+  - {year: 2025, model: M1.0, doc: post-inference/south_products.md}            # delivered
+  - {year: 2024, model: M1.0, doc: interannual_inference/README.md}             # in progress
+  - {year: 2023, model: M1.0, doc: interannual_inference/README.md}
+  - {year: 2022, model: M1.0, doc: interannual_inference/README.md}             # pilot
+  - {year: 2021, model: M1.0, doc: interannual_inference/README.md}
+  - {year: 2020, model: M1.0, doc: interannual_inference/README.md}
+  - {year: 2019, model: M1.0, doc: interannual_inference/README.md}

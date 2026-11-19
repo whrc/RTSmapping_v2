@@ -14,7 +14,7 @@ Checks:
   7  resume equivalence (partial run + resumed run == single run)
   8  TTA sanity (minimal vs none; flip symmetry)
   9  geo-alignment + overlay PNG
-  10 detection plausibility (top blobs vs v2.1 positive centroids)
+  10 detection plausibility (top blobs vs D0.2 positive centroids)
 
 Usage (inside rts-train:v2, GPU 0):
     python scripts/validate_inference_tiny.py \
@@ -554,7 +554,7 @@ def main() -> int:
     p.add_argument("--corner-y", type=int, default=1622)
     p.add_argument("--aoi-half-km", type=float, default=5.0)
     p.add_argument("--metadata", default=None,
-                   help="v2.1 metadata.csv (local copy) for check 10")
+                   help="D0.2 metadata.csv (local copy) for check 10")
     p.add_argument("--overlay-only", action="store_true",
                    help="regenerate validation_overlay.png from the existing "
                         "merged_prob.tif + corner_tiles.csv (no GPU run)")

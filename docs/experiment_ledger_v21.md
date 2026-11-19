@@ -1,12 +1,12 @@
 # Experiment Ledger — RTSmapping_v2.1 (SSL pretraining program)
 
-**This file is the v2.1 experiments SSoT.** The v2.0 ledger (`docs/experiment_ledger.md`) is frozen;
+**This file is the M3.0 experiments SSoT.** The M1.0 ledger (`docs/experiment_ledger.md`) is frozen;
 this ledger owns everything for the self-supervised-pretraining program: run registry, gate, findings,
 and verdicts. Spec: `pretraining/pretraining.md`. Update ritual as in `CLAUDE.md` (harvest with
 `scripts/sync_experiments.py --ledger docs/experiment_ledger_v21.md`).
 
 **Metric:** fine-tune runs (`ft_*`) use `val_realistic_pr_auc_geomean` = `best_smoothed`, identical to
-v2.0 — the **`score` column is machine-harvested**; do not hand-edit it. Pretraining runs (`pretrain_*`)
+M1.0 — the **`score` column is machine-harvested**; do not hand-edit it. Pretraining runs (`pretrain_*`)
 have no comparable score; their `score` cell stays `—` and their truth is the recon-loss curve in MLflow
 plus the downstream `ft_*` result.
 
@@ -26,7 +26,7 @@ Alternatives (RGB-only pan-arctic; export pan-arctic NDVI first) were considered
 <!-- GATE:BEGIN -->
 ## Gate
 
-Inherited from v2.0: **G = 0.0112**, single-seed screen; lock/verdict needs 3-seed **mean Δ ≥ G** *and*
+Inherited from M1.0: **G = 0.0112**, single-seed screen; lock/verdict needs 3-seed **mean Δ ≥ G** *and*
 3/3 sign consistency.
 
 **Arms & decision rules (DINOv3-L MAE):**

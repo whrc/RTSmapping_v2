@@ -1,10 +1,10 @@
 {
-  "version": "1.0",
+  "version": "D1.0",
   "maturity": "STANDARD — first stable training dataset (declared 2026-06-13 after full fresh-from-rasters QC; see docs/v1.0_qc.md). Labels + structure flawless; positives pristine (batch2 full-frame bug fixed). Stable ground for the experiment program, with minor fixes/additions expected over time. Known issues (negatives only): 49 all-zero + 564 degraded-band tiles to drop at the next re-stage (gs://rts-mapping-v2/training/v1.0/qc/known_issues_v1.0.json). EXTRA stack absent → Phase 4 blocked.",
   "created_date": "2026-06-13",
   "validated_date": "2026-06-13",
-  "gcs_root": "gs://rts-mapping-v2/training/v1.0",
-  "source_gcs_root": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA (data-production bucket; mirrored into our own bucket after the v2-alpha in-place-rewrite loss — see computing/migrate_vm.md)",
+  "gcs_root": "gs://rts-arctic-us/training/v1.0",
+  "source_gcs_root": "gs://abrupt_thaw/RTS_MODEL_V2/DATA/TRAINING_DATA (data-production bucket; mirrored into our own bucket after the D0.1 in-place-rewrite loss — see computing/migrate_vm.md)",
   "frozen_snapshot": "metadata.csv (cleaned, 22,259 tiles) + splits.yaml + normalization_stats.json, all under gcs_root. Gate (mu0/sigma0/G) being re-measured by the 3-seed Phase 0c baseline on this snapshot.",
   "imagery_source": "PlanetScope Quarterly Basemap 2024 (July-September), RGB, ~3m/px",
   "crs": "EPSG:3857",
@@ -32,7 +32,7 @@
   },
   "data_team_test_set": "gcs_root/TESTING/ holds a separate data-team test set (3,000 tiles: 349 pos / 2,651 neg, 22 regions). All tile_ids are also in the main metadata and all regions overlap train regions (spatially entangled). Final-lock decision (use as Test-Realistic vs. spatial-block test split) is OPEN — see docs/v1.0_rebaseline.md.",
   "extra_channels": {
-    "description": "NONE in v1.0 — EXTRA/ is empty in the regenerated dataset. Phase 4 (EXTRA channel groups) is blocked until the data team appends the EXTRA stack per data/data.md §9.",
+    "description": "NONE in D1.0 — EXTRA/ is empty in the regenerated dataset. Phase 4 (EXTRA channel groups) is blocked until the data team appends the EXTRA stack per data/data.md §9.",
     "bands": []
   },
   "normalization_stats_gcs": "gs://rts-mapping-v2/training/v1.0/normalization_stats.json",

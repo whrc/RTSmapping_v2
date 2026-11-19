@@ -27,7 +27,7 @@ the V4 mosaic's own date bands answer the question directly and per pixel.
 ## 1. Acquisition dates — the DEM predates the labels everywhere
 
 Per-tile mean of `maxdate` (the most recent contributing strip) over each tile
-footprint, all 22,259 v1.0 tiles, `reduceRegions` at 30 m.
+footprint, all 22,259 D1.0 tiles, `reduceRegions` at 30 m.
 
 | Statistic | Value |
 |---|---|

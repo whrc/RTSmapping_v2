@@ -44,7 +44,7 @@ ARCTICDEM_MOSAIC = "UMN/PGC/ArcticDEM/V4/2m_mosaic"
 DATE_EPOCH = "2000-01-01"
 DAYS_PER_YEAR = 365.2425
 
-# Half a v1.0 tile on the *ground*. Tiles are 512 px x ~4.77 EPSG:3857 map units
+# Half a D1.0 tile on the *ground*. Tiles are 512 px x ~4.77 EPSG:3857 map units
 # = 2442 map units, and Web Mercator's scale factor is 1/cos(lat), so the ground
 # width is ~915 m at 68 deg N. 460 m is that half-width; exactness does not matter
 # for a date statistic, but using the projected 1221 m would oversample

@@ -132,7 +132,7 @@ qualitative — quantitative scoring is §9.
 |-------|-----------------|
 | NoData propagation | `mask==255 ⇔ P<0`; no spurious polygons over NoData |
 | Seam artifacts | polygon density / probability gradient spikes on tile-stitch lines (regression of the §3 fix) |
-| Area distribution | implausible giant or sub-`min_blob_size` polygons; compare the area histogram against the v2.1 training-positive distribution |
+| Area distribution | implausible giant or sub-`min_blob_size` polygons; compare the area histogram against the D0.2 training-positive distribution |
 | Edge effects | the 1-px zero-weight ring at unchunked AOI boundaries (`docs/inference_validation.md`) — must vanish once regions overlap-chunk |
 | Geodesic sanity | spot-check a few `area_m2` vs a manual equal-area reprojection |
 | Visual overlay | the `validate_inference_tiny.py` overlay (RGB + tile outlines + probability + threshold contours + seam zoom) on a sample region |
@@ -140,7 +140,7 @@ qualitative — quantitative scoring is §9.
 ## 9. Evaluation (offline, on the held-out test split)
 
 The deployment map cannot be scored directly. Quantitative evaluation uses the
-**frozen v1.0 test split** (`scripts/evaluate_test.py`, training.md §12) — the same
+**frozen D1.0 test split** (`scripts/evaluate_test.py`, training.md §12) — the same
 pipeline scored on labelled tiles:
 
 - **Object-level:** match predicted blobs to label blobs at IoU ≥

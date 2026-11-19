@@ -54,7 +54,7 @@ Report whichever the data supports. **Do not tune experiments to rescue any outc
 - **Run ledger / single source of truth:** `docs/experiment_ledger.md` (+ `docs/experiment_ledger_v21.md`).
 - **Corrected leakage-free split:** `docs/v1.0_region_leakage.md`; data root `/outputs/v1.0/data_local`.
 - **Config pattern** (inherit a base, override a one-line delta):
-  - locked v1.0 baseline recipe: `base: phase0c_seed42.yaml`
+  - locked D1.0 baseline recipe: `base: phase0c_seed42.yaml`
   - locked v2 deploy recipe (boundary ignore, multi_scale off): `base: base_v2_fast.yaml`
   - representation delta: `channels.extra: []` (RGB) vs `channels.extra: [{name: ndvi, band: 0}]` (RGB+NDVI); NDVI
     runs use `normalization_stats_ndvi.json`, RGB runs use `normalization_stats.json`.

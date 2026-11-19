@@ -203,7 +203,7 @@ class CrossModalAttentionFusion(_DualEncoder):
 def _load_encoder_init(model: nn.Module, path: str) -> None:
     """Load a self-supervised-pretrained encoder state_dict into ``model.encoder``.
 
-    Used by the v2.1 SSL program to swap the encoder init (ImageNet → FCMAE/arctic
+    Used by the M3.0 SSL program to swap the encoder init (ImageNet → FCMAE/arctic
     weights) while keeping the rest of the locked recipe fixed. Loads after the
     encoder is built (so it overrides ``encoder_weights``), non-strict so a decoder-
     less checkpoint is fine, but **raises if nothing matched** — a silent no-op here

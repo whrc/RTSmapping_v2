@@ -1,4 +1,4 @@
-"""Stage v1.0 training tiles from GCS to local disk (experiments.md §13).
+"""Stage D1.0 training tiles from GCS to local disk (experiments.md §13).
 
 Per-epoch reads via rasterio /vsigs/ stall the GPU (no gcsfuse mount → the
 training.gcsfuse cache is inert). Copy the per-tile rasters to local SSD once and

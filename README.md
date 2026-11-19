@@ -6,11 +6,12 @@ Semantic segmentation of **Retrogressive Thaw Slumps (RTS)** in Arctic satellite
 
 This project trains a deep learning model to detect RTS from PlanetScope basemap imagery (up to 74N) and deploys it for pan-arctic inference to produce an RTS survey map.
 
-**Status (2026-08):** model v2 (3-seed UNet++/EfficientNet-B5 ensemble, RGB+NDVI, thr 0.65) is
-**deployed** — the pan-Arctic South run (2025 Q3 imagery, ≈50–76°N, 41.57M tiles) is complete and its
-products are shipped (see [Deployed products](#deployed-products)). Model v2.1 (DINOv3-L MAE
-self-supervised pretraining) is **closed negative** — arctic MAE harmed the encoder, EffB5 stays
-deployed (`docs/experiment_ledger_v21.md`).
+**Status (2026-08):** model M1.0 (3-seed UNet++/EfficientNet-B5 ensemble, RGB+NDVI, thr 0.65, trained
+on D1.0) is **deployed** — the pan-Arctic South run (2025 Q3 imagery, ≈50–76°N, 41.57M tiles) is
+complete and its products are shipped (see [Deployed products](#deployed-products)). Model M3.0
+(DINOv3-L MAE self-supervised pretraining) is **closed negative** — arctic MAE harmed the encoder,
+EffB5 stays deployed (`docs/experiment_ledger_v21.md`). What every data/model version means:
+[versions.yaml](versions.yaml).
 
 **In flight — the interannual run.** The same frozen model is being run over **2019–2024** to turn
 the single 2025 epoch into a multi-year series. Acquisition of the Planet basemaps is Heidi's
@@ -49,6 +50,7 @@ The 2025 Q3 pan-Arctic South run produced a tiered product family in
 | Document | Purpose |
 |----------|---------|
 | [CLAUDE.md](CLAUDE.md) | How to work in this repo: rules, structure, technical constraints, code style, the 3-doc update ritual |
+| [versions.yaml](versions.yaml) | **Version registry SSoT** — what every data (`D`), model (`M`) version and inference epoch means; the numbering scheme; legacy-name lookup (checked by `scripts/check_versions.py`) |
 | [docs/experiment_ledger.md](docs/experiment_ledger.md) | **Experiments SSoT** — every run, the locked recipe, per-family findings, dropped ideas (scores auto-harvested) |
 | [current_working_status.md](current_working_status.md) | Project diary — rolling progress (just-completed · now · future); links to the ledger for numbers |
 | [docs/report.html](docs/report.html) | Generated analytical + visual report (build with `scripts/build_report.py`) |
@@ -112,6 +114,7 @@ This repo follows a single-source-of-truth standard. Where each kind of fact liv
 | MLflow tracking URI | `configs/baseline.yaml:mlflow.tracking_uri` |
 | Core constants — CRS, tile size, label values, seed | [CLAUDE.md](CLAUDE.md) §Technical Constraints |
 | Data disk layout & EXTRA bands | [data/data.md](data/data.md) (§9 for bands) |
+| Data / model / epoch versions — meaning, lineage, numbering rules | [versions.yaml](versions.yaml) |
 | Status, roadmap, project decisions | [current_working_status.md](current_working_status.md) |
 | Experiments, scores, recipe, findings | [docs/experiment_ledger.md](docs/experiment_ledger.md) |
 | Test inventory | [tests/tests.md](tests/tests.md) |
@@ -124,7 +127,7 @@ This repo follows a single-source-of-truth standard. Where each kind of fact liv
 ## Todos
 1. ~~training in multi-scale~~ **DONE** (ledger family M, 2026-07-02): 0.5× re-stage + joint dual-scale training, 3 seeds — gates 1+2 pass, gate 3 (fusion recall) fail; inference multiscale path implemented, deploy stays `scales:[1.0]`.
 2. ~~pan-Arctic South inference + products~~ **DONE** (2026-07): full run + tiered QC-calibrated products shipped (see [Deployed products](#deployed-products)).
-3. ~~**v2.1** — DINOv3-L MAE self-supervised pretraining on the 295k-tile South corpus (in progress, branch `v2.1-pretraining`); v3 hard-negative mining seeded from `qc_false_hard_negatives.gpkg` (152 QC-verified FPs).~~DONE
+3. ~~**M3.0** — DINOv3-L MAE self-supervised pretraining on the 295k-tile South corpus (in progress, branch `v2.1-pretraining`); v3 hard-negative mining seeded from `qc_false_hard_negatives.gpkg` (152 QC-verified FPs).~~DONE
 4. ~~explore GEE satellite embedding as input feature~~DONE
 5. ~~2025 micro set to test temporal domain shift~~
 6. **interannual inference (IN PROGRESS)** — run the frozen v2 model over 2019–2024; coordinated by [interannual_inference/](interannual_inference/README.md). 2022 is the pilot; Planet acquisition for the remaining years runs in parallel.

@@ -1,9 +1,9 @@
-"""Re-stage the v1.0 snapshot: restore wrongly-dropped positives and drop the
+"""Re-stage the D1.0 snapshot: restore wrongly-dropped positives and drop the
 fully-black negatives, WITHOUT disturbing the frozen baseline.
 
 Background (docs/phase0_baseline.md "Baseline & re-baseline policy"): μ₀, the gate,
 the norm stats and the val/test split are frozen for the project. A fresh QC
-(docs/v1.0_qc.md) showed the *current* v1.0 already contains 555/564 of the
+(docs/v1.0_qc.md) showed the *current* D1.0 already contains 555/564 of the
 "degraded" negatives (so they're already in the locked baseline — only 8
 train-region ones are missing) and all 49 fully-black negatives (never dropped),
 while the 28 valid positives were wrongly dropped (a stale-QC bug). So the real
@@ -72,7 +72,7 @@ def build_restage(client: storage.Client):
     region_split = {r: s for s, rs in load_splits_yaml(tmp + "/splits.yaml").items() for r in rs}
 
     # Candidates to add: train-region tiles from either QC list that are missing
-    # from v1.0. Classify by the tile's TRUE source class (the "degraded-neg" list
+    # from D1.0. Classify by the tile's TRUE source class (the "degraded-neg" list
     # turns out to contain positives) so labels get copied for every positive.
     cand = [t for t in dict.fromkeys(list(keep_neg) + list(restore_pos))
             if t not in v1_ids

@@ -5,7 +5,7 @@ imagery. This overlays the **2024** RTS labels (training ground truth) that fall
 the same footprint, so the deployed-model probability can be eyeballed against truth.
 RTS persist/grow year-on-year, so 2024 labels are an approximate (not exact) reference.
 
-Reads the merged probability raster + v1.0 metadata, finds positive tiles whose
+Reads the merged probability raster + D1.0 metadata, finds positive tiles whose
 centroid lands in (a margin around) the canvas, reprojects their label rasters onto
 the canvas grid, and renders: 2025 probability heatmap + 2024 RTS label contours +
 positive-tile footprints.

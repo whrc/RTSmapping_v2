@@ -41,7 +41,7 @@ constraint — labeled data is.** Two consequences govern execution (full schedu
 
 ### 1.6 Expectations — incremental vs step-change
 
-Be honest about ceilings. On the **v1.0 data plateau** (§5.3) the model is data-constrained yet
+Be honest about ceilings. On the **D1.0 data plateau** (§5.3) the model is data-constrained yet
 *not* over-parameterised (train/val IoU gap ≈ 0.05 at best epoch, §5.4) — well-matched to its data.
 So the cheap hyperparameter levers (loss/boundary §6, regularization §6.3, curriculum §10, decoder
 swaps §8) are expected to yield **incremental** gains (~around the gate G = 0.011), and bigger or
@@ -230,7 +230,7 @@ Relative Δ is used because absolute thresholds (e.g. ≤ 0.05) read very differ
 alarming domain shift, and Phase 1 is externally blocked on the micro-set definition anyway (tile
 count, region selection, labeling plan — **TBD** for the user). Phases 2–5 proceed regardless; Phase 1
 is **not** a gate. Keep it available as a cheap (~1 GPU-hour) sanity check to run opportunistically
-once the micro-set exists, and re-confirm at the v2.1 re-baseline. If run and Δ_relative > 20% (§4.2),
+once the micro-set exists, and re-confirm at the D1.0 re-baseline. If run and Δ_relative > 20% (§4.2),
 re-open it as a blocker at that point.
 
 ---
@@ -268,13 +268,13 @@ Fit a line to `PR-AUC vs log(n_positives)`. Compare the slope between the 75 →
 | 0.5 – 1.0 | **Diminishing but still scaling** | Continued returns. Phase 3 backbone-sizing is worth running if loss-family results suggest underfit. Phase 5 stays in scope. |
 | > 1.0 (slope flat / increasing) | **Severely under-scaled** | Even 25 % is enough to start; the model has plenty of capacity left. Phase 5 stays in scope; backbone-up testing in Phase 3 is high-priority. |
 
-**v1.0 result (2026-06-15) — PLATEAU.** `best_smoothed` at 25/50/75/100% positives (n≈328/656/983/1311)
+**D1.0 result (2026-06-15) — PLATEAU.** `best_smoothed` at 25/50/75/100% positives (n≈328/656/983/1311)
 = 0.7636 / 0.7720 / 0.7916 / 0.7912. Slope ratio (75→100)/(25→50) = **−0.12 < 0.5 → plateau before
 100%** (75→100 flat within σ₀). Implications per the matrix: the model has **saturated on available
 positives**, Phase-5 architecture is **likely skipped** (its §8.1 slope trigger fails), and acquiring
 more RGB labels above ~1300 has **weak expected return** at this architecture. Leverage therefore
 pivots to representation (Phase 4 EXTRA, foundation encoders §8). See `docs/phase2_data_scaling.md`.
-*(Caveat: contrast with v2.0-alpha's "severely under-scaled, slope 4.4" — the cleaner v1.0 data
+*(Caveat: contrast with D0.1's "severely under-scaled, slope 4.4" — the cleaner D1.0 data
 changed the regime.)*
 
 ### 5.4 Generalisation-gap monitoring
@@ -288,11 +288,11 @@ For each subset, track the gap between `train_iou_rts` and `val_realistic_iou_rt
 
 The gap-vs-data-size signal also informs whether Phase 5's "did Phase 3+4 close the gap?" gate has a chance.
 
-**v1.0 result (2026-06-15).** At 100% data (baseline `phase0c_seed42`, from MLflow `train_iou` vs val
+**D1.0 result (2026-06-15).** At 100% data (baseline `phase0c_seed42`, from MLflow `train_iou` vs val
 `pixel_iou`): gap = **0.05 at the best epoch (55)**, **0.17 at the final epoch (105)** — both **< 0.4**.
-→ "Gap < 0.2 → data variance constrains capacity; wd/aug defaults are fine." **v1.0 is NOT
+→ "Gap < 0.2 → data variance constrains capacity; wd/aug defaults are fine." **D1.0 is NOT
 over-parameterised** (contrast alpha's 0.43). So the §6.3 conditional weight-decay trigger **does not
-fire** for v1.0; the §6.3 regularization grid is therefore run as a **low-expected-value exploratory
+fire** for D1.0; the §6.3 regularization grid is therefore run as a **low-expected-value exploratory
 wave** (user-elected to confirm, not because the trigger demands it). Combined with the §5.3 plateau,
 this says the model is *well-matched* to its data — neither more capacity nor more regularization is
 indicated; the binding constraint is the data/representation.
@@ -308,7 +308,7 @@ assumes the best boundary handling is loss-independent; with compute abundant we
 instead. The loss-family **first pass** (§6.1, Wave-1) ranks the families at `boundary: none`; the
 **boundary factorial** (§6.2) then runs the top-2 loss families × boundary settings in parallel, so the
 boundary choice is made with any loss×boundary interaction visible. The §6.3 regularization grid is run
-as an exploratory wave (the v1.0 over-parameterisation trigger did **not** fire — §5.4).
+as an exploratory wave (the D1.0 over-parameterisation trigger did **not** fire — §5.4).
 
 ### 6.1 Loss family — first pass
 
@@ -346,7 +346,7 @@ if it flips → report the interaction and pick per the winning loss. Operationa
 
 ### 6.3 Regularization grid (wd × aug)
 
-Replaces the old conditional single-point wd probe (proposal #6). **v1.0 trigger status: the §5.4 gap
+Replaces the old conditional single-point wd probe (proposal #6). **D1.0 trigger status: the §5.4 gap
 is 0.05/0.17 < 0.4 → over-parameterisation trigger did NOT fire**, so this grid is an **exploratory,
 low-expected-value wave** the user elected to run for completeness (compute is free), not a
 trigger-mandated sweep. Run the 2×2 grid in parallel against the §6.2 winner:
@@ -395,7 +395,7 @@ Backbone sizing (B3 / B7 vs B5) is **deferred to Phase 5**, not run inside Phase
 
 *Objective: determine whether multi-modal physical context improves the final map, and if so which combination to deploy.*
 
-> **Priority (2026-06-15): this is the primary plateau-breaker.** Given v1.0's data plateau (§5.3) and
+> **Priority (2026-06-15): this is the primary plateau-breaker.** Given D1.0's data plateau (§5.3) and
 > well-fit gap (§5.4), more RGB data / capacity / regularization are low-leverage; **adding physical
 > context (EXTRA) is the most direct way to raise the ceiling**. It is blocked only on data generation
 > — pushing the data team to produce the EXTRA stack is the highest-value unblock in the program
@@ -403,7 +403,7 @@ Backbone sizing (B3 / B7 vs B5) is **deferred to Phase 5**, not run inside Phase
 
 ### 7.1 Group definitions
 
-Group IDs and their band positions are fixed by `data/data.md §9` (single source of truth). **Phase 4 is currently blocked**: the v1.0 standard dataset ships **no EXTRA stack** (`EXTRA/` is empty), so this phase cannot run until the data team appends the EXTRA bands. When it does, Phase 4 ablates these groups:
+Group IDs and their band positions are fixed by `data/data.md §9` (single source of truth). **Phase 4 is currently blocked**: the D1.0 standard dataset ships **no EXTRA stack** (`EXTRA/` is empty), so this phase cannot run until the data team appends the EXTRA bands. When it does, Phase 4 ablates these groups:
 
 | Group ID | N bands | Band indices in EXTRA |
 |----------|---------|------------------------|
@@ -456,7 +456,7 @@ A locked `channels.extra` list (possibly empty if §7.3 failed). This is the inp
 ### 8.1 Gating — skip-trigger overridden as a compute-filler (2026-06-15)
 
 The original trigger (run only if §5.3 slope ratio ≥ 0.5 **and** the gap stayed open) would **skip**
-Phase 5 on v1.0 (plateau, ratio −0.12; gap 0.05 < 0.3). **User decision: run the architecture sweep
+Phase 5 on D1.0 (plateau, ratio −0.12; gap 0.05 < 0.3). **User decision: run the architecture sweep
 now anyway**, to use the otherwise-idle 8×A100 — it is the largest *independent* backlog and the prime
 backfill for the never-idle scheduler (§13). **Honest expectation:** decoder swaps are **incremental**
 on a plateaued, well-fit model; the one candidate with step-change potential is a **foundation encoder**
@@ -533,7 +533,7 @@ Test-Realistic is touched **once**, at this step. Re-running Test-Realistic for 
 |---|---|---|
 | Loss family + params (focal γ×α, compound λ, tversky α/β) | **Tuned (full grids)** | §6.1 first pass — run full grids, compute is free |
 | Boundary handling + width | **Tuned** | §6.2 loss×boundary factorial |
-| Weight decay × augmentation strength | **Tuned (exploratory)** | §6.3 grid — v1.0 trigger did not fire (§5.4) |
+| Weight decay × augmentation strength | **Tuned (exploratory)** | §6.3 grid — D1.0 trigger did not fire (§5.4) |
 | Curriculum schedule + `sampling.positive_fraction` | **Tuned (new, §10.1)** | top untested precision lever |
 | Backbone size (B3) | **In §8** | B3-as-regularizer (plateau ⇒ smaller, not B7) |
 | Architecture / decoder + encoder | **Tuned now (§8)** | run-now sweep (decoders, foundation encoders); YOLO rejected |
@@ -646,7 +646,7 @@ Documented and ready, but **run only on explicit user go** (not part of the defa
 
 ### 12.1 Self-supervised / MAE encoder pretraining (proposal #4)
 MAE-style pretraining on **unlabeled** Arctic PlanetScope quads (2025 quads already on GCS; no labels
-needed), then fine-tune on v1.0. Directly attacks the diagnosed data-limit, and the only arm that can
+needed), then fine-tune on D1.0. Directly attacks the diagnosed data-limit, and the only arm that can
 productively use idle GPUs *before* more labels exist. Cost ≈ 200–550 GPU-h + 1–2 days coding. Pairs
 with the §8 foundation-encoder candidates (an alternative source of external prior knowledge).
 **Trigger:** explicit user go (deferred 2026-06-12).

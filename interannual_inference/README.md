@@ -30,9 +30,11 @@ already existed and that we already ran by hand — `build_quad_index.py`,
 here reimplements pipeline logic, and no stage does anything you could not do
 yourself with the command it prints under `--dry-run`.
 
-It is **not** a workflow engine, and it does not manage compute. The inference run
-is still supervised by `scripts/launch_south_inference.sh` with its own crash-loop
-guard, stall watchdog and `STOP` sentinel.
+It is **not** a workflow engine, and it manages compute in one place only: the `infer`
+stage creates the year's GPU fleet (`computing/create_inference_fleet.sh`, shape from
+`config.yaml` `fleet:`) and returns. The fleet's workers keep their own stall watchdog,
+`scripts/gpu_watcher.py` on `rts-ops` resizes the fleet to 0 when every shard is done, and
+the heavy CPU stages run on `rts-cpu` — see `computing/gpu_operations.md` §4.
 
 ## The stages
 
@@ -43,9 +45,9 @@ guard, stall watchdog and `STOP` sentinel.
 | `quad_index` | us | reconciles against orders placed |
 | `s2_index` | us | |
 | `drift_check` | us | **human gate** |
-| `tile_grid` | us | grid + domain mask, ~25 min |
-| `shard` | us | ~2,079 shards of 20k tiles |
-| `infer` | us, 8×A100 | ~2.5 days/year |
+| `tile_grid` | us, on `rts-cpu` | grid + domain mask, ~25 min on the old master; needs tens of GB of RAM |
+| `shard` | us, on `rts-cpu` | ~2,079 shards of 20k tiles |
+| `infer` | us, fleet `rts-infer-<year>` | GPU type chosen at the 2019 launch; refuses while `fleet:` is empty |
 | `reconcile` | us | shards done must equal shards total, exactly |
 | `merge` · `vectorize` · `qc` | us, by hand | tracked here, driven from `post-inference/` |
 

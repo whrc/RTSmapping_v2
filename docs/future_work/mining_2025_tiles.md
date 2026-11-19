@@ -25,7 +25,7 @@ Success is measured by three things, not just count:
 2. **Coverage** — ecoregions gained (regions going 0 → N training tiles).
 3. **Representation** — reduction in per-region imbalance (Gini / max:median of per-region counts).
 
-The mined tiles train **alongside** existing v1.0 data as a new dataset version (delta root), not as
+The mined tiles train **alongside** existing D1.0 data as a new dataset version (delta root), not as
 a replacement.
 
 ### Input (already exists)
@@ -174,7 +174,7 @@ Delta lives in its own root (mirror the `v1.1_delta` precedent), e.g.
       (no new code).
 
 - [ ] **`Tile_ID` collision guard (~5 lines):** `load_metadata_multiroot` raises if a mined
-      `Tile_ID` (geohash-12 centroid) already exists in frozen v1.0 — drop such mined rows first.
+      `Tile_ID` (geohash-12 centroid) already exists in frozen D1.0 — drop such mined rows first.
 
 - [ ] **`splits.yaml`:** append brand-new **train-only** regions to `splits.yaml[train]`; re-run
       `data/splits.py:assert_no_region_leakage` (val/test untouched → still passes).
@@ -235,7 +235,7 @@ four test files, a shared `CLAIMS.md`.
    ecoregions gained, balance metric, per-mode hard-negative counts).
 4. **Tile production (one region first):** confirm 512×512 EPSG:3857 tiles, labels ∈ {0,1,255} with
    the ignore collar present, metadata rows have `year=2025` + correct `RegionName`, no `Tile_ID`
-   collisions with v1.0.
+   collisions with D1.0.
 5. **Loader smoke test:** point a config at the delta via `data.additional_roots`, run
    `scripts/check_data.py` over combined roots (normalization/collation), confirm
    `assert_no_region_leakage` passes after the `splits.yaml[train]` append.

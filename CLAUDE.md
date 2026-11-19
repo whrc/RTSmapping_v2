@@ -80,6 +80,8 @@ See `tests/tests.md` for the test-suite living doc — per-test inventory, stric
 
 This repo follows SSoT standard, if one variable is mentioned multiple places, reference to the place where the SSoT exist.
 
+Versions follow this rule too: `versions.yaml` is the SSoT for what every data (`D1.0`) and model (`M1.0`) version and inference epoch means, and holds the numbering scheme. Add a new version there **first**, cite it by id (never the old `vX.Y`-style names), and run `python scripts/check_versions.py`.
+
 ## Technical Constraints
 
 - **CRS**: EPSG:3857 everywhere. No exceptions.

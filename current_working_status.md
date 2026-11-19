@@ -17,10 +17,11 @@ pan-arctic RTS survey map. Solo research project — flat code, minimal abstract
 0=bg/1=RTS/255=ignore · per-dataset z-score norm (`normalization_stats.json`) · seed 42, deterministic.
 
 **Stack**: PyTorch 2.x + `segmentation_models_pytorch` (UNet++/EffB5), albumentations, rasterio,
-geopandas, MLflow. Compute: 8× A100-80GB (`a100-8x-train`) for training; 32× L4 (us-west1) provisioned
-for inference. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-mapping-v2*`.
+geopandas, MLflow. Compute (since 2026-09: `abruptthawmapping`, Woodwell billing, no credit): `rts-ops`
+as controller, a G4 Spot training VM, per-year Spot inference fleets and a CPU VM — see
+`computing/gpu_operations.md`. Docker `rts-train:v2`. Data in `gs://abrupt_thaw/` + `gs://rts-mapping-v2*`.
 
-**Dataset**: v1.0 standard (22,259 tiles; 1,718 pos / 20,541 neg), corrected leakage-free region split.
+**Dataset**: D1.0 standard (22,259 tiles; 1,718 pos / 20,541 neg), corrected leakage-free region split.
 **Diagnosis**: representation-limited, not data-volume- or capacity-limited (see ledger family B).
 
 ---
@@ -68,6 +69,23 @@ checkout):
   mid-run on every fleet shape except a tuned 8×A100.
 
 ### Now
+**Compute after PDG — plan adopted 2026-11-19.** Runbook `computing/gpu_operations.md`; prices,
+quota and the cost model `computing/infrastructure.md` §3a/§5. Decisions (2026-11-18): no fixed
+budget cap, but minimise cost per result and pay a little where it simplifies; training on G4
+(RTX PRO 6000) Spot; the inference GPU is chosen at the 2019 launch from a short pilot; no hard
+time limits — machines stop when their work is done, and a watcher on `rts-ops` handles the rest.
+
+**The project has GPU quota after all.** Read live 2026-11-18: L4 32/32, A100-40GB 16/64,
+H100 0/128, RTX PRO 6000 0/32 (on-demand/Spot, per US region), `GPUS_ALL_REGIONS` 12,000. The
+"none, unrequested" recorded here since 09-22 was wrong; no request was ever on file.
+
+Built, not yet deployed: `scripts/gpu_watcher.py` (+ tests), the training VM scripts
+(`create_train_vm.sh`, `train_vm_startup.sh`, `train_wave.sh`), `rts-train:v3` (Dockerfile + lock),
+resume-after-preemption and per-run archiving in `run_gpu_pool.sh`, the per-year fleet as a Spot
+MIG (`create_inference_fleet.sh`), and the `infer` stage pointed at it. **No machine exists yet**:
+`rts-cpu` comes first (2019's `tile_grid` and `shard`), `rts-train` when the G4 stack starts, the
+2019 fleet once its GPU type is chosen. Six months of the full scope ≈ $13–22k.
+
 **Review campaign — `unsure` adjudication package built (2026-10-15).** **5,411 polygons, 16,916
 chips, 9.6 GB zip** at `E:\rts_adjudication\full\unsure_pkg_2026-10-15.zip` (outside the repo; the chips
 are Planet-derived, internal only). It will go to Heidi for ArcGIS Pro review with Esri World Imagery
@@ -117,11 +135,12 @@ than before the uplift, when `yyang@` alone held 3 slots.
 should be second — and it is days of our own work, not 35 days of export. If it has not
 landed when 2019 finishes, swap 2024 forward.
 
-**Live state:** 2019 has 1,744 tasks queued under `rtsmapping@`, ~6 done. 2020's driver was
-stopped (it could not progress against the 2000 cap); its ~261 submitted tasks remain queued
-and will run — nothing was cancelled. **The 2019 run is unmonitored**: it was launched
-directly rather than through `drive.py`, so no stage state exists, and the interannual
-alerter cron is still not installed.
+**Live state (read 2026-11-18):** 2019's S2 export is complete — 1,798 of 1,799 cells — and
+its Planet acquisition is complete, so 2019 is ready for inference. Earth Engine lists no
+operations for the project, so **nothing is exporting**: 2020 has 23 cells, 2022 172, and 2021,
+2023 and 2024 none. Next in order is 2024 (2022 waits on the QA60 bake-off). The state mirror
+was last written 2026-08-28, so `status.py` shows neither 2019 stage as done, and the
+interannual alerter cron is still not installed.
 
 **Blocked, needing a human:**
 - `main` merge/push is blocked by the permission classifier, so `/opt/rts/RTSmapping_v2` is
@@ -129,7 +148,8 @@ alerter cron is still not installed.
 - **Planet 2020** needs Heidi — `run_year.sh` requires `PL_BM_API_KEY` and
   `PDG_PL_ORDERS_KEY`, prompted interactively and never stored. ~22 days for the four
   remaining years, fully independent of S2.
-- **GPU quota** in `abruptthawmapping` is still zero and still unrequested.
+- **Billing visibility** — no budget exists and the Budget API is disabled; a notification-only
+  budget on `abruptthawmapping` and `roles/billing.viewer` for `yyang@` need the billing admin.
 
 Also corrected: `pdg_migration.md` records per-user ADC as provisioned for `yyang@` on
 2026-08-28. It was not there. Only `rtsmapping@` had one; `adc-heidi` is an incomplete login
@@ -139,19 +159,18 @@ migration's own recurring lesson — recorded as done, never re-opened.
 ### Future plans
 
 **Downstream is the real risk, and it is not a code problem.** ~178 TB of imagery will land in a
-project with **zero GPU quota and no credit**, billing to a card rather than the expired $70k PDG
+project with **no credit**, billing to a Woodwell account rather than the expired $70k PDG
 credit. Everything else is ready and verified: the frozen 3-seed ensemble is MD5-identical and
 anchored to the `model_checkpoint_sha` in production manifests (threshold 0.65, temperature
 0.512321); `rts-infer:v1` survived in the new Artifact Registry; and the whole execution path —
-`shard_tiles.py`, `claim.py`, `run_inference_worker.py`, `create_inference_fleet.sh`,
-`inference_watchdog.sh`, `assemble_region.py`, `vectorize_region.py` — is built, drilled and already
-repointed at `abruptthawmapping`.
+`shard_tiles.py`, `claim.py`, `run_inference_worker.py`, `create_inference_fleet.sh` (now a Spot
+MIG per year), `scripts/gpu_watcher.py`, `assemble_region.py`, `vectorize_region.py` — is built and
+repointed at `abruptthawmapping`; the fleet and watcher are not yet drilled live.
 
-1. **File the GPU quota request now, concurrently with the export.** Requests take days to weeks and
-   cost nothing to hold; every day of S2 export is a free day of latency to hide them behind. Values
-   and rationale are in `computing/infrastructure.md`. **Ask for `PREEMPTIBLE_NVIDIA_L4_GPUS=32`
-   this time** — Spot is ~3× cheaper, the claim queue makes preemption safe, and budget was not a
-   constraint when Spot was last declined. It is now.
+1. **Run the compute plan** (`computing/gpu_operations.md`): create `rts-cpu`, run 2019's
+   `tile_grid` and `shard` there and move 2019's imagery to Standard; build `rts-train:v3`, create
+   `rts-train`, benchmark and re-baseline; at the 2019 launch, pilot the inference GPU and record
+   the choice in `interannual_inference/config.yaml` `fleet:`.
 2. **Run 2019 end-to-end to a delivered map** before starting 2020's inference. It exercises all
    twelve stages against the new project for the first time, and produces the merge/vectorize
    wallclock the cost model is missing — **no timing for either stage is recorded anywhere**.
@@ -161,7 +180,10 @@ repointed at `abruptthawmapping`.
 4. **Revisit storage tiering at a checkpoint.** Acquiring hot is the decision taken; at full
    footprint that is ~$3.5–3.8k/month. The existing policy — Coldline immediately, Archive once a
    year's map is approved — takes it to roughly a tenth. `inference/` stays excluded regardless:
-   41.5M ~2.5 KB objects would each bill a 128 KiB minimum.
+   41.5M ~2.5 KB objects would each bill a 128 KiB minimum. **Live rule vs intent (2026-11-18):**
+   the bucket rule moves *all* of `global_quarterly/` and `S2_RGB/` to Coldline at 30 days, so
+   2019 and 2022 are already cold before their run, where reads bill per GET. Proposed: scope the
+   rule to finished years (`computing/gpu_operations.md` §4.2) — awaiting your go.
 5. **Deferred**: North S2-RGB model; v3 backlog (re-stage, MAE SSL, multi-scale — see ledger
    "Deferred to v3").
 

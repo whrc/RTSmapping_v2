@@ -5,7 +5,7 @@
 **Objective**: Semantic segmentation of Retrogressive Thaw Slumps (RTS) in Arctic satellite imagery for pan-arctic mapping (60-74°N).
 
 ---
-**Data versioning**: Use semantic versioning (major.minor)
+**Data versioning**: ids are `D<major>.<minor>`; the rule, the list of versions and what each means live in [`versions.yaml`](../versions.yaml) (SSoT).
 - Major: Added new training data or significant changes to processing
 - Minor: No new training data but changes in existing labels
 
@@ -206,12 +206,12 @@ A second dataset root, `gs://rts-mapping-v2/training/v1.0_scale05/`, holds 512×
 **~9.55 m/px** (2× GSD, 4× FOV area): each tile is a 1024×1024-px native window
 **bilinear**-downsampled to 512 — the identical decimated read the inference pipeline uses at
 scale 0.5 (`inference/tiles.py`), per Rule 3. Built by `scripts/scale05_tile_creation.py` from the
-verified v1.0 vector sources (provenance: 57/60 sampled v1.0 label tiles reproduce exactly; the
+verified D1.0 vector sources (provenance: 57/60 sampled D1.0 label tiles reproduce exactly; the
 3 misses are later hotfix edits).
 
 - **Positive tiles**: quad-aligned 1024-px blocks (2×2 groups of the Planet 512 grid) covering the
-  v1.0 `train_selected` footprints; alignment guarantees a single-quad read (4096 = 4×1024).
-- **Negative tiles**: 1024-px windows on the ARTS v6 Negative centroids (v1.0 negative source),
+  D1.0 `train_selected` footprints; alignment guarantees a single-quad read (4096 = 4×1024).
+- **Negative tiles**: 1024-px windows on the ARTS v6 Negative centroids (D1.0 negative source),
   clamped inside their quad; windows intersecting any positive/ignore/unrefined-ARTS geometry are
   skipped (the expanded context must not smuggle RTS into background tiles).
 - **Label rules at 0.5x** (delta vs §2.4):
@@ -221,7 +221,7 @@ verified v1.0 vector sources (provenance: 57/60 sampled v1.0 label tiles reprodu
   3. **unrefined-ARTS guard**: ARTS positives with no overlap with any refined positive rasterize
      as 255 (+50 m buffer) — known-but-undelineated RTS must not train as background;
   4. sub-pixel guard: positive features < 10 px at 0.5x re-burn as 255 (below diagnostic size, §2.2).
-- **Normalization**: reuses the v1.0 stats file (bilinear downsampling preserves channel means);
+- **Normalization**: reuses the D1.0 stats file (bilinear downsampling preserves channel means);
   drift verified at staging QC.
 - Consumed at training time via `data.additional_roots` (train split only — val/test stay 1x;
   see `configs/multiscale_poc_seed42.yaml`).
@@ -376,7 +376,7 @@ Run before training:
 
 ## 9. Channel Index Reference
 
-> **v1.0 status:** EXTRA stack is **live** — `gs://rts-mapping-v2/training/v1.0/EXTRA/` contains the
+> **D1.0 status:** EXTRA stack is **live** — `gs://rts-mapping-v2/training/v1.0/EXTRA/` contains the
 > full 8-band tiles (22,259 files, 27 GB) mirrored to `/mnt/outputs/v1.0/data_local/EXTRA/` locally.
 > Phase 4 EXTRA experiments have been run and are in the ledger.
 

@@ -352,7 +352,7 @@ def test_dataset_per_tile_data_root_column(synthetic_dataset, tmp_path):
     ids = get_tile_ids("train", metadata, splits)
 
     # Relocate one train tile into a second root; point its metadata there.
-    alt_root = tmp_path / "v1.0_scale05"
+    alt_root = tmp_path / "D2.0"
     moved = ids[0]
     for sub in ("PLANET-RGB", "EXTRA", "labels"):
         (alt_root / sub).mkdir(parents=True)

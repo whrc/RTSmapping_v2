@@ -9,7 +9,7 @@ Living doc for the test suite. **Update this file whenever you add, remove, or m
 Two-tier verification:
 
 - **Tier 1 — `pytest tests/`**: runs on synthetic fixtures, no GCS, no GPU. Fast suite ~12 s, plus the end-to-end train-smoke at ~130 s. Guards code correctness and contracts. **Must be green before any real-data work.**
-- **Tier 2 — real-data scripts**: runs on the real v2-alpha bucket on the L4 VM.
+- **Tier 2 — real-data scripts**: runs on the real D0.1 bucket on the L4 VM.
     - Phase 0 data checks: `scripts/check_data_content.py` (bucket structure) + `scripts/check_data.py` (DataLoader preview).
     - Phase 1 training smoke: `python scripts/train.py --config configs/smoke.yaml` (2 epochs on a subset of real regions; inference.md §6.4 gate).
     - Inference validation: `scripts/validate_inference_tiny.py` (real 2025 quads + GPU; 11 PASS/FAIL checks on overlap/stitching/fusion/NoData/resume — results in `docs/inference_validation.md`).
@@ -339,7 +339,7 @@ Forward-path tests for `models/foundation.py` (FoundationSegmenter: DINOv3/ViT e
 | `test_min_delta_ignores_noise` | Gains below min_delta don't reset counter | real |
 | `test_missing_metric_key_raises` | Metric name absent from dict → `KeyError` | real |
 | `test_state_dict_restores_observation_state` | save/load reproduces history + best + counters | real |
-| `test_load_state_dict_keeps_config_hyperparameters` | Resume takes patience/min_delta/start_epoch from **config**, not the checkpoint | real — regression, v2.1 gate resume silently kept a stale start_epoch=101 |
+| `test_load_state_dict_keeps_config_hyperparameters` | Resume takes patience/min_delta/start_epoch from **config**, not the checkpoint | real — regression, M3.0 gate resume silently kept a stale start_epoch=101 |
 | `test_lowered_start_epoch_takes_effect_after_resume` | End-to-end: a resumed run stops on the new, lower start_epoch | real — regression |
 
 ### [test_checkpoint.py](test_checkpoint.py)
@@ -800,6 +800,9 @@ or every ten minutes forever. No Docker, no GCS, no network — stage commands a
 | `test_dry_run_does_not_block_on_a_running_detached_stage` | `--dry-run` always returns | real — a running detached stage used to fall into the polling loop and hang |
 | `test_shard_does_not_wait_on_the_s2_export` | sharding reads no imagery | real — would idle ~11 days for nothing |
 | `test_infer_still_requires_the_s2_index` | NDVI prerequisite moved, did not vanish | real |
+| `test_infer_refuses_until_a_gpu_type_is_chosen` | `_infer_cmd` raises, naming `fleet`, while `config.yaml` `fleet:` is empty or lacks `zones` | real — the GPU type is decided at the 2019 launch; nothing may be created before it |
+| `test_infer_creates_that_years_fleet` | the launcher gets the year's own run base, both index paths, all three seed packages, the fleet shape, Spot by default, and the GCS billing project | real — a wrong year's run base would put two years' tiles in one queue |
+| `test_infer_can_run_on_demand_and_across_zones` | `spot: false` reaches the launcher as `SPOT=0`; a zone list becomes a comma-joined `ZONES` (→ regional MIG) | real |
 | `test_year_detail_names_the_gate` | a blocked year says what is wanted | real |
 | `test_failure_alerts_once_not_every_tick` | announce-once, not every cron tick | real — the reason anyone keeps reading the channel |
 | `test_gate_alert_names_the_stage` | the alert is actionable | real |
@@ -811,6 +814,43 @@ or every ten minutes forever. No Docker, no GCS, no network — stage commands a
 | `test_expect_quads_for_year_picks_that_years_delivered_count` | the reconciliation target is per-year, defaulting when unmeasured | real — 2019 delivered 308,459 against 2022's 309,107; the Dove constellation grew across the archive |
 | `test_expect_quads_for_still_accepts_a_plain_int` | an unmigrated scalar config keeps working | real — `/opt/rts/RTSmapping_v2` is a live shared checkout |
 | `test_quad_index_reconciles_against_the_years_own_count` | the year's own count reaches `--expect-quads`, and the default does not | real — as a single scalar this guard fired on genuine early-year coverage gaps instead of the filename regressions it exists to catch |
+
+### [test_gpu_watcher.py](test_gpu_watcher.py)
+
+`scripts/gpu_watcher.py` — the cron job on `rts-ops` that starts, stops and resizes paid GPU
+machines ([`computing/gpu_operations.md`](../computing/gpu_operations.md) §2). Its mistakes cost
+money both ways — a missed restart idles a training wave for hours, a wrong start or a missed stop
+bills a GPU nobody uses — so the tests pin each rule to the exact states that should and should not
+fire it, plus the safety filter that keeps it off anything not ours. Pure functions only: no
+`gcloud`, no GCS. The I/O layer was exercised read-only against the live project (`--status`,
+`--dry-run`, 2026-11-19: nothing to act on).
+
+| Test | Checks | Strictness |
+|------|--------|------------|
+| `test_starts_a_stopped_vm_whose_wave_is_not_done` | TERMINATED + active wave → `start` | real — the preemption recovery |
+| `test_leaves_a_stopped_vm_alone_when_its_wave_is_done_or_absent` | done or no queue → nothing | real — a finished wave must never be restarted |
+| `test_watcher_off_leaves_even_an_active_wave_alone` | `watcher=off` overrides every rule | real — hand work on the VM |
+| `test_stops_a_running_vm_whose_wave_is_done` | RUNNING + done → `stop` | real — the failed power-off |
+| `test_never_stops_a_running_vm_that_has_no_wave` | started by hand: nothing for 12 h, then only a reminder alert | real |
+| `test_transitional_states_are_left_for_the_next_pass` | STAGING/PROVISIONING/STOPPING/SUSPENDING → nothing | real |
+| `test_a_stale_log_on_a_running_wave_alerts_with_a_per_boot_key` | log 2 h old → one alert keyed on the boot time | real |
+| `test_no_stuck_alert_in_the_first_hour_after_a_boot` | grace period while the new heartbeat starts | real — the old wave's heartbeat is still there |
+| `test_a_fresh_heartbeat_is_not_stuck` | recent heartbeat + log → nothing | real |
+| `test_a_missing_heartbeat_after_the_grace_period_is_stuck` | no heartbeat object after an hour → alert | real |
+| `test_heartbeat_age_takes_the_older_signal` | the staler of loop-alive and log-moving wins | real |
+| `test_a_finished_wave_is_announced` | final heartbeat with `wave_done` → one alert keyed on the wave | shallow |
+| `test_a_previous_waves_heartbeat_does_not_announce_the_current_one` | `wave_id` must match | real |
+| `test_no_capacity_alert_only_after_the_threshold` | `start` every pass; the alert only after 3 h | real |
+| `test_resizes_a_fleet_once_every_shard_is_done` | done == total → `resize0` + announcement | real — the fleet's only automatic stop |
+| `test_does_not_resize_a_fleet_with_shards_left` | one shard short → nothing | real |
+| `test_an_unreadable_or_empty_queue_never_resizes` | total 0 or no snapshot is not "all done" | real — would kill a fleet whose index had not been read yet |
+| `test_a_fleet_already_at_zero_is_left_alone` | size 0 → nothing | shallow |
+| `test_an_empty_fleet_alerts_after_the_threshold` | no VM running for 3 h → alert | real |
+| `test_select_vms_keeps_only_our_training_and_cpu_vms` | needs `owner=rts`, role train/cpu, a matching name, and name/role agreement; `rts-ops` is never selected | real — the safety filter |
+| `test_select_migs_keeps_only_year_fleets` | only `rts-infer-<4 digits>` | real — pilot fleets and other teams' groups are invisible |
+| `test_update_since_sets_once_and_clears` | first sighting kept; cleared when the condition ends | real |
+| `test_unannounced_drops_seen_alerts_but_keeps_actions` | announce-once applies to alerts only | real |
+| `test_parse_time_handles_gce_offsets` | RFC 3339 offsets and `Z` compare correctly | real |
 
 ### [test_watchdog.py](test_watchdog.py)
 
@@ -1022,7 +1062,7 @@ Tier-1 object operating-point tuner (`scripts/tune_object_operating_point.py`, r
 
 ### [test_pretrain_corpus.py](test_pretrain_corpus.py)
 
-v2.1 SSL corpus sampling/exclusion/quality logic (`pretraining/corpus.py`), CPU-only, no GCS.
+M3.0 SSL corpus sampling/exclusion/quality logic (`pretraining/corpus.py`), CPU-only, no GCS.
 
 | Test | Checks | Strictness |
 |---|---|---|
@@ -1038,7 +1078,7 @@ v2.1 SSL corpus sampling/exclusion/quality logic (`pretraining/corpus.py`), CPU-
 
 ### [test_pretrain_mim.py](test_pretrain_mim.py)
 
-v2.1 MAE masking + item loading (`pretraining/mim_dataset.py`), CPU-only.
+M3.0 MAE masking + item loading (`pretraining/mim_dataset.py`), CPU-only.
 
 | Test | Checks | Strictness |
 |---|---|---|
@@ -1252,6 +1292,26 @@ replicates, leak `max_prob`: each fails a test).
 
 ---
 
+### [test_check_versions.py](test_check_versions.py)
+
+`scripts/check_versions.py` — keeps `versions.yaml` (the data/model/epoch version SSoT) honest. Synthetic repos under `tmp_path`, GPU-free, network-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_real_repo_is_clean` | the checked-in registry, configs, docs and code all agree — fails the day someone writes a retired name in a doc or points `baseline.yaml` at another root | real |
+| `test_good_registry_is_clean` | a minimal valid registry produces no problems | real |
+| `test_integrity_rejects[...]` (11 cases) | duplicate id, malformed data/model id, rejected without verdict, no/two deployed-or-current, dangling `data`, cross-kind `parent`, epoch naming a non-model, retired name → unknown id, invalid status — each fails with its own message | real |
+| `test_doc_pointer_must_exist` | an entry's `doc` path must exist | real |
+| `test_config_data_version_must_be_a_data_id` | only the config with `data.version: '1.0'` is flagged; `D1.0` and configs with no version pass | real |
+| `test_baseline_roots_must_sit_under_current_data_root` | exactly the one baseline path under a different bucket is flagged | real |
+| `test_version_json_must_match_registry` | `data/version.json` version and gcs_root must equal the registry entry | real |
+| `test_unknown_id_mentioned_in_prose_is_flagged` | an unregistered id in a doc is reported with file:line; known ids are not | real |
+| `test_retired_name_flagged_as_bare_word` | a retired name used bare, in a doc or a docstring, is flagged with its replacement id | real |
+| `test_legacy_names_inside_paths_and_filenames_are_left_alone` | `training/v1.0`, `docs/v1.0_qc.md`, `v1_1_seed42.yaml`, `RTS_MODEL_V21`, branch `v2.1-pretraining`, `v1.0.3` are not flagged | real |
+| `test_history_and_run_configs_are_not_scanned` | `docs/archive/`, `docs/superpowers/` and `configs/` comments are exempt | real |
+
+The legacy-name check is regex-based, so it is deliberately blind to a retired name that appears inside a longer token; that is the design (physical paths keep their legacy label and are looked up through each entry's `physical` field), not a gap.
+
 ## Coverage gaps (known)
 
 Deliberately deferred — most are better caught by Tier 2 against real data than by more synthetic fixtures. Don't close these by adding fake tests; address them when real data lands or when a bug motivates it.
@@ -1264,6 +1324,14 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 6. **Numerical edge cases in Welford** — single distribution, realistic scale. No adversarial `1e10 + 1e-10` test for catastrophic cancellation. Fine for imagery in practice.
 7. **Malformed metadata** — missing column, bad `TrainClass`, duplicate `Tile_id`. `load_metadata()` has the guards but they're not exercised.
 8. **Object-scorecard real-data execution (Tier 2)** — `test_object_scorecard.py` covers all report-only *logic* on synthetic arrays, but the GPU/real-data runs are not in pytest: (a) `score_insample_train.py` `_build_cache` (ensemble inference over the train sample → `*_probs.npz`) is exercised only on the L4 VM; (b) `probe_change_signal.py` needs an L4-built `*_change.npz` (|ΔNDVI| over the 2024−2023 train year-pair for the val tiles) — its construction is imagery-layout-dependent and not yet written; (c) parity of the scorecard's aggregate against the frozen Finding-K numbers is a Tier-2 check on the real val/test caches.
+9. **Job-machine shell scripts** — `computing/create_train_vm.sh`, `train_vm_startup.sh`,
+   `train_wave.sh`, `create_inference_fleet.sh` and the resume/archive branches of
+   `scripts/run_gpu_pool.sh` have no tests; they are syntax-checked (`bash -n`) and verified by the
+   live drills in `computing/gpu_operations.md` (preemption, wave end, a 1-VM MIG on a scratch base).
+   `gpu_watcher.py`'s `gcloud`/GCS layer is likewise covered only by read-only live runs.
+10. **Stage tests write the repo's `interannual_inference/PROGRESS.md`** — `run_stage.run` calls
+    `refresh_progress`, which rewrites the tracked file's timestamp, breaking convention 7. Restore
+    the file after a local run until the path is taken from the config.
 
 ---
 
@@ -1285,6 +1353,8 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 
 ## Dev log
 
+- 2026-11-19 — Compute after PDG: new `test_gpu_watcher.py` (24 tests) for `scripts/gpu_watcher.py`, and +3 in `test_interannual_inference.py` for the `infer` stage, which now creates a per-year Spot fleet (`computing/create_inference_fleet.sh`) instead of starting a supervisor on the retired 8×A100 master. The watcher acts on paid machines, so its tests pin both directions — every state that must trigger a start/stop/resize and the neighbouring states that must not (a finished wave, `watcher=off`, a queue not yet readable). `_infer_cmd` refuses while `config.yaml` `fleet:` is empty, because the GPU type is chosen at the 2019 launch. All synthetic/CPU. Green here: 24 + 74 passed, with the 2 known Windows-only failures above. Found, not fixed: stage tests rewrite the tracked `PROGRESS.md` (Coverage gaps #10). Shell scripts untested (gap #9).
+- 2026-11-18 — Version registry: new `test_check_versions.py` (21 tests, 11 of them one parametrized integrity test) for `scripts/check_versions.py`. The test that runs the *real* repo is the point: the renumber (v1.0/v1.1/v2.1/… → `D`/`M` ids in `versions.yaml`) cannot quietly regress, because any new bare legacy name in a doc or docstring fails it. The checker's first run doubled as the audit (188 hits, cleared by a mechanical pass plus hand edits to the ledger). One false positive surfaced, the `v2.1-pretraining` branch name, which is why hyphenated compounds are exempt from the generic names. All synthetic/CPU. Green: 21 passed here; the rest of the suite needs `torch`, absent in this environment.
 - 2026-09-28 — Zero was never reserved for NoData: **+4 tests** (`test_build_rgb_chips.py` 10→13, `test_review_crops.py` 23→24). The operator spotted crops striped `NO IMAGERY` over ground that opened complete in QGIS. Planet's 8-bit basemaps clamp deep shadow and dark water to exactly `(0,0,0)` with `alpha=255`; `write_rgb_chip` wrote NoData as 0 as well, so the chip could not say which was which and `render_crop` striped both — pooled over seven sampled quads, **68.8% of striped pixels were valid imagery**. No threshold could have separated them; the ambiguity was in the sentinel. The fix floors valid imagery at 1. The guard that matters is `test_black_imagery_and_absent_imagery_are_written_differently`: one quad, the same `(0,0,0)` in both halves, alpha the only difference — verified red on `clip(rgb, 0, 255)` and green on `clip(rgb, 1, 255)`. The older `test_write_rgb_chip_is_georeferenced_uint8_and_matches_quad_values` could never have caught it: its fixture paints `(10,20,30)`, so the sentinel collision it was blind to never arose. **126 passed** across the nine review/chip/claim files in `rts-infer:v1`. See `post-inference/review_campaign.md` §4.4 and `training/training.md` §4.4.
 - 2026-09-23 — Review-app context, neighbours and a claim TTL that never fired: **+22 tests** (`test_review_crops.py` 12→23, new `test_build_review_crops.py` with 11, `test_claim.py` 9→13, `test_build_rgb_chips.py` 6→10, `test_review_app.py` +2). Three of them exist because a fake was too kind. `test_claim.py`'s `_FakeBucket` modelled GCS's create-if-absent atomicity but not its IAM, so nothing could catch that the live review app's runtime identity held `objectCreator` — which grants neither overwrite nor delete. Heartbeats 500'd into a `fetch` with no `.catch` and stale reclaims swallowed their 403 for seven weeks, stranding 18 batches and freezing the campaign's headline claim. The new `_CreateOnlyBucket` reproduces it in four lines. The rest guard the crop archive: `test_resume_skips_a_polygon_that_already_has_crops` pins the rule that let a rebuilt chip mosaic change nothing, `test_context_tiles_cover_the_whole_wide_crop` pins the tile selection that was only ever wide enough for the detection itself, and `test_absent_imagery_is_striped_not_black` pins the reason none of it was noticed — missing pixels rendered as black, which is also what dark water looks like. Green in `rts-infer:v1` (**128 passed** across the nine review/claim/chip files). See `post-inference/review_campaign.md` §4.1, §4.3, §6.2.
 - 2026-04-22 — Initial suite: 24 tests across 4 files, all green. Covers Phase 0 data pipeline. See plan for context.
@@ -1314,3 +1384,12 @@ object. Worse, `gcs_parity.py`'s own docstring records that the 200-object sampl
 and rejected, because the test that corrupts 1 object in 20 showed a sample cannot cover a 42 M-object
 prefix. Both were deleted and the gate re-measured with `gcs_parity.py`. Checking `scripts/` before
 writing a script would have cost a minute.
+
+### [test_export_candidates_geojson.py](test_export_candidates_geojson.py)
+
+`scripts/export_candidates_geojson.py` — candidates + review status as GeoJSON. GPU-free, network-free.
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_status_mapping_and_unverified` | rts/false/unsure map to rts/false_positive/unsure; no verdict → unverified; an injected replicate does not override the coverage verdict | real |
+| `test_all_rows_kept_in_4326` | row count preserved, CRS is EPSG:4326, `tile_ids` dropped | real |

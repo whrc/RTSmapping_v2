@@ -105,7 +105,7 @@ def test_state_dict_restores_observation_state():
 def test_load_state_dict_keeps_config_hyperparameters():
     """Hyperparameters come from config on resume, never from the checkpoint.
 
-    Regression: the v2.1 gate resume silently kept the checkpoint's start_epoch=101
+    Regression: the M3.0 gate resume silently kept the checkpoint's start_epoch=101
     after the config was lowered to 65, burning ~15 extra epochs per seed.
     """
     s1 = _stopper(patience=8, min_delta=0.005, start_epoch=101)

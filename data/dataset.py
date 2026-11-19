@@ -142,7 +142,7 @@ class RTSDataset(Dataset):
         if boundary_handling == "soft_labels":
             raise NotImplementedError(
                 "boundary_handling='soft_labels' is deferred to a later iteration "
-                "(training.md §5.5). Use 'none' or 'ignore' for v1.0."
+                "(training.md §5.5). Use 'none' or 'ignore' for D1.0."
             )
         if boundary_handling not in ("none", "ignore"):
             raise ValueError(

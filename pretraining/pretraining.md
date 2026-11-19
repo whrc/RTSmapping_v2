@@ -1,4 +1,4 @@
-# Pretraining — v2.1 SSL program spec
+# Pretraining — M3.0 SSL program spec
 
 > **STATUS: CLOSED 2026-07-18 — negative result.** The program ran end to end; arctic MAE
 > continue-pretraining **harmed** the encoder (arm-c 0.8139 vs arm-b 0.9191, Δ −0.105, 0/3 seeds).
@@ -24,7 +24,7 @@ collapses the earlier two-stage (convnet→ViT) plan into one ViT program.
 
 - Backbone: `vit_large_patch16_dinov3.sat493m` (the family-E encoder), 4-ch patch-embed (RGB copied,
   NDVI zero-init — `FoundationSegmenter._expand_patch_embed`).
-- Out of scope: convnet/FCMAE, hard-negative mining, pseudo-labeling, re-staging (v2.0 ledger K list).
+- Out of scope: convnet/FCMAE, hard-negative mining, pseudo-labeling, re-staging (M1.0 ledger K list).
 
 ## 2. Corpus (`scripts/build_pretrain_corpus.py`)
 
@@ -40,7 +40,7 @@ collapses the earlier two-stage (convnet→ViT) plan into one ViT program.
   the v2/fine-tune input, the corpus is restricted to the **S2-covered footprint** — defined precisely
   as domain-grid tiles whose bbox intersects an S2 index cell (so NDVI is available). Pan-arctic RGB-only
   pretraining and a future pan-arctic NDVI export were considered and deferred. Consequence: the encoder
-  sees no high-arctic/Siberian-north terrain; recorded as a corpus limitation in the v2.1 ledger.
+  sees no high-arctic/Siberian-north terrain; recorded as a corpus limitation in the M3.0 ledger.
 - **Sampling:** target ~1–2M tiles, stratified uniform per (2° lat band × 20° lon sector) cells over the
   S2-covered candidate tiles (pre-filtered from `tiles_2025q3_domain_full.csv` by the S2 footprint
   envelope, then exact-intersect confirmed); 2× oversample of the training-label footprint neighborhoods.
@@ -48,7 +48,7 @@ collapses the earlier two-stage (convnet→ViT) plan into one ViT program.
   polygons); tiles >50% RGB NoData or all-NaN NDVI.
 - **Stats:** fresh corpus per-dataset z-score stats written to `normalization_stats.json` in the corpus
   prefix and used for *pretraining only*. Fine-tuning keeps the v2 training-set stats (intentional:
-  stats travel with each dataset; verify the two are near-identical and record in the v2.1 ledger).
+  stats travel with each dataset; verify the two are near-identical and record in the M3.0 ledger).
 - **Layout:** `gs://rts-mapping-v2/RTS_MODEL_V21/PRETRAIN_CORPUS/{tiles/, manifest.csv,
   normalization_stats.json}`; pilot (5k tiles) under `PRETRAIN_CORPUS_PILOT/`.
 - **Size + storage (decided 2026-07-15):** target **~300k tiles**, **materialized to local disk**.
@@ -93,7 +93,7 @@ Locked v2 recipe verbatim via the **family-E fair-recipe config** (`configs/fm_d
 — the same one that produced the 0.9191 baseline), adding only the new `model.encoder_init: <path>` key
 (loader in `models/segmentation.py` applies the state_dict to `model.encoder` after construction; verified
 it round-trips through the Eva ViT with the 4-ch patch-embed). 3 seeds 42/43/44 in parallel via the
-per-GPU queue. Scores harvested from `run_summary.json` into the v2.1 ledger.
+per-GPU queue. Scores harvested from `run_summary.json` into the M3.0 ledger.
 
 ## 5. Files
 

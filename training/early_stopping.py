@@ -119,7 +119,7 @@ class EarlyStopping:
         Deliberately does NOT restore metric_name/patience/min_delta/start_epoch/
         smoothing_window: those are config, and a resumed run must honour the current
         config rather than the values frozen into the checkpoint. (Restoring them
-        silently voided a start_epoch 101→65 change on the v2.1 gate resume — the runs
+        silently voided a start_epoch 101→65 change on the M3.0 gate resume — the runs
         kept the checkpoint's 101 and burned ~15 extra epochs per seed.) Divergences
         are logged so the change is visible in the run log.
         """

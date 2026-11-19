@@ -1,4 +1,4 @@
-"""Build the v2.1 SSL pretraining corpus (spec: pretraining/pretraining.md §2).
+"""Build the M3.0 SSL pretraining corpus (spec: pretraining/pretraining.md §2).
 
 Samples 4-ch (RGB+NDVI) 512x512 tiles over the S2-covered south footprint, writes one
 .npz per tile + manifest + normalization_stats.json. Tile reads reuse the inference readers
@@ -158,7 +158,7 @@ def _write_final_stats(out_dir: Path, partials: list[dict]) -> None:
     nd_m, nd_s = _pool(partials, "ndvi", 1)
     n = sum(g["n"] for g in partials)
     stats = {
-        "dataset_version": "v2.1-pretrain",
+        "dataset_version": "D3.0",
         "computed_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "n_tiles_used": n,
         "rgb": {"channel_names": ["R", "G", "B"], "mean": rgb_m, "std": rgb_s},

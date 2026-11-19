@@ -160,7 +160,7 @@ local tree against its GCS mirror:
 | Local tree | Local | GCS mirror | On GCS | Reading |
 |---|---|---|---|---|
 | `v1.0/runs` | 223 GB | `RTS_MODEL_V2/runs/` | 50 GB | Expected — the mirror is deliberately *slim* (`best_deployment.pth` + config + summary + log + figures). The gap is `resume_latest-*.pth`, local-only by convention |
-| `v2.1/PRETRAIN_CORPUS` | **189 GB** | — | — | **The one real decision.** The 295,429-tile MAE corpus. The v2.1 programme is closed negative, and the corpus is rebuildable from v1.0 data + the corpus builder |
+| `v2.1/PRETRAIN_CORPUS` | **189 GB** | — | — | **The one real decision.** The 295,429-tile MAE corpus. The M3.0 programme is closed negative, and the corpus is rebuildable from D1.0 data + the corpus builder |
 | `v2.1/runs` | 45 GB | `RTS_MODEL_V21/` | 5.7 GB | 12 × `resume_latest-*.pth` = 48 GB, regenerable training state |
 | `inference/south/review` | 68 GB | `inference/2025q3_south/internal/` | 67 GiB | Mirrored — the crop/chip archive |
 | `inference/south/products_local` | 15 GB | `inference/2025q3_south/products/` | 25 GiB | Mirrored |

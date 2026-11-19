@@ -97,7 +97,7 @@ move the metric, the bottleneck is information/data, not the model.
 | Better **representation** (DINOv3 web) | RGB edge 0.873 > 0.830 **vanishes** w/ NDVI (0.9120 ≈ 0.9123) | ledger row 73 | not representation-limited once the cheap feature is in |
 | **Augmentation** (mixing ×4) | copy-paste / mosaic / cutmix / mixup all no-win | `experiment_ledger.md` | can't manufacture more signal |
 | Train–val gap | 0.05–0.17 (< 0.4) | status 2026-06-15 | well-fit, not overfitting |
-| Positive count | ~1,718 pos / 22,259 | status (v1.0 snapshot) | rare-object / data-scarce regime |
+| Positive count | ~1,718 pos / 22,259 | status (D1.0 snapshot) | rare-object / data-scarce regime |
 | Seed noise vs effect sizes | σ_corrected ≈ 0.02 ≳ most remaining Δ | status 2026-06-20 | remaining signal is below the noise floor |
 
 **Honest caveat:** the *quantitative* plateau (slope −0.12, gap 0.05/0.17) was computed 2026-06-15,

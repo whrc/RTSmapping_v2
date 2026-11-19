@@ -30,7 +30,7 @@ spend at the corrected ETA. All fixes are on branch `audit-prelaunch` (8 commits
 | **Spatial** leakage (not just by-name) | PASS — 0 overlapping cross-split tile pairs in EPSG:3857; tightest gap 2446 m vs 2442 m tile edge (abutting, not overlapping); val 5.9 km clear | projected-space pairwise scan of all 22,259 centroids |
 | Tile accounting | PASS — 17,951 train + 2,151 val + 2,157 test = 22,259; 1,718 pos / 20,541 neg; Tile_IDs unique | `metadata.csv` |
 | Test composition | PASS — 107 pos / 2,050 neg matches ledger J and `effb5_ensemble_metrics.json` | |
-| v1.1 metadata delta | PASS — exactly 50 rows removed (49 all-black negs + vjn7 old row), 29 delta rows added (28 restored pos + vjn7 promoted); "+25 train positives" exact (20 Taimyr + 2 Brooks + 3 Canadian Middle); the 4 delta positives in val/test regions are unused in training (`train.py:217-238` — train from combined roots, val/test from primary only) → no leakage | metadata diff v1.0 vs v1.1 + delta |
+| D1.1 metadata delta | PASS — exactly 50 rows removed (49 all-black negs + vjn7 old row), 29 delta rows added (28 restored pos + vjn7 promoted); "+25 train positives" exact (20 Taimyr + 2 Brooks + 3 Canadian Middle); the 4 delta positives in val/test regions are unused in training (`train.py:217-238` — train from combined roots, val/test from primary only) → no leakage | metadata diff D1.0 vs D1.1 + delta |
 | Norm-stats provenance | PASS — all 3 packages bit-identical (md5 `c82fcc…`) to canonical `v1_splits/normalization_stats_ndvi.json`; `n_tiles_used` 17,951 == train split; pooled recompute on a 800-tile sample matches (means ≤2.3%, stds ≤5% — sampling noise) | recompute in Docker |
 | Label values | PASS — 300/300 sampled label tiles ⊆ {0,1,255} | |
 
@@ -46,7 +46,7 @@ spend at the corrected ETA. All fixes are on branch `audit-prelaunch` (8 commits
 | Test-Realistic obj P/R/F1 0.584/0.437/0.500; PR-AUC 0.855/0.833/0.812 (geomean 0.833) | exact ✓ | `test_realistic/effb5_ensemble_metrics.json` |
 | First product (thr 0.65/mb 2000): val P 0.793/R 0.348, test P 0.768/R 0.400 | exact ✓ | `mmu_rescore/object_scorecard_{heldout_val,frozen_test}.json` |
 | MMU-600: P invariant, R +3.2/+4.1 pt, floor 0.280→0.231 / 0.223→0.159 | exact ✓; `min_mapping_unit: 600` recorded, self-check True | `mmu_rescore/*_mmu600.json` |
-| v1.1 3-seed 0.9029/0.9086/0.8906 (mean 0.9007) | ✓ | `/mnt/outputs/v1_1/runs/*/run_summary.json` |
+| M1.1 3-seed 0.9029/0.9086/0.8906 (mean 0.9007) | ✓ | `/mnt/outputs/v1_1/runs/*/run_summary.json` |
 | Ledger score column | zero drift — `sync_experiments.py` rewrote 113 rows with identical values (empty git diff) | |
 
 ### S3 — Decision audit: SOUND (with 3 documented judgment calls, all honestly labeled)
@@ -54,23 +54,23 @@ spend at the corrected ETA. All fixes are on branch `audit-prelaunch` (8 commits
 Every lock's evidence re-checked against its own stated bar (mean Δ ≥ G = 0.0112 + 3-seed
 sign-consistency): NDVI (+0.069 ≫ G) · focal+ignore_w2 (seed-confirmed) · drop-RandomScale (+0.016,
 3/3) · EffB5-over-sat-DINOv3 (fair matched re-run, dead tie 0.9191 vs 0.9218 → cheaper encoder) ·
-curriculum rejected (sign-flip) · calibration chain (below) · v1.1 wash. Notes:
+curriculum rejected (sign-flip) · calibration chain (below) · M1.1 no-improvement. Notes:
 
 1. **TrivialAugment** (Δ+0.0095 < G) and the **3-seed ensemble** (Δ+0.0091 < G vs best single) are
    sub-gate locks by explicit judgment — both documented as such in the ledger. Sound.
 2. **thr 0.65** is the grid's object-precision maximum (user choice, precision-over-recall §1);
    the F1-argmax alternative (0.30) is recorded alongside. Sound and reproducible.
-3. **v1.1 wash verdict**: methodologically sound — the raw "regression" decomposes into a val-set
-   change (−29 trivial negatives) + an own-threshold confound (v1.1 optimum 0.45 vs incumbent 0.65);
+3. **M1.1 no-improvement verdict**: methodologically sound — the raw "regression" decomposes into a val-set
+   change (−29 trivial negatives) + an own-threshold confound (M1.1 optimum 0.45 vs incumbent 0.65);
    calibration-free signals (test pixel PR-AUC 0.9976 vs 0.9970; MMU600 floor 0.154 vs 0.159) and
    own-threshold object F1s tie. Keep-v1.0 is the right call (incumbent, already calibrated).
 4. **Calibration→deploy math chain verified end-to-end**: `calibrate.py` fits T on the pseudo-logit
    of the mean-prob ensemble == `predict_probs_ensemble` (per-seed sigmoid @T=1 → mean → logit → /T
    → sigmoid) == `evaluate_test_ensemble` (imports the same function). One recipe, three sites, no drift.
 5. *(discipline note)* The frozen test set has been consulted several times post-freeze (by-region
-   re-run, MMU re-scores, v1.1 comparison) — always from cached predictions and never to re-tune the
+   re-run, MMU re-scores, M1.1 comparison) — always from cached predictions and never to re-tune the
    deploy point, so adaptive-reuse risk is low; keep minimizing test touches.
-6. *(nit)* The v1.1-wash "test pixel PR-AUC 0.9976" is a different regime than the shipped 0.833
+6. *(nit)* The M1.1 no-improvement "test pixel PR-AUC 0.9976" is a different regime than the shipped 0.833
    geomean (unweighted vs prevalence-reweighted); the ledger uses it only as a relative tie signal —
    fine, but the regime is unstated there.
 
@@ -303,12 +303,12 @@ KEEP (pending campaigns): `make_invisible_contact_sheet.py` (D1 label audit), `p
 Stale plan files in `~/.claude/plans/` (all superseded except `elegant-exploring-lemur.md` and this
 audit's plan): 11 files. `docs/superpowers/plans/2026-05-02-pre-smoke-fixes.md` (May-era).
 
-## Track B (v1.1) swap-cost — for the record (decision already taken: keep v1.0)
+## Track B (M1.1) swap-cost — for the record (decision already taken: keep M1.0)
 
-Shipping v1.1 instead would require: its own calibration (T + thr ≈ 0.45 on Val-Realistic) →
+Shipping M1.1 instead would require: its own calibration (T + thr ≈ 0.45 on Val-Realistic) →
 repackage 3 seeds → re-upload → re-smoke (§E9). Roughly a day of work, no retrain needed
 (checkpoints exist). Everything model-independent in this audit (E5–E8, E10) carries over. The
-ledger's wash verdict means there is no ability upside; the case for a swap would be purely the
+ledger's no-improvement verdict means there is no ability upside; the case for a swap would be purely the
 cleaner labels — revisit only with the next real modeling change.
 
 ## `inference.md §13` pre-inference checklist reconciliation

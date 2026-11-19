@@ -7,7 +7,7 @@ threshold 0.5 / temperature 1.0).
 ## Setup
 
 - **Corner AOI**: 10×10 km centered on zoom-15 quad 4-corner **(338, 1622)** =
-  71.86°N, −120.59°W (Banks Island — 34 v2.1 positives in the surrounding 2×2 quads),
+  71.86°N, −120.59°W (Banks Island — 34 D0.2 positives in the surrounding 2×2 quads),
   so AOI tiles straddle quad boundaries in x, y, and diagonally. 56 tiles at stride 344.
 - **Edge AOI**: top of the northernmost available quad in column 337 — beyond it there is no
   quad, guaranteeing a NoData region.
@@ -29,7 +29,7 @@ threshold 0.5 / temperature 1.0).
 | 7 | Resume equivalence | PASS | interrupt-at-20 + resume: value-equivalent, max Δprob = 0.0062 — **bf16 batch-shape jitter**, not a resume bug (see notes) |
 | 8 | TTA sanity | PASS | minimal == (identity+hflip)/2 algebra holds; mean Δ vs none = 0.00025 |
 | 9 | Geo-alignment | PASS | merged raster res 4.7773 m, bounds == AOI, EPSG:3857; canvas **2576×2920 px = 12.3×14.0 km**. `validation_overlay.png` (2×2): RGB + tile outlines (cyan) + quad-boundary cross (yellow); probability + stitch lines (green); threshold contours; **400px seam-zoom** — the hottest blob sits on a seam intersection with smooth probability across both stitch lines. Regenerate without GPU: `--overlay-only` |
-| 10 | Detection plausibility | INFO | 9 blobs ≥ 0.1; top-5 peaks 0.107–0.145, each within **0.87–1.14 km** of a v2.1 positive centroid (uncalibrated v2.0 model — qualitative only) |
+| 10 | Detection plausibility | INFO | 9 blobs ≥ 0.1; top-5 peaks 0.107–0.145, each within **0.87–1.14 km** of a D0.2 positive centroid (uncalibrated M1.0 model — qualitative only) |
 
 ## Bugs found and fixed by this validation
 
@@ -52,7 +52,7 @@ Same AOI, same model, tiles read at 9.55 m/px covering 4.9 km FOV per 512² inpu
 `inference_feasibility.py`). Run: `validate_inference_tiny.py --scale05`; figure:
 `scale_comparison.png`; raster: `merged_prob_scale05.tif`.
 
-**Result: the v2.0 model does not transfer zero-shot to 2× GSD.**
+**Result: the M1.0 model does not transfer zero-shot to 2× GSD.**
 
 | Metric | scale 1.0 | scale 0.5 |
 |---|---|---|
@@ -65,9 +65,9 @@ side-by-side zooms); nothing new appears at the larger FOV. **Implication for tr
 multi-scale *inference* on a single-GSD-trained model is not viable — if medium/large-RTS
 coverage at wider FOV is wanted, it must come from **multi-scale or context-expanded training**
 (the inference.md §6.4 "Phase-1.5" path: fetch 2× area, downsample to 512 during training).
-Caveats: uncalibrated v2.0 dev checkpoint, single AOI, qualitative — but the response collapse
+Caveats: uncalibrated M1.0 dev checkpoint, single AOI, qualitative — but the response collapse
 is large enough that the §6.4 quantitative gate would very likely fail too. Recommend deciding
-the multi-scale-training question alongside the v2.1 re-baseline (it changes the data pipeline,
+the multi-scale-training question alongside the D1.0 re-baseline (it changes the data pipeline,
 so it is cheapest to fold in before the Phase-3 re-runs if wanted at all).
 
 ## Notes / known characteristics
@@ -81,5 +81,5 @@ so it is cheapest to fold in before the Phase-3 re-runs if wanted at all).
 - The coverage design at stride 344 leaves tile-center pixels single-covered (33% overlap is
   about capturing whole RTS in *some* tile, §4.2 — not about multi-covering every pixel).
 - Model response on 2025 imagery is low everywhere (max ~0.19 in this AOI) — expected for the
-  uncalibrated v2.0 dev checkpoint; the blob-to-known-RTS proximity (~1 km) is encouraging but
+  uncalibrated M1.0 dev checkpoint; the blob-to-known-RTS proximity (~1 km) is encouraging but
   not an evaluation.

@@ -7,6 +7,10 @@
 > why things are shaped the way they are — read it as history, not as instructions, and take live
 > paths from §4. [pdg_migration.md](pdg_migration.md) owns the old→new path map (rule: the bucket
 > changes, the prefix does not). The **machine inventory** lives in [README.md](README.md).
+>
+> **Live since 2026-11-19:** §3a (cost: Woodwell billing, today's prices, the cost model) and §5
+> "GPU quota in `abruptthawmapping`" (the live quota table). How the job machines are run:
+> [gpu_operations.md](gpu_operations.md).
 
 **Single source of truth for compute facts**: GCP projects, storage buckets, regions, quota,
 and the data storage map. This doc is *facts*; the step-by-step
@@ -27,7 +31,7 @@ Two GCP projects are in play, and it is important not to confuse them:
   compute credit**, the Docker Artifact Registry, and the PDG bucket `rts-mapping-v2`. This is an
   **organization-managed** project (we do not control its IAM).
 - **`abruptthawmapping`** (proj# 801926669176) — the user's own (non-PDG) project. Its bucket
-  `abrupt_thaw` currently holds the v2-alpha training data.
+  `abrupt_thaw` currently holds the D0.1 training data.
 
 ```
 abruptthawmapping project (non-PDG)        pdg-project-406720 (PDG, org-managed)
@@ -56,7 +60,57 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 ---
 
-## 3. Cost & quota (read this first)
+## 3a. Cost — `abruptthawmapping`, billed to Woodwell (live, 2026-11-19)
+
+There is no credit. Every VM-hour, stored byte and request bills a Woodwell account, so an idle
+GPU is a bill rather than a wasted allowance. **Stance (user, 2026-11-18): no fixed cap — minimise
+cost per result, but do not trade schedule for small savings, and pay a little where it makes the
+system simpler.** The rules that follow from it, and the machines: [gpu_operations.md](gpu_operations.md).
+Nothing here can see the bill yet: the Budget API is disabled, and a notification-only budget plus
+`roles/billing.viewer` for `yyang@` are with the billing admin.
+
+**List prices, us-west1, per hour** (gcloud-compute.com, refreshed 2026-11-18 from the billing
+catalog; the catalog API is disabled on this project). Spot prices can change monthly — re-check
+before a large run.
+
+| Machine | GPU | On-demand | Spot |
+|---|---|---|---|
+| g2-standard-12 | 1× L4 | $1.00 | $0.60 |
+| g2-standard-96 | 8× L4 | $8.00 | $4.79 |
+| a2-highgpu-1g | 1× A100-40GB | $3.67 | $2.19 |
+| a2-ultragpu-1g (us-central1 only) | 1× A100-80GB | $5.07 | $3.04 |
+| a3-highgpu-1g | 1× H100-80GB | $11.06 | $6.59 |
+| g4-standard-48 | 1× RTX PRO 6000 (96 GB) | $4.50 | **$1.36** |
+| n2-highmem-32 | — | $2.10 | $1.26 |
+
+Spot is ~40 % off for G2/A2/A3/N2 and ~70 % off for G4.
+
+**Fixed ≈ $730/month**: Coldline 82.4 TB in `rts-arctic-usw1` $330 · its Standard ~1 TB $20 ·
+`abrupt_thaw` 7.0 TB multi-region $180 (legacy data) · other repo buckets $13 · `rts-ops` $49 ·
+`rts-review` $12 · Cloud NAT $32 · disks and IP ~$25 · stopped disks of `rts-train` and `rts-cpu`
+~$70 (once they exist). Three buckets outside this repo's inventory (`arcticdem` 10.7 TB,
+`yg_arctic_dem`, `positive_polys_arcticdem`) add ~$235.
+
+**Inference, per year of data** (41.57 M tiles, 3 forward passes each), by GPU on Spot:
+L4 $1,650 (4.2 t/s measured) · A100-40GB $1,000–1,250 · RTX PRO 6000 $520–790 · H100
+$1,500–2,200. The last three scale the measured A100-80GB rate (24–33 t/s) by memory bandwidth;
+the measured L4/A100 ratio (0.13–0.18) matches their bandwidth ratio (0.15), so the model is
+bandwidth-bound. Each year also costs ≈ $210 to write 41.6 M per-tile COGs and ≈ $0.6–0.8k for its
+imagery on Standard during the run ([gpu_operations.md](gpu_operations.md) §4.2). Read from
+Coldline instead, at an assumed ~5 GETs per tile, the imagery would cost ~$2.5k a year.
+
+**Training**, G4 Spot: an estimated $5–15 per locked-recipe run at D1.0's size (7.8–9.3 h per
+run on the 8×A100 node, at ~12 min/epoch on a 12-vCPU share), about double at 2× tiles. The
+first G4 benchmark replaces this estimate.
+
+**Six months, all six interannual years plus ≤ 30 training runs: ≈ $13–22k** — $4.4k fixed,
+$8–16k inference, ≤ $1k training. The largest lever still open is the inference GPU, chosen at
+the 2019 launch.
+
+*Measured numbers to add here as they land:* G4 epoch time and $/run; the inference pilot's
+tiles/s per GPU; `tile_grid`, `shard`, merge and vectorize wallclock and memory on `rts-cpu`.
+
+## 3. Cost & quota — PDG era (history)
 
 - **~$70,000 GCP credit in the PDG project, expiring September 2026** (must be substantially spent),
   **plus ~$100k borrowable from other teams (~$170k total) — budget is not the binding constraint**
@@ -97,7 +151,7 @@ PDG bucket `rts-mapping-v2`, in the same region as the VMs** (see §4–§4b).
 
 | Bucket | Project | Purpose | Notes |
 |--------|---------|---------|-------|
-| `gs://abrupt_thaw/` | abruptthawmapping | Original/legacy data; v2-alpha training source under `RTS_MODEL_V2/DATA/` | US multi-region. |
+| `gs://abrupt_thaw/` | abruptthawmapping | Original/legacy data; D0.1 training source under `RTS_MODEL_V2/DATA/` | US multi-region. |
 | `gs://rts-arctic-us/` | abruptthawmapping | Compute-adjacent **training** data, run/MLflow mirrors, `label_sources/`, deployment packages, migration archives | **US (multi-region)**. *(was `gs://rts-mapping-v2/`)* |
 | `gs://rts-arctic-usw1/` | abruptthawmapping | **Planet basemap quads** (`global_quarterly/<y>/q3/`), **Sentinel-2 imagery** (`S2_RGB/<y>_<region>/`), **primary inference I/O** (`inference/…`), `rescued_pdg/` | **us-west1 (single region)**. NDVI is computed on-the-fly from B8/B4 at read time. Banks products under `inference/banks/`. *(was `gs://rts-mapping-v2-usw1/` + `gs://pdg-planet-data/`, now merged into one bucket)* |
 | `gs://rts-arctic-usc1/` | abruptthawmapping | `ee_mirror/`, `staging/` | **us-central1 (single region)**. *(was `gs://rts-mapping-v2-usc1/`)* |
@@ -204,32 +258,43 @@ All VMs listed below are in the **PDG project** and are retiring with it. Daily 
   `gcloud compute instances …` and `gcloud compute ssh rts-… --command "…"` over **external IP**
   (IAP is not authorized, §8) — so no VSCode Remote-SSH target switch is needed to operate them.
 
-### GPU quota in `abruptthawmapping` — NONE. Nothing is granted. (2026-09-22)
+### GPU quota in `abruptthawmapping` — live, read 2026-11-18
 
-**This is the campaign's binding downstream constraint, and no request has been filed.**
-`pdg_migration.md` §2: *"`abruptthawmapping` has zero A100/L4 quota and no credit … No GPU quota
-requested. Inference is paused indefinitely."* Every GPU quota figure in the section below was
-**granted in `pdg-project-406720` and died with it**. Read it as history.
+**The project has GPU quota; nothing needs requesting for Spot.** This section said "NONE —
+nothing is granted" from 2026-09-22 until 2026-11-18, and the diary repeated it; the quota API
+says otherwise, and no request is on file (`gcloud beta quotas preferences list` is empty). Read
+from `gcloud compute regions describe` and `gcloud beta quotas info list`, the same in every US
+region checked (us-west1, us-central1, us-east1/4/5, us-west3/4, us-south1):
 
-Acquisition is unaffected — Planet ordering and the Earth Engine S2 export are server-side and need
-no GPU. But with Earth Engine now on Partner Tier (`interannual_inference/ee_quota.md`), S2 is no
-longer the critical path, and **GPU quota is the only thing standing between the acquired imagery
-and a map.** Quota requests take days to weeks and cost nothing to hold, so they should be filed
-*concurrently with* the export, not after it.
+| GPU | On-demand | Spot |
+|---|---|---|
+| L4 | 32 | 32 |
+| A100-40GB | 16 | 64 |
+| A100-80GB | 0 | 0 |
+| H100-80GB | 0 | 128 |
+| RTX PRO 6000 (G4) | 0 | 32 |
 
-What to request against `abruptthawmapping` (proj# 801926669176), for the L4 fleet in us-west1 —
-preferred over 8×A100 in us-central1 because it is in-region with the data and the same grant
-succeeded once before:
+`GPUS_ALL_REGIONS` is 12,000; regional `CPUS` 3,000 (us-west1) and 5,000 (us-central1).
+
+**Where each GPU is sold** (`gcloud compute machine-types list`): us-west1-b has L4, A100-40GB,
+H100 and RTX PRO 6000; us-west1-a and -c have no A100; A100-80GB (a2-ultragpu) exists only in
+us-central1-a/-c.
+
+**Quota is not capacity.** A Spot or on-demand create can still fail on a stockout; the scripts
+retry ([gpu_operations.md](gpu_operations.md) §7). One request worth holding: 4 on-demand RTX PRO
+6000 in us-west1, so the training VM can move to on-demand if Spot capacity disappoints.
+
+### GPU quota in `abruptthawmapping` — as recorded 2026-09-22 (superseded)
+
+The request below was drafted when the project was believed to have no GPU quota. It is kept as
+history; the table above is the live state.
 
 | Quota | Region | Value | Note |
 |---|---|---|---|
 | `NVIDIA_L4_GPUS` | us-west1 | 32 | 24 is workable (4.8 d/year instead of 3.6 d) |
 | `CPUS` | us-west1 | 384 | 480 was the PDG grant; 288–384 if falling back to `g2-standard-48` |
-| **`PREEMPTIBLE_NVIDIA_L4_GPUS`** | us-west1 | **32** | **Ask this time.** Never granted in PDG (capped at 8), which is why `create_inference_fleet.sh:13` reads *"Spot is NOT viable"*. Spot is ~3× cheaper, and `inference/claim.py`'s create-only claims + `done` markers make preemption genuinely safe. Budget was not a constraint when Spot was declined — the credit covered it. It is now. |
+| **`PREEMPTIBLE_NVIDIA_L4_GPUS`** | us-west1 | **32** | Never granted in PDG (capped at 8), which is why the PDG-era fleet script read *"Spot is NOT viable"*. `inference/claim.py`'s create-only claims + `done` markers make preemption safe. |
 | `GPUS_ALL_REGIONS` | global | ≥ 40 | PDG had 360; the +40→400 top-up was denied and deemed irrelevant |
-
-If `g2-standard-96` stockouts recur — all three us-west1 zones were out at the 2026-07-05 audit — the
-fallback shape is 6–8× `g2-standard-48` for the same 24–32 L4.
 
 ### Granted quota — HISTORICAL, `pdg-project-406720`, now gone (us-west1, 2026-06-23)
 

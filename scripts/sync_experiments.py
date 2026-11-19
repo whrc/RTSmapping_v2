@@ -130,7 +130,7 @@ def update_ledger(scores: dict[str, float | None], ledger: Path = LEDGER) -> Non
     """Rewrite the score cell of each row in the ledger's RUN-TABLE block.
 
     Reports drift (ledger != json), ledger rows with no run dir, and run dirs
-    with no ledger row. ``ledger`` defaults to the v2.0 SSoT; pass the v2.1 ledger
+    with no ledger row. ``ledger`` defaults to the M1.0 SSoT; pass the M3.0 ledger
     (`docs/experiment_ledger_v21.md`) to harvest that program's runs instead.
     """
     text = ledger.read_text()
@@ -199,8 +199,8 @@ def main() -> None:
     ap.add_argument("--backfill", action="store_true",
                     help="first convert legacy run_summary.md -> run_summary.json")
     ap.add_argument("--ledger", type=Path, default=LEDGER,
-                    help="ledger .md to harvest into (default: the v2.0 SSoT; pass "
-                         "docs/experiment_ledger_v21.md for the v2.1 program)")
+                    help="ledger .md to harvest into (default: the M1.0 SSoT; pass "
+                         "docs/experiment_ledger_v21.md for the M3.0 program)")
     args = ap.parse_args()
 
     if not args.runs_dir.exists():
