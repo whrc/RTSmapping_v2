@@ -1,4 +1,4 @@
-"""Tests for scripts/diag_fp_census.py (v3-cgm Phase 0.1 / 0.2).
+"""Tests for scripts/diag_fp_census.py (cgm Phase 0.1 / 0.2).
 
 Synthetic polygons only; no network, no GPU. Positions are built in EPSG:3857 metres
 and converted to lon/lat, so the projected-window logic is tested exactly rather than

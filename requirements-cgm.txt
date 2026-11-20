@@ -1,0 +1,6 @@
+# Extras for the cgm diagnostics (Phase 0), on top of requirements_frozen.txt.
+# Install with:  pip install -r requirements_frozen.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#                pip install -r requirements-cgm.txt -c requirements_frozen.txt
+geopandas>=1.0
+shapely>=2.0
+pyogrio>=0.9
