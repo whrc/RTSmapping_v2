@@ -581,6 +581,12 @@ near the gate in either direction.
 > training artifact (the original 0.4747 was); with the bug fixed, honest tuning gives the encoder every
 > fair chance, and the capacity-null still holds — now on a referee-proof basis. DEPLOY EffB5 stands.**
 
+**E — `cgm` tile existence gate (BUILT 2026-11-20, NOT RUN).** A tile-level existence head on the UNet++
+encoder gates the dense output (`model.cgm`, default off), aimed at the 2025 census false positives rather
+than at PR-AUC. Each test is a pair (same data, recipe, seed; only `model.cgm` differs); on D1.0 the
+control is `aug_trivialaugment_deploy`. Screen configs `cgm_max_seed42`, `cgm_avg_seed42`. Pre-registered
+screen / lock / adoption criteria, launch order and design: [cgm.md](cgm.md) §6–§7.
+
 **F — Augmentation.** Not a plateau-breaker, but two cheap wins lock in: **drop RandomScale** (+0.016,
 3/3 seeds) and replace the hand-tuned color stack with **TrivialAugment** (3-seed mean 0.9218, 3/3 >
 deploy; Δ+0.0095 just under G but locked by judgment — a parameter-free auto-policy that's lighter and
