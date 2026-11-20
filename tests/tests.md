@@ -1252,7 +1252,7 @@ replicates, leak `max_prob`: each fails a test).
 
 ### [test_diag_fp_census.py](test_diag_fp_census.py)
 
-`scripts/diag_fp_census.py` — v3-cgm Phase 0.1/0.2: where the census false positives sit, and how many a tile-level gate could remove. Synthetic polygons built in EPSG:3857 metres and converted to lon/lat, so the projected-window logic is tested exactly. Network-free; the split-assignment test needs geopandas and is skipped without it.
+`scripts/diag_fp_census.py` — cgm Phase 0.1/0.2: where the census false positives sit, and how many a tile-level gate could remove. Synthetic polygons built in EPSG:3857 metres and converted to lon/lat, so the projected-window logic is tested exactly. Network-free; the split-assignment test needs geopandas and is skipped without it.
 
 | Test | Checks | Strictness |
 |---|---|---|
@@ -1265,6 +1265,31 @@ replicates, leak `max_prob`: each fails a test).
 | `test_confidence_profile_precision_and_auroc` | precision at a cut, false kept, AUROC 0.8 on a hand-counted 16-of-20 case, unsure excluded | real — pins the baseline a tile gate must beat |
 | `test_bands_are_left_closed` | 0.65 opens its band; 1.0 lands in the top band, not NaN | real — a right-closed band would move every boundary polygon |
 | `test_assign_split_maps_regions_through_splits_yaml` | train / val_realistic / unassigned from region polygons and `splits.yaml` | real — skipped without geopandas |
+
+### [test_cgm.py](test_cgm.py)
+
+The `cgm` tile existence gate (`docs/cgm.md`, `training/training.md` §3.4): `gate_logits`, `ExistenceGate`, `build_model` with `model.cgm`, `tile_targets` / `tile_existence_loss`, the train/validate wiring in `scripts/train.py`, and the shipped screen configs. CPU; resnet18 at 64 px except the last test (EfficientNet-B5 at 512 px, `pretrained=False`).
+
+| Test | Checks | Strictness |
+|---|---|---|
+| `test_no_cgm_key_builds_the_plain_model` | no `model.cgm` → plain `smp.UnetPlusPlus`, no classification head, no head keys in `state_dict` | real — the default-off guarantee for M1.0 and every existing config |
+| `test_cgm_model_contract` | `(B,1,H,W)` logits, `(B,1)` tile logit, `.encoder` / `.segmentation_head[0].bias` delegated, `last_tile_logit` not in `state_dict` | real |
+| `test_cgm_inner_model_has_the_plain_architecture` | inner model has the plain model's tensor names and shapes; encoder init equal at the same seed | real — documents that the decoder init differs (smp draws the head first) |
+| `test_cgm_head_trains_with_the_decoder_and_survives_freeze` | `freeze_backbone` leaves the head trainable; the head is in the `decoder` param group, not `backbone` | real |
+| `test_cgm_pooling_is_passed_to_smp` (×2) | `max` / `avg` reach the head's pool layer | shallow |
+| `test_cgm_rejects_unsupported_combinations` (×2) | FPN, `chan_attn` → `ValueError` | shallow |
+| `test_gate_logits_equals_logit_of_product` | float64 reference `logit(σ(d)σ(z))` | real |
+| `test_gate_logits_finite_values_and_grads_at_extremes` (fp32, bf16) | ±100 logits: finite output and finite gradients, float32 out | real — guards the `torch.where` NaN-gradient trap |
+| `test_gate_never_raises_the_dense_probability` | gated ≤ dense for any `z` | real |
+| `test_neutral_start_gate_is_open_and_input_independent` | init `z` = 3 for any input; gated = `logit(σ(d)σ(3))`; pixel ranking unchanged | real |
+| `test_tile_targets_rule` | 0 → 0, ≥ 50 → 1, 1–49 dropped, ignore pixels not counted | real |
+| `test_tile_loss_matches_bce_on_kept_tiles` | equals BCE over kept tiles; dropped tile gets zero gradient | real |
+| `test_tile_loss_is_zero_when_no_tile_is_kept` | 0, not NaN, zero gradient | real |
+| `test_train_one_epoch_adds_the_tile_loss_only_when_enabled` (×2) | with `cgm_cfg`: finite `train_tile_loss`, the head moves; without: no key | real |
+| `test_validate_reports_tile_loss_only_when_enabled` (×2) | `val_tile_loss` only with `model.cgm`; `val_loss` always | real |
+| `test_package_round_trip_reproduces_logits` | save → rebuild with `pretrained=False` → strict load → same logits | real — what `predictor.load_deployment_package` does |
+| `test_cgm_configs_differ_from_their_control_only_in_cgm` (×2) | `cgm_{max,avg}_seed42` pass `validate_training_config` and equal `aug_trivialaugment_deploy` except `model.cgm` and the run name | real — enforces the pair rule |
+| `test_real_recipe_forward` | the configured EffB5 + NDVI model: `(1,1,512,512)` logits, 513-parameter head | real |
 
 ---
 
@@ -1301,7 +1326,8 @@ Deliberately deferred — most are better caught by Tier 2 against real data tha
 
 ## Dev log
 
-- 2026-11-18 — v3-cgm Phase 0: new `test_diag_fp_census.py` (9 tests) for `scripts/diag_fp_census.py`, the census error analysis behind the `cgm` go/no-go. The tile window is a *projected* square (+-1,223 m in EPSG:3857, about 420 m on the ground at 70N), and two tests exist only to keep it that way. A first draft asserted the last band's right edge was 1.0001; pandas rounds interval labels to 3 d.p., so it read 1.0. The band was right and the assertion wrong, so the test now checks that 1.0 lands in the top band. All synthetic/CPU. Green: 9 passed (8 pandas-only, 1 geopandas).
+- 2026-11-20 — `cgm` build: new `test_cgm.py` (24 tests). One first-draft assertion was wrong, not the code: it expected the `cgm` model's inner UNet++ to match the plain model tensor for tensor at the same seed. The encoder does, but smp builds the classification head before drawing the decoder's init, so the decoder differs like a seed change; the test now pins names, shapes and the encoder only. Green: 96 passed across `test_cgm.py` and the model, loss, freeze, train-helper, package and census files. Full suite on the laptop: the same 36 laptop-only failures in the same six files as before (`docs/cgm.md` §4), none new.
+- 2026-11-18 — cgm Phase 0: new `test_diag_fp_census.py` (9 tests) for `scripts/diag_fp_census.py`, the census error analysis behind the `cgm` go/no-go. The tile window is a *projected* square (+-1,223 m in EPSG:3857, about 420 m on the ground at 70N), and two tests exist only to keep it that way. A first draft asserted the last band's right edge was 1.0001; pandas rounds interval labels to 3 d.p., so it read 1.0. The band was right and the assertion wrong, so the test now checks that 1.0 lands in the top band. All synthetic/CPU. Green: 9 passed (8 pandas-only, 1 geopandas).
 - 2026-09-28 — Zero was never reserved for NoData: **+4 tests** (`test_build_rgb_chips.py` 10→13, `test_review_crops.py` 23→24). The operator spotted crops striped `NO IMAGERY` over ground that opened complete in QGIS. Planet's 8-bit basemaps clamp deep shadow and dark water to exactly `(0,0,0)` with `alpha=255`; `write_rgb_chip` wrote NoData as 0 as well, so the chip could not say which was which and `render_crop` striped both — pooled over seven sampled quads, **68.8% of striped pixels were valid imagery**. No threshold could have separated them; the ambiguity was in the sentinel. The fix floors valid imagery at 1. The guard that matters is `test_black_imagery_and_absent_imagery_are_written_differently`: one quad, the same `(0,0,0)` in both halves, alpha the only difference — verified red on `clip(rgb, 0, 255)` and green on `clip(rgb, 1, 255)`. The older `test_write_rgb_chip_is_georeferenced_uint8_and_matches_quad_values` could never have caught it: its fixture paints `(10,20,30)`, so the sentinel collision it was blind to never arose. **126 passed** across the nine review/chip/claim files in `rts-infer:v1`. See `post-inference/review_campaign.md` §4.4 and `training/training.md` §4.4.
 - 2026-09-23 — Review-app context, neighbours and a claim TTL that never fired: **+22 tests** (`test_review_crops.py` 12→23, new `test_build_review_crops.py` with 11, `test_claim.py` 9→13, `test_build_rgb_chips.py` 6→10, `test_review_app.py` +2). Three of them exist because a fake was too kind. `test_claim.py`'s `_FakeBucket` modelled GCS's create-if-absent atomicity but not its IAM, so nothing could catch that the live review app's runtime identity held `objectCreator` — which grants neither overwrite nor delete. Heartbeats 500'd into a `fetch` with no `.catch` and stale reclaims swallowed their 403 for seven weeks, stranding 18 batches and freezing the campaign's headline claim. The new `_CreateOnlyBucket` reproduces it in four lines. The rest guard the crop archive: `test_resume_skips_a_polygon_that_already_has_crops` pins the rule that let a rebuilt chip mosaic change nothing, `test_context_tiles_cover_the_whole_wide_crop` pins the tile selection that was only ever wide enough for the detection itself, and `test_absent_imagery_is_striped_not_black` pins the reason none of it was noticed — missing pixels rendered as black, which is also what dark water looks like. Green in `rts-infer:v1` (**128 passed** across the nine review/claim/chip files). See `post-inference/review_campaign.md` §4.1, §4.3, §6.2.
 - 2026-04-22 — Initial suite: 24 tests across 4 files, all green. Covers Phase 0 data pipeline. See plan for context.

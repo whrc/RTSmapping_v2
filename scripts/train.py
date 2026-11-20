@@ -54,7 +54,7 @@ from data.splits import (  # noqa: E402
     get_tile_ids, load_metadata_multiroot, load_splits_yaml, load_tile_allowlist,
 )
 from data.transforms import build_eval_transforms, build_train_transforms  # noqa: E402
-from losses import build_loss  # noqa: E402
+from losses import build_loss, tile_existence_loss  # noqa: E402
 from models import build_model  # noqa: E402
 from training import (  # noqa: E402
     checkpoint as ckpt_mod,
@@ -387,8 +387,13 @@ def _train_one_epoch(
     total_steps: int = 1,
     lr_history: list[tuple[int, float, float]] | None = None,
     ignore_index: int = 255,
+    cgm_cfg: dict | None = None,
 ) -> dict[str, float]:
     """Run one training epoch. Returns per-epoch averages.
+
+    `cgm_cfg` (the config's `model.cgm` block, None = off) adds
+    `loss_weight` × the tile existence BCE on `model.last_tile_logit` (docs/cgm.md)
+    and reports its epoch mean as `train_tile_loss`.
 
     `per_step_lr_setter`, if provided, is called as
     `setter(optimizer, step=global_step, total_steps=total_steps)` before each
@@ -398,6 +403,7 @@ def _train_one_epoch(
     model.train()
     running_loss = 0.0
     running_n = 0
+    running_tile = 0.0
     nan_count = 0
     tp_px = fp_px = fn_px = 0  # train pixel-IoU accumulators (experiments.md §5.4 / §8.1)
     scaler_halves = 0
@@ -427,6 +433,10 @@ def _train_one_epoch(
         with autocast_ctx:
             logits = model(images)
             loss = loss_fn(logits, labels)
+            if cgm_cfg is not None:
+                tile_loss = tile_existence_loss(
+                    model.last_tile_logit, labels, int(cgm_cfg.get("min_pos_px", 50)))
+                loss = loss + float(cgm_cfg.get("loss_weight", 0.1)) * tile_loss
 
         if not torch.isfinite(loss):
             nan_count += 1
@@ -466,6 +476,8 @@ def _train_one_epoch(
         loss_val = float(loss.detach().cpu())
         running_loss += loss_val * bs
         running_n += bs
+        if cgm_cfg is not None:
+            running_tile += float(tile_loss.detach().cpu()) * bs
 
         if lr_history is not None:
             lr_history.append((global_step, float(optimizer.param_groups[0]["lr"]), loss_val))
@@ -474,6 +486,8 @@ def _train_one_epoch(
     iou_den = tp_px + fp_px + fn_px
     train_iou = tp_px / iou_den if iou_den > 0 else 0.0
     out = {"train_loss": avg_loss, "train_iou": train_iou, "train_nan_steps": float(nan_count)}
+    if cgm_cfg is not None:
+        out["train_tile_loss"] = running_tile / max(1, running_n)
     if precision.scaler is not None:
         out["scaler_scale"] = float(precision.scaler.get_scale())
         out["scaler_halves_this_epoch"] = float(scaler_halves)
@@ -491,6 +505,9 @@ def _validate(
 ) -> tuple[dict[str, float], metrics_mod.ValidationAccumulator, list[dict]]:
     """Run validation, returning (metrics, accumulator, preview_records).
 
+    With `model.cgm` set in cfg, also reports `val_tile_loss` (the unweighted tile
+    BCE); `val_loss` stays the dense loss, comparable with runs without the gate.
+
     preview_records is a list of {tile_id, image, label, prob} entries collected
     from the validation loop to be used by the prediction-preview figure. The
     caller filters to the fixed preview-tile set after this function returns.
@@ -500,6 +517,8 @@ def _validate(
     preview_records: list[dict] = []
     total_loss = 0.0
     total_n = 0
+    total_tile = 0.0
+    cgm_cfg = cfg["model"].get("cgm")
 
     autocast_ctx = (
         torch.amp.autocast(device_type=device.type, dtype=precision.autocast_dtype)
@@ -515,6 +534,10 @@ def _validate(
         with autocast_ctx:
             logits = model(images)
             loss = loss_fn(logits, labels)
+        if cgm_cfg is not None:
+            tile_loss = tile_existence_loss(
+                model.last_tile_logit, labels, int(cgm_cfg.get("min_pos_px", 50)))
+            total_tile += float(tile_loss.detach().cpu()) * images.size(0)
 
         # Cast logits to float32 for metric computation (BF16 probs cause tiny
         # numeric noise in PR-AUC).
@@ -537,6 +560,8 @@ def _validate(
 
     metrics = acc.compute()
     metrics["val_loss"] = total_loss / max(1, total_n)
+    if cgm_cfg is not None:
+        metrics["val_tile_loss"] = total_tile / max(1, total_n)
     return metrics, acc, preview_records
 
 
@@ -882,6 +907,7 @@ def main() -> int:
                 total_steps=total_steps,
                 lr_history=lr_history,
                 ignore_index=int(cfg["data"]["label_ignore_index"]),
+                cgm_cfg=cfg["model"].get("cgm"),
             )
             epoch_t = time.time() - epoch_t0
 

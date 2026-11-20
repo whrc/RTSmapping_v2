@@ -21,6 +21,7 @@ import math
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,66 @@ class ChannelAttentionFusion(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.base(x * self.gate(x))
+
+
+_LN2 = math.log(2.0)
+
+
+def gate_logits(dense: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    """Return logit(σ(dense) · σ(z)), computed stably in log space (float32).
+
+    ``a = log σ(dense) + log σ(z)`` is the log of the gated probability, and
+    ``logit(p) = a − log(1 − e^a)``. ``log(1 − e^a)`` uses the two-branch log1mexp
+    (Mächler 2012); each branch gets a clamped input so the branch ``torch.where``
+    discards cannot put NaN into the gradient.
+
+    Args:
+        dense: Dense logits, shape (B, 1, H, W).
+        z: Tile logits, shape (B, 1).
+
+    Returns:
+        Gated logits, shape (B, 1, H, W), float32.
+    """
+    a = F.logsigmoid(dense.float()) + F.logsigmoid(z.float())[:, :, None, None]
+    a = a.clamp(max=-1e-12)  # a = 0 only when both logits saturate; keeps the logit finite
+    near = torch.log(-torch.expm1(a.clamp(min=-_LN2)))       # accurate for a > −ln2
+    far = torch.log1p(-torch.exp(a.clamp(max=-_LN2)))        # accurate for a ≤ −ln2
+    return a - torch.where(a > -_LN2, near, far)
+
+
+class ExistenceGate(nn.Module):
+    """`cgm`: a tile-level existence gate (classification-guided module, soft).
+
+    Wraps an smp model built with ``aux_params``, which returns ``(mask, z)``: dense
+    logits and a tile logit from a pool → dropout → linear head on the deepest encoder
+    features. The output is ``gate_logits(mask, z)``, so the contract stays one
+    (B, 1, H, W) logit map, one temperature, one threshold. ``z`` of the last forward
+    is kept in ``last_tile_logit`` (a plain attribute, not in ``state_dict``) for the
+    tile loss in scripts/train.py. Delegates ``.encoder`` / ``.segmentation_head`` so
+    freeze.py param groups and the output-bias init are unchanged. Spec: docs/cgm.md.
+    """
+
+    def __init__(self, base: nn.Module, init_bias: float = 3.0):
+        super().__init__()
+        self.base = base
+        linear = [m for m in base.classification_head.modules() if isinstance(m, nn.Linear)][-1]
+        # Gate starts nearly open (σ(3) ≈ 0.95) and input-independent, so epoch 0 ≈ the plain model.
+        nn.init.zeros_(linear.weight)
+        nn.init.constant_(linear.bias, init_bias)
+        self.last_tile_logit: torch.Tensor | None = None
+
+    @property
+    def encoder(self) -> nn.Module:
+        return self.base.encoder
+
+    @property
+    def segmentation_head(self) -> nn.Module:
+        return self.base.segmentation_head
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        mask, z = self.base(x)
+        self.last_tile_logit = z
+        return gate_logits(mask, z)
 
 
 class _DualEncoder(nn.Module):
@@ -244,6 +305,11 @@ def build_model(cfg: dict) -> nn.Module:
       - `ensemble`: builds a normal (early) model; F4 averaging is an eval-side step.
       Dual-encoder / cross-modal fusion (F3/F5) are separate model classes, not here.
 
+    `model.cgm` (optional; absent = off, model unchanged): the tile existence gate
+    (`ExistenceGate`, docs/cgm.md). Keys read here: `pooling` (`max`|`avg`, default
+    `max`), `dropout` (0.2), `init_bias` (3.0). `loss_weight` and `min_pos_px` are read
+    by scripts/train.py. UNet++ with `early`/`stem_init` fusion only.
+
     Args:
         cfg: Parsed YAML config (see configs/baseline.yaml).
 
@@ -280,13 +346,23 @@ def build_model(cfg: dict) -> nn.Module:
 
     encoder_weights = "imagenet" if pretrained else None
 
+    cgm = cfg["model"].get("cgm")
+    if cgm is not None and (arch != "unetplusplus" or fusion not in ("early", "stem_init")):
+        raise ValueError(f"model.cgm supports only architecture='unetplusplus' with fusion "
+                         f"'early' or 'stem_init'; got {arch!r} / {fusion!r}")
+
     if arch == "unetplusplus":
+        aux_params = None
+        if cgm is not None:
+            aux_params = {"classes": 1, "pooling": cgm.get("pooling", "max"),
+                          "dropout": float(cgm.get("dropout", 0.2)), "activation": None}
         model = smp.UnetPlusPlus(
             encoder_name=backbone,
             encoder_weights=encoder_weights,
             in_channels=enc_in,
             classes=1,
             activation=None,  # logits (training.md §4.2)
+            aux_params=aux_params,
         )
     elif arch == "segformer":
         # Transformer architecture (training.md §3.2). Uses MixVisionTransformer
@@ -354,8 +430,11 @@ def build_model(cfg: dict) -> nn.Module:
             f"'chan_attn', 'ensemble' (eval-side), 'dual_encoder' (F3), 'cross_modal' (F5)."
         )
 
+    if cgm is not None:
+        model = ExistenceGate(model, init_bias=float(cgm.get("init_bias", 3.0)))
+
     logger.info(
-        "Built %s(%s) with in_channels=%d, pretrained=%s, fusion=%s",
-        arch, backbone, in_channels, pretrained, fusion,
+        "Built %s(%s) with in_channels=%d, pretrained=%s, fusion=%s, cgm=%s",
+        arch, backbone, in_channels, pretrained, fusion, cgm,
     )
     return model

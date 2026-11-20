@@ -216,3 +216,36 @@ def build_loss(cfg: dict) -> nn.Module:
         f"Unknown loss.function: {name!r}. "
         f"Expected one of: focal, dice, tversky, compound."
     )
+
+
+def tile_targets(label: torch.Tensor, min_pos_px: int = 50) -> tuple[torch.Tensor, torch.Tensor]:
+    """Tile-level existence labels for the `cgm` gate, derived from the pixel mask.
+
+    A tile with ≥ `min_pos_px` RTS pixels is positive (1), a tile with none is
+    negative (0), and a tile with 1..min_pos_px-1 is dropped (the artifact floor).
+    Ignore pixels never count as RTS.
+
+    Args:
+        label: Integer mask (B, H, W) with values {0, 1, ignore_index}.
+        min_pos_px: RTS-pixel count at which a tile is positive.
+
+    Returns:
+        (target, keep): float (B,) targets in {0., 1.} and bool (B,) keep mask.
+    """
+    n_pos = (label == 1).flatten(1).sum(dim=1)
+    target = (n_pos >= min_pos_px).float()
+    keep = (n_pos == 0) | (n_pos >= min_pos_px)
+    return target, keep
+
+
+def tile_existence_loss(z: torch.Tensor, label: torch.Tensor, min_pos_px: int = 50) -> torch.Tensor:
+    """Mean BCE-with-logits of the tile logit `z` (B, 1) over the kept tiles.
+
+    Returns a zero (that keeps the graph) when no tile in the batch is kept, so a
+    batch of 1..min_pos_px-1 px tiles adds nothing instead of a NaN.
+    """
+    target, keep = tile_targets(label, min_pos_px)
+    z = z.float().reshape(-1)
+    if not bool(keep.any()):
+        return z.sum() * 0.0
+    return F.binary_cross_entropy_with_logits(z[keep], target[keep])

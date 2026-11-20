@@ -73,6 +73,38 @@ Fusion strategies should be tested in order of complexity:
 | 4 | Late fusion | Separate encoders → feature-level fusion | Only if early fusion underperforms |
 
 Note: late fusion may require architecture redesign
+
+### 3.4 Tile existence gate (`cgm`, optional)
+
+A tile-level "is there an RTS in this tile?" head, trained jointly with segmentation, that gates the
+dense output. Design, evidence and adoption criteria: [docs/cgm.md](../docs/cgm.md). Code:
+`ExistenceGate` and `gate_logits` in `models/segmentation.py`, `tile_existence_loss` in
+`losses/segmentation_losses.py`, the loss term in `scripts/train.py`.
+
+- **Head.** smp's `aux_params` head on the deepest encoder features: pool → dropout → linear → tile
+  logit `z`. The linear layer starts at weight 0, bias `init_bias`, so the gate starts nearly open.
+- **Output.** `logit(σ(dense) · σ(z))`, computed in log space. The output contract (§4.2) does not
+  change: one `B×1×H×W` logit map, one temperature, one threshold. Inference needs no change.
+- **Tile label.** From the label mask after augmentation: ≥ `min_pos_px` RTS pixels → 1, 0 → 0,
+  1 … `min_pos_px`−1 → not in the tile loss. Ignore pixels (255) never count. Any data version with
+  masks works; no data code is involved.
+- **Loss.** dense loss (on the gated logits) + `loss_weight` × BCE(`z`, tile label). The dense loss
+  also trains `z` through the gate. MLflow gets `train_tile_loss` and `val_tile_loss`; `val_loss`
+  stays the dense loss only.
+- **Scope.** `architecture: unetplusplus` with `fusion: early` or `stem_init`; other combinations raise.
+
+To switch it on, add this block to any training config (absent = off; the model is then unchanged):
+
+```yaml
+model:
+  cgm:
+    pooling: max        # max | avg
+    dropout: 0.2
+    init_bias: 3.0      # σ(3) ≈ 0.95
+    loss_weight: 0.1    # see docs/cgm.md for why 0.1
+    min_pos_px: 50
+```
+
 ---
 
 ## 4 Train-Inference Consistency
